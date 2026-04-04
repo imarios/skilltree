@@ -1,3 +1,9 @@
+## v0.11.1 (2026-04-04)
+
+### Fix
+
+- add npm publish job to release workflow
+
 ## v0.11.0 (2026-04-04)
 
 ### Feat
