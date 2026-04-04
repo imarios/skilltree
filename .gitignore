@@ -7,6 +7,7 @@ bun.lock
 .DS_Store
 coverage/
 demo/*.gif
+demo/*.mp4
 .claude/skills/
 .claude/agents/
 test

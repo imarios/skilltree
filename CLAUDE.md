@@ -91,12 +91,12 @@ Project deps (`.claude/`, gitignored) and global deps (`~/.claude/`) coexist —
 - **Manual release**: `make release V=x.y.z` for explicit version control.
 - **Manual publish**: `./scripts/build-npm.sh && ./scripts/publish-npm.sh`
 
-## Demo GIF
+## Demo Video
 
-The README demo is a GIF hosted on GitHub Releases (not in git). Re-record only when the demo content is stale (new features, changed commands) — not every release.
+The README demo is an MP4 video hosted on GitHub Releases (not in git). Re-record only when the demo content is stale (new features, changed commands) — not every release.
 
 ```bash
-make gh-demo-gif   # records demo/demo.tape with VHS, uploads to latest release
+make gh-demo   # records with VHS, converts to MP4, uploads to latest release
 ```
 
 The tape script is at `demo/demo.tape`. See `demo/README.md` for details.

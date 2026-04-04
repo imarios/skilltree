@@ -1,5 +1,5 @@
 BUN := $(HOME)/.bun/bin/bun
-.PHONY: help install test lint format typecheck check build clean dev setup release eval eval-llm gh-demo-gif
+.PHONY: help install test lint format typecheck check build clean dev setup release eval eval-llm gh-demo
 .DEFAULT_GOAL := help
 
 help: ## Show available targets
@@ -71,16 +71,19 @@ setup: build ## Build and install binary + skill + completions
 	@echo "    \033[36mskilltree registry init\033[0m"
 	@echo ""
 
-gh-demo-gif: ## Record demo GIF and upload to latest release
+gh-demo: ## Record demo video and upload to latest release
 	@command -v vhs >/dev/null || (echo "Error: vhs not installed. Run: brew install vhs"; exit 1)
+	@command -v ffmpeg >/dev/null || (echo "Error: ffmpeg not installed. Run: brew install ffmpeg"; exit 1)
 	vhs demo/demo.tape
+	ffmpeg -y -i demo/demo.gif -movflags faststart -pix_fmt yuv420p \
+		-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" demo/demo.mp4
 	@TAG=$$(git describe --tags --abbrev=0 2>/dev/null); \
 	if [ -z "$$TAG" ]; then echo "Error: no git tags found"; exit 1; fi; \
-	echo "Uploading demo.gif to release $$TAG..."; \
-	gh release upload "$$TAG" demo/demo.gif --clobber; \
+	echo "Uploading demo.mp4 to release $$TAG..."; \
+	gh release upload "$$TAG" demo/demo.mp4 --clobber; \
 	echo ""; \
 	echo "  \033[32m✔\033[0m Uploaded to $$TAG"; \
-	echo "  URL: https://github.com/imarios/skilltree/releases/download/$$TAG/demo.gif"
+	echo "  URL: https://github.com/imarios/skilltree/releases/download/$$TAG/demo.mp4"
 
 release: ## Tag and release a version (usage: make release V=0.2.0)
 ifndef V
