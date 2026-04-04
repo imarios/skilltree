@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { chmod, lstat, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installCommand } from "../../src/commands/install.js";
@@ -257,5 +257,94 @@ describe("vendor e2e", () => {
 
 		const lockContent = await readFile(join(dir, "skilltree.lock"), "utf-8");
 		expect(lockContent).toContain("integrity:");
+	});
+
+	test("vendor copies agent to agents/ as real file", async () => {
+		const dir = await makeTempDir();
+
+		// Create a local agent
+		const agentDir = join(dir, "agents", "source");
+		await mkdir(agentDir, { recursive: true });
+		await writeFile(join(agentDir, "my-agent.md"), "---\nname: my-agent\n---\n\n# My Agent\n");
+
+		await writeFile(
+			join(dir, "skilltree.yaml"),
+			`name: test-project
+dev_install_path: .claude
+dependencies:
+  my-agent:
+    local: ./agents/source/my-agent.md
+    type: agent
+`,
+		);
+		await writeFile(join(dir, ".gitignore"), ".claude/skills/\n.claude/agents/\n");
+
+		// Install first (creates symlink)
+		await installCommand(dir, {});
+		const agentPath = join(dir, ".claude", "agents", "my-agent.md");
+		let stats = await lstat(agentPath);
+		expect(stats.isSymbolicLink()).toBe(true);
+
+		// Vendor (should become a real file copy)
+		await vendorCommand(dir, {});
+		stats = await lstat(agentPath);
+		expect(stats.isSymbolicLink()).toBe(false);
+		expect(stats.isFile()).toBe(true);
+
+		const content = await readFile(agentPath, "utf-8");
+		expect(content).toContain("my-agent");
+	});
+
+	test("vendor mixed agent + skill — both vendored correctly", async () => {
+		const dir = await makeTempDir();
+
+		// Create local skill and agent
+		await createLocalSkill(join(dir, "skills"), "coding-skill");
+
+		const agentDir = join(dir, "agents", "source");
+		await mkdir(agentDir, { recursive: true });
+		await writeFile(
+			join(agentDir, "dev-agent.md"),
+			"---\nname: dev-agent\ndependencies:\n  - coding-skill\n---\n\n# Dev Agent\n",
+		);
+
+		await writeFile(
+			join(dir, "skilltree.yaml"),
+			`name: test-project
+dev_install_path: .claude
+dependencies:
+  coding-skill:
+    local: ./skills/coding-skill
+  dev-agent:
+    local: ./agents/source/dev-agent.md
+    type: agent
+`,
+		);
+		await writeFile(join(dir, ".gitignore"), ".claude/skills/\n.claude/agents/\n");
+
+		await installCommand(dir, {});
+		await vendorCommand(dir, {});
+
+		// Skill vendored as directory
+		const skillPath = join(dir, ".claude", "skills", "coding-skill");
+		const skillStats = await lstat(skillPath);
+		expect(skillStats.isSymbolicLink()).toBe(false);
+		expect(skillStats.isDirectory()).toBe(true);
+
+		// Agent vendored as file
+		const agentPath = join(dir, ".claude", "agents", "dev-agent.md");
+		const agentStats = await lstat(agentPath);
+		expect(agentStats.isSymbolicLink()).toBe(false);
+		expect(agentStats.isFile()).toBe(true);
+
+		// Unvendor should clean up both
+		await unvendorCommand(dir);
+		expect(existsSync(skillPath)).toBe(false);
+		expect(existsSync(agentPath)).toBe(false);
+
+		// .gitignore restored
+		const gitignore = await readFile(join(dir, ".gitignore"), "utf-8");
+		expect(gitignore).toContain(".claude/skills/");
+		expect(gitignore).toContain(".claude/agents/");
 	});
 });

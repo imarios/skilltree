@@ -115,6 +115,51 @@ describe("e2e edge: mixed skill + agent graph", () => {
 	});
 });
 
+describe("e2e edge: agent with transitive skill chain", () => {
+	test("agent -> skill1 -> skill2 installs all three correctly", async () => {
+		const dir = await makeTempDir();
+
+		// Create skill2 (leaf, no deps)
+		await createLocalSkill(join(dir, "skills"), "base-skill");
+
+		// Create skill1 that depends on skill2
+		await createLocalSkill(join(dir, "skills"), "mid-skill", ["base-skill"]);
+
+		// Create agent that depends on skill1
+		await mkdir(join(dir, "agents", "source"), { recursive: true });
+		await writeFile(
+			join(dir, "agents", "source", "top-agent.md"),
+			"---\nname: top-agent\ndependencies:\n  - mid-skill\n---\n\n# Top Agent\n",
+		);
+
+		// Only agent and mid-skill in manifest — base-skill is transitive
+		await writeManifest(
+			dir,
+			"dependencies:\n  mid-skill:\n    local: ./skills/mid-skill\n  base-skill:\n    local: ./skills/base-skill\n  top-agent:\n    local: ./agents/source/top-agent.md\n    type: agent\n",
+		);
+
+		await installCommand(dir, {});
+
+		// All three installed to correct paths
+		const baseStat = await lstat(join(dir, ".claude", "skills", "base-skill"));
+		expect(baseStat.isSymbolicLink()).toBe(true);
+
+		const midStat = await lstat(join(dir, ".claude", "skills", "mid-skill"));
+		expect(midStat.isSymbolicLink()).toBe(true);
+
+		const agentStat = await lstat(join(dir, ".claude", "agents", "top-agent.md"));
+		expect(agentStat.isSymbolicLink()).toBe(true);
+
+		// Lockfile captures the full dependency chain
+		const lockfile = parseLockfile(await readFile(join(dir, "skilltree.lock"), "utf-8"));
+		expect(lockfile.packages["top-agent"]?.type).toBe("agent");
+		expect(lockfile.packages["mid-skill"]?.type).toBe("skill");
+		expect(lockfile.packages["base-skill"]?.type).toBe("skill");
+		expect(lockfile.packages["top-agent"]?.dependencies).toContain("mid-skill");
+		expect(lockfile.packages["mid-skill"]?.dependencies).toContain("base-skill");
+	});
+});
+
 describe("e2e edge: version conflict", () => {
 	test("incompatible constraints on same repo produce clear error", async () => {
 		const dir = await makeTempDir();

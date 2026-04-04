@@ -400,6 +400,109 @@ describe("global deps e2e", () => {
 		expect(stats.isDirectory()).toBe(true);
 	});
 
+	test("add --global agent installs to agents/ path", async () => {
+		const dir = await makeTempDir();
+		const globalDir = join(dir, "global-config");
+		const installBase = join(dir, "claude-home");
+
+		const sourceDir = await createSkillSource(dir, [{ name: "my-agent", isAgent: true }]);
+
+		const { writeGlobalManifest } = await import("../../src/core/manifest.js");
+		await writeGlobalManifest(
+			{
+				dependencies: {
+					"my-agent": {
+						local: join(sourceDir, "agents/my-agent.md"),
+						type: "agent",
+					},
+				},
+			},
+			globalDir,
+		);
+
+		const { resolveAll } = await import("../../src/core/graph.js");
+		const { planInstall, executeInstall } = await import("../../src/core/installer.js");
+		const { buildLockfile } = await import("../../src/core/lockfile.js");
+
+		const manifest = await readGlobalManifest(globalDir);
+		const result = await resolveAll(manifest, globalDir);
+		expect(result.errors).toEqual([]);
+		expect(result.entities.size).toBe(1);
+
+		const entity = result.entities.get("agent:my-agent");
+		expect(entity).toBeDefined();
+		expect(entity?.type).toBe("agent");
+
+		const plan = await planInstall(result.entities, result.installOrder, installBase, {});
+		await executeInstall(plan, globalDir, {});
+
+		// Agent should be installed to agents/ as .md file
+		const agentPath = join(installBase, "agents", "my-agent.md");
+		const stats = await lstat(agentPath);
+		expect(stats.isSymbolicLink()).toBe(true);
+
+		// Lockfile should record correct type
+		const lockfile = buildLockfile(result.entities, { global: true });
+		expect(lockfile.packages["my-agent"]?.type).toBe("agent");
+	});
+
+	test("global mixed agent + skill lifecycle", async () => {
+		const dir = await makeTempDir();
+		const globalDir = join(dir, "global-config");
+		const installBase = join(dir, "claude-home");
+
+		const sourceDir = await createSkillSource(dir, [
+			{ name: "python-coding" },
+			{ name: "code-reviewer", isAgent: true, deps: ["python-coding"] },
+		]);
+
+		const { writeGlobalManifest } = await import("../../src/core/manifest.js");
+		await writeGlobalManifest(
+			{
+				dependencies: {
+					"python-coding": {
+						local: join(sourceDir, "skills/python-coding"),
+					},
+					"code-reviewer": {
+						local: join(sourceDir, "agents/code-reviewer.md"),
+						type: "agent",
+					},
+				},
+			},
+			globalDir,
+		);
+
+		const { resolveAll } = await import("../../src/core/graph.js");
+		const { planInstall, executeInstall } = await import("../../src/core/installer.js");
+
+		const manifest = await readGlobalManifest(globalDir);
+		const result = await resolveAll(manifest, globalDir);
+		expect(result.errors).toEqual([]);
+		expect(result.entities.size).toBe(2);
+
+		const plan = await planInstall(result.entities, result.installOrder, installBase, {});
+		await executeInstall(plan, globalDir, {});
+
+		// Skill installed to skills/
+		const skillStats = await lstat(join(installBase, "skills", "python-coding"));
+		expect(skillStats.isSymbolicLink()).toBe(true);
+
+		// Agent installed to agents/
+		const agentStats = await lstat(join(installBase, "agents", "code-reviewer.md"));
+		expect(agentStats.isSymbolicLink()).toBe(true);
+
+		// Remove agent, skill should remain
+		await removeCommand("code-reviewer", dir, {
+			global: true,
+			globalDir,
+			force: true,
+		});
+
+		const updatedManifest = await readGlobalManifest(globalDir);
+		expect(updatedManifest.dependencies?.["code-reviewer"]).toBeUndefined();
+		expect(updatedManifest.dependencies?.["python-coding"]).toBeDefined();
+	});
+
 	test("global lockfile preserves tilde in paths", async () => {
 		const { homedir } = await import("node:os");
 		const home = homedir();
