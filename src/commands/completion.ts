@@ -156,6 +156,17 @@ const COMMANDS: CmdDef[] = [
 		],
 	},
 	{
+		name: "targets",
+		description: "Manage install targets (coding agents)",
+		subcommands: [
+			{ name: "list", description: "Show known agents with detected and configured status" },
+			{ name: "add", description: "Add an agent or path to install_targets" },
+			{ name: "remove", description: "Remove an agent or path from install_targets" },
+			{ name: "detect", description: "Scan for installed agents and add missing ones" },
+			{ name: "migrate", description: "Convert dev_install_path to install_targets" },
+		],
+	},
+	{
 		name: "cache",
 		description: "Cache management commands",
 		subcommands: [{ name: "clean", description: "Remove cached repositories" }],

@@ -41,6 +41,8 @@ const SUBCOMMAND_PARENTS: Record<string, string> = {
 	tree: "deps tree",
 	clean: "cache clean",
 	index: "registry index",
+	detect: "targets detect",
+	migrate: "targets migrate",
 };
 
 describe("skilltree skill freshness", () => {

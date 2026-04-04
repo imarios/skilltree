@@ -20,6 +20,13 @@ import {
 import { removeCommand } from "./commands/remove.js";
 import { scanCommand } from "./commands/scan.js";
 import { searchCommand } from "./commands/search.js";
+import {
+	targetsAddCommand,
+	targetsDetectCommand,
+	targetsListCommand,
+	targetsMigrateCommand,
+	targetsRemoveCommand,
+} from "./commands/targets.js";
 import { teachCommand } from "./commands/teach.js";
 import { updateCommand } from "./commands/update.js";
 import { unvendorCommand, vendorCommand } from "./commands/vendor.js";
@@ -253,6 +260,43 @@ program
 	.description("Output shell completion script (zsh or bash)")
 	.action(async (shell?: string) => {
 		await completionCommand(shell);
+	});
+
+const targets = program.command("targets").description("Manage install targets (coding agents)");
+
+targets
+	.command("list")
+	.description("Show known agents with detected and configured status")
+	.action(async () => {
+		await targetsListCommand(process.cwd());
+	});
+
+targets
+	.command("add <target>")
+	.description("Add an agent or path to install_targets")
+	.action(async (target: string) => {
+		await targetsAddCommand(target, process.cwd());
+	});
+
+targets
+	.command("remove <target>")
+	.description("Remove an agent or path from install_targets")
+	.action(async (target: string) => {
+		await targetsRemoveCommand(target, process.cwd());
+	});
+
+targets
+	.command("detect")
+	.description("Scan for installed agents and add missing ones")
+	.action(async () => {
+		await targetsDetectCommand(process.cwd());
+	});
+
+targets
+	.command("migrate")
+	.description("Convert dev_install_path to install_targets")
+	.action(async () => {
+		await targetsMigrateCommand(process.cwd());
 	});
 
 const cache = program.command("cache").description("Cache management commands");

@@ -24,14 +24,14 @@ Core data layer — the agent registry, target parsing (Option E), and manifest 
 CLI for managing install targets without editing YAML.
 
 ### Tasks
-- [ ] `skilltree targets list` — table showing detected/configured agents + custom paths
-- [ ] `skilltree targets add <name|path>` — add target to `install_targets` in manifest, validate, reject duplicates
-- [ ] `skilltree targets remove <name|path>` — remove target, error if last target
-- [ ] `skilltree targets detect` — scan for installed agents, add missing ones
-- [ ] `skilltree targets migrate` — convert `dev_install_path` → `install_targets` using reverse lookup (`.claude` → `claude`, `.custom` → `./custom`), remove `dev_install_path`
-- [ ] Guard — `add/remove/detect` error if `dev_install_path` is set, direct to `targets migrate`
-- [ ] `--global` flag — `targets` subcommands work on global manifest too
-- [ ] CLI wiring (`src/cli.ts`) — `targets` parent command with subcommands
+- [x] `skilltree targets list` — table showing detected/configured agents + custom paths
+- [x] `skilltree targets add <name|path>` — add target to `install_targets` in manifest, validate, reject duplicates
+- [x] `skilltree targets remove <name|path>` — remove target, error if last target
+- [x] `skilltree targets detect` — scan for installed agents, add missing ones
+- [x] `skilltree targets migrate` — convert `dev_install_path` → `install_targets` using reverse lookup (`.claude` → `claude`, `.custom` → `./custom`), remove `dev_install_path`
+- [x] Guard — `add/remove/detect` error if `dev_install_path` is set, direct to `targets migrate`
+- [ ] `--global` flag — `targets` subcommands work on global manifest too (deferred to Phase 4)
+- [x] CLI wiring (`src/cli.ts`) — `targets` parent command with subcommands
 
 ## Phase 3: Multi-Target Install
 

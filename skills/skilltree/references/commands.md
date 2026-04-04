@@ -295,6 +295,47 @@ Checks integrity of vendored files before deleting. If any were modified, errors
 
 After unvendoring, run `skilltree install` to restore normal symlinked installs.
 
+## `skilltree targets list`
+
+Show all known coding agents with their detection and configuration status.
+
+```bash
+skilltree targets list
+```
+
+## `skilltree targets add <target>`
+
+Add an agent or custom path to `install_targets` in `skilltree.yaml`.
+
+```bash
+skilltree targets add codex         # Add a known agent
+skilltree targets add ./my-agent    # Add a custom path
+```
+
+## `skilltree targets remove <target>`
+
+Remove an agent or path from `install_targets`.
+
+```bash
+skilltree targets remove codex
+```
+
+## `skilltree targets detect`
+
+Scan for installed coding agents and add any missing ones to `install_targets`.
+
+```bash
+skilltree targets detect
+```
+
+## `skilltree targets migrate`
+
+Convert legacy `dev_install_path` to the new `install_targets` field.
+
+```bash
+skilltree targets migrate
+```
+
 ## `skilltree cache clean`
 
 Remove the git cache at `~/.skilltree/cache/`.
