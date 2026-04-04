@@ -10,6 +10,8 @@ Project Naming Theme: Elements
 
 - **Lithium** (03/30/2026): Registries and discovery — registry management, search, info, registry-assisted `add`, `skillkit-index.yaml`
 
+- **Beryllium** (04/04/2026): Multi-agent support — `install_targets` for deploying to multiple agents, agent registry, `teach` auto-detection
+
 ## Completed Projects
 
 (none)

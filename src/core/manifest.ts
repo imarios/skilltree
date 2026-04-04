@@ -3,9 +3,10 @@ import { dirname } from "node:path";
 import YAML from "yaml";
 import type { Dependency, EntityType, LocalDependency, Manifest } from "../types.js";
 import { isSourceDependency } from "../types.js";
+import { resolveTarget } from "./agents.js";
 import { resolveGlobalManifestPath, resolveManifestPath } from "./filenames.js";
 import { expandTilde, isLocalSource } from "./paths.js";
-import { error } from "./ui.js";
+import { error, warn } from "./ui.js";
 
 export function parseManifest(content: string): Manifest {
 	const raw = YAML.parse(content) as Record<string, unknown> | null;
@@ -33,6 +34,10 @@ export function parseManifest(content: string): Manifest {
 
 	if (typeof raw.vendor === "boolean") {
 		manifest.vendor = raw.vendor;
+	}
+
+	if (Array.isArray(raw.install_targets)) {
+		manifest.install_targets = raw.install_targets as string[];
 	}
 
 	if (raw.sources && typeof raw.sources === "object") {
@@ -68,9 +73,30 @@ export async function writeManifest(dir: string, manifest: Manifest): Promise<vo
 /**
  * Resolve the effective dev install path from manifest fields.
  * Priority: dev_install_path > install_path (legacy) > ".claude" (default)
+ *
+ * Note: dev_install_path is deprecated in favor of install_targets.
+ * Callers should prefer getInstallTargets() for new code.
  */
 export function getDevInstallPath(manifest: Manifest): string {
 	return manifest.dev_install_path ?? manifest.install_path ?? ".claude";
+}
+
+/**
+ * Resolve install targets from manifest.
+ * - If `install_targets` is set, resolve each entry via the agent registry
+ * - If only `dev_install_path` is set, return it as a single-element array (with deprecation warning)
+ * - If neither is set, default to [".claude"]
+ */
+export function getInstallTargets(manifest: Manifest): string[] {
+	if (manifest.install_targets) {
+		return manifest.install_targets.map(resolveTarget);
+	}
+	if (manifest.dev_install_path || manifest.install_path) {
+		warn(
+			"dev_install_path is deprecated — use install_targets instead. Run: skilltree targets migrate",
+		);
+	}
+	return [getDevInstallPath(manifest)];
 }
 
 /**
@@ -155,6 +181,13 @@ export function validateManifest(manifest: Manifest): string[] {
 
 	validateDeps(manifest.dependencies, "dependencies");
 	validateDeps(manifest["dev-dependencies"], "dev-dependencies");
+
+	// Check for install_targets + dev_install_path conflict
+	if (manifest.install_targets && (manifest.dev_install_path || manifest.install_path)) {
+		errors.push(
+			"cannot use both dev_install_path and install_targets — migrate to install_targets",
+		);
+	}
 
 	// Check for same key in both groups
 	if (manifest.dependencies && manifest["dev-dependencies"]) {

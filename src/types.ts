@@ -30,7 +30,8 @@ export type Dependency = RemoteDependency | SourceDependency | LocalDependency;
 export interface Manifest {
 	name?: string;
 	install_path?: string; // Legacy — maps to dev_install_path
-	dev_install_path?: string; // Where developer skills go (default: .claude)
+	dev_install_path?: string; // Deprecated — use install_targets instead
+	install_targets?: string[]; // Agent names or literal paths (e.g., ["claude", "./custom"])
 	src_install_path?: string; // Where application runtime skills go (optional)
 	vendor?: boolean; // Vendor mode: all deps copied (no symlinks), committed to git
 	sources?: Record<string, string>;

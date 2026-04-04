@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	expandSources,
+	getInstallTargets,
 	parseManifest,
 	serializeManifest,
 	validateManifest,
@@ -72,6 +73,23 @@ dev-dependencies:
 		expect(manifest["dev-dependencies"]?.["python-coding"]).toBeDefined();
 	});
 
+	test("parses install_targets as string array", () => {
+		const manifest = parseManifest(`
+install_targets:
+  - claude
+  - codex
+dependencies: {}
+`);
+		expect(manifest.install_targets).toEqual(["claude", "codex"]);
+	});
+
+	test("parses manifest without install_targets (field absent)", () => {
+		const manifest = parseManifest(`
+dependencies: {}
+`);
+		expect(manifest.install_targets).toBeUndefined();
+	});
+
 	test("parses manifest with name aliasing", () => {
 		const yaml = `
 dependencies:
@@ -85,6 +103,30 @@ dependencies:
 		expect(dep).toBeDefined();
 		expect((dep as { name?: string }).name).toBe("workflow-builder");
 		expect((dep as { type?: string }).type).toBe("agent");
+	});
+});
+
+describe("serializeManifest: install_targets", () => {
+	test("serializes install_targets to YAML", () => {
+		const manifest = parseManifest(`
+install_targets:
+  - claude
+  - codex
+dependencies: {}
+`);
+		const serialized = serializeManifest(manifest);
+		expect(serialized).toContain("install_targets");
+		expect(serialized).toContain("claude");
+		expect(serialized).toContain("codex");
+	});
+
+	test("omits install_targets when not set", () => {
+		const manifest = parseManifest(`
+name: test
+dependencies: {}
+`);
+		const serialized = serializeManifest(manifest);
+		expect(serialized).not.toContain("install_targets");
 	});
 });
 
@@ -139,6 +181,45 @@ dependencies:
 `);
 		const errors = validateManifest(manifest);
 		expect(errors.some((e) => e.includes('require a "path"'))).toBe(true);
+	});
+
+	test("errors when both dev_install_path and install_targets present", () => {
+		const manifest = parseManifest(`
+dev_install_path: .claude
+install_targets:
+  - claude
+dependencies: {}
+`);
+		const errors = validateManifest(manifest);
+		expect(errors.some((e) => e.includes("install_targets"))).toBe(true);
+		expect(errors.some((e) => e.includes("dev_install_path"))).toBe(true);
+	});
+
+	test("allows install_targets alone", () => {
+		const manifest = parseManifest(`
+install_targets:
+  - claude
+dependencies: {}
+`);
+		const errors = validateManifest(manifest);
+		expect(errors).toEqual([]);
+	});
+
+	test("allows dev_install_path alone (backward compat)", () => {
+		const manifest = parseManifest(`
+dev_install_path: .claude
+dependencies: {}
+`);
+		const errors = validateManifest(manifest);
+		expect(errors).toEqual([]);
+	});
+
+	test("allows neither install_targets nor dev_install_path", () => {
+		const manifest = parseManifest(`
+dependencies: {}
+`);
+		const errors = validateManifest(manifest);
+		expect(errors).toEqual([]);
 	});
 
 	test("errors on same key in both groups", () => {
@@ -325,5 +406,56 @@ dependencies: {}
 		const serialized = serializeManifest(original);
 		const reparsed = parseManifest(serialized);
 		expect(reparsed.vendor).toBe(true);
+	});
+});
+
+describe("getInstallTargets", () => {
+	test("returns resolved paths from install_targets", () => {
+		const manifest = parseManifest(`
+install_targets:
+  - claude
+  - codex
+dependencies: {}
+`);
+		const targets = getInstallTargets(manifest);
+		expect(targets).toEqual([".claude", ".codex"]);
+	});
+
+	test('returns [".claude"] when neither install_targets nor dev_install_path set', () => {
+		const manifest = parseManifest(`
+dependencies: {}
+`);
+		const targets = getInstallTargets(manifest);
+		expect(targets).toEqual([".claude"]);
+	});
+
+	test("returns [dev_install_path] when only dev_install_path set", () => {
+		const manifest = parseManifest(`
+dev_install_path: .claude
+dependencies: {}
+`);
+		const targets = getInstallTargets(manifest);
+		expect(targets).toEqual([".claude"]);
+	});
+
+	test("handles mixed agent names and literal paths", () => {
+		const manifest = parseManifest(`
+install_targets:
+  - claude
+  - ./custom-agent
+dependencies: {}
+`);
+		const targets = getInstallTargets(manifest);
+		expect(targets).toEqual([".claude", "./custom-agent"]);
+	});
+
+	test("throws for unknown agent name in install_targets", () => {
+		const manifest = parseManifest(`
+install_targets:
+  - claude
+  - unknown-agent
+dependencies: {}
+`);
+		expect(() => getInstallTargets(manifest)).toThrow("unknown agent");
 	});
 });
