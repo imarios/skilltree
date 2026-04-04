@@ -1,0 +1,23 @@
+{
+  "name": "@skilltree/cli-linux-x64",
+  "version": "0.4.1",
+  "description": "skilltree binary for Linux x64",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imarios/skilltree.git"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "bin": {
+    "skilltree": "bin/skilltree"
+  },
+  "files": [
+    "bin/skilltree"
+  ],
+  "preferUnplugged": true
+}

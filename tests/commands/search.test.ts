@@ -1,0 +1,144 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { searchCommand } from "../../src/commands/search.js";
+import { writeRegistryIndex } from "../../src/core/registry-cache.js";
+import { writeConfig } from "../../src/core/registry-config.js";
+import type { RegistryIndex } from "../../src/types.js";
+
+let tempDir: string;
+
+async function setup(): Promise<string> {
+	tempDir = join(
+		tmpdir(),
+		`skilltree-searchcmd-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+	);
+	await mkdir(tempDir, { recursive: true });
+	return tempDir;
+}
+
+afterEach(async () => {
+	if (tempDir) {
+		await rm(tempDir, { recursive: true, force: true });
+	}
+});
+
+async function setupWithIndex(dir: string): Promise<{ configPath: string; cacheDir: string }> {
+	const configPath = join(dir, "config.yaml");
+	const cacheDir = join(dir, "cache");
+
+	await writeConfig(
+		{ registries: [{ name: "vibes", repo: "github.com/imarios/vibes" }] },
+		configPath,
+	);
+
+	const index: RegistryIndex = {
+		registry: "vibes",
+		repo: "github.com/imarios/vibes",
+		updated_at: new Date().toISOString(),
+		entities: [
+			{
+				name: "python-coding",
+				type: "skill",
+				path: "skills/python-coding",
+				description: "Python development with Poetry",
+				tags: ["python", "testing"],
+			},
+			{
+				name: "task-builder",
+				type: "skill",
+				path: "skills/task-builder",
+				description: "Build security tasks",
+				tags: ["security"],
+			},
+			{
+				name: "cybersec-analyst",
+				type: "agent",
+				path: "agents/cybersec-analyst.md",
+				description: "Security investigation agent",
+			},
+		],
+	};
+	await writeRegistryIndex(index, cacheDir);
+
+	return { configPath, cacheDir };
+}
+
+describe("searchCommand", () => {
+	test("outputs matching entities with add commands", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithIndex(dir);
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		try {
+			await searchCommand("python", {}, configPath, cacheDir);
+		} finally {
+			console.log = originalLog;
+		}
+
+		const output = logs.join("\n");
+		expect(output).toContain("python-coding");
+		expect(output).toContain("skilltree add");
+	});
+
+	test("search --type filters by entity type", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithIndex(dir);
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		try {
+			await searchCommand("security", { type: "agent" }, configPath, cacheDir);
+		} finally {
+			console.log = originalLog;
+		}
+
+		const output = logs.join("\n");
+		expect(output).toContain("cybersec-analyst");
+		expect(output).not.toContain("task-builder");
+	});
+
+	test("search --json outputs valid JSON", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithIndex(dir);
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		try {
+			await searchCommand("python", { json: true }, configPath, cacheDir);
+		} finally {
+			console.log = originalLog;
+		}
+
+		const output = logs.join("\n");
+		const parsed = JSON.parse(output);
+		expect(Array.isArray(parsed)).toBe(true);
+		expect(parsed[0].name).toBe("python-coding");
+	});
+
+	test("search with no registries throws with guidance", async () => {
+		const dir = await setup();
+		const configPath = join(dir, "config.yaml");
+		await writeConfig({ registries: [] }, configPath);
+
+		await expect(searchCommand("python", {}, configPath)).rejects.toThrow("No registries");
+	});
+
+	test("search with never-updated registry throws", async () => {
+		const dir = await setup();
+		const configPath = join(dir, "config.yaml");
+		await writeConfig(
+			{ registries: [{ name: "vibes", repo: "github.com/imarios/vibes" }] },
+			configPath,
+		);
+
+		await expect(searchCommand("python", {}, configPath, join(dir, "cache"))).rejects.toThrow(
+			"No registry indexes",
+		);
+	});
+});

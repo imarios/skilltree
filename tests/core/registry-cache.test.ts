@@ -1,0 +1,181 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import simpleGit from "simple-git";
+import {
+	cleanRegistryCache,
+	ensureRegistryRepo,
+	getRegistryIndexPath,
+	getRegistryRepoDir,
+	isStale,
+	readRegistryIndex,
+	writeRegistryIndex,
+} from "../../src/core/registry-cache.js";
+import type { RegistryIndex } from "../../src/types.js";
+
+let tempDir: string;
+
+async function setup(): Promise<string> {
+	tempDir = join(
+		tmpdir(),
+		`skilltree-regcache-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+	);
+	await mkdir(tempDir, { recursive: true });
+	return tempDir;
+}
+
+afterEach(async () => {
+	if (tempDir) {
+		await rm(tempDir, { recursive: true, force: true });
+	}
+});
+
+describe("path helpers", () => {
+	test("getRegistryRepoDir returns correct path", () => {
+		const dir = getRegistryRepoDir("vibes");
+		expect(dir).toContain("registry-cache");
+		expect(dir).toContain("vibes");
+		expect(dir).toEndWith("/repo");
+	});
+
+	test("getRegistryIndexPath returns correct path", () => {
+		const path = getRegistryIndexPath("vibes");
+		expect(path).toContain("registry-cache");
+		expect(path).toContain("vibes");
+		expect(path).toEndWith("index.json");
+	});
+});
+
+describe("writeRegistryIndex / readRegistryIndex", () => {
+	test("writes valid JSON and reads it back", async () => {
+		const dir = await setup();
+		const index: RegistryIndex = {
+			registry: "vibes",
+			repo: "github.com/imarios/vibes",
+			updated_at: new Date().toISOString(),
+			entities: [
+				{
+					name: "python-coding",
+					type: "skill",
+					path: "skills/python-coding",
+					description: "Python dev skill",
+					tags: ["python", "testing"],
+				},
+			],
+		};
+		await writeRegistryIndex(index, dir);
+		const readBack = await readRegistryIndex("vibes", dir);
+		expect(readBack).not.toBeNull();
+		expect(readBack?.registry).toBe("vibes");
+		expect(readBack?.entities).toHaveLength(1);
+		expect(readBack?.entities[0]?.name).toBe("python-coding");
+		expect(readBack?.entities[0]?.tags).toEqual(["python", "testing"]);
+	});
+
+	test("readRegistryIndex returns null when index.json does not exist", async () => {
+		const dir = await setup();
+		const result = await readRegistryIndex("nonexistent", dir);
+		expect(result).toBeNull();
+	});
+});
+
+describe("isStale", () => {
+	test("returns true when index does not exist", async () => {
+		const dir = await setup();
+		const stale = await isStale("nonexistent", undefined, dir);
+		expect(stale).toBe(true);
+	});
+
+	test("returns false for recent index", async () => {
+		const dir = await setup();
+		const index: RegistryIndex = {
+			registry: "vibes",
+			repo: "github.com/imarios/vibes",
+			updated_at: new Date().toISOString(),
+			entities: [],
+		};
+		await writeRegistryIndex(index, dir);
+		const stale = await isStale("vibes", 24 * 60 * 60 * 1000, dir);
+		expect(stale).toBe(false);
+	});
+
+	test("returns true for old index", async () => {
+		const dir = await setup();
+		const oldDate = new Date(Date.now() - 48 * 60 * 60 * 1000); // 48h ago
+		const index: RegistryIndex = {
+			registry: "vibes",
+			repo: "github.com/imarios/vibes",
+			updated_at: oldDate.toISOString(),
+			entities: [],
+		};
+		await writeRegistryIndex(index, dir);
+		const stale = await isStale("vibes", 24 * 60 * 60 * 1000, dir);
+		expect(stale).toBe(true);
+	});
+});
+
+describe("cleanRegistryCache", () => {
+	test("removes the registry directory", async () => {
+		const dir = await setup();
+		const registryDir = join(dir, "vibes");
+		await mkdir(registryDir, { recursive: true });
+		await writeFile(join(registryDir, "index.json"), "{}", "utf-8");
+		expect(existsSync(registryDir)).toBe(true);
+
+		await cleanRegistryCache("vibes", dir);
+		expect(existsSync(registryDir)).toBe(false);
+	});
+
+	test("is no-op for nonexistent cache", async () => {
+		const dir = await setup();
+		// Should not throw
+		await cleanRegistryCache("ghost", dir);
+	});
+});
+
+async function createSourceRepo(baseDir: string): Promise<string> {
+	const sourceDir = join(baseDir, "source-repo");
+	await mkdir(sourceDir, { recursive: true });
+	const git = simpleGit(sourceDir);
+	await git.init();
+	await git.addConfig("user.email", "test@test.com");
+	await git.addConfig("user.name", "Test");
+	await writeFile(join(sourceDir, "README.md"), "# Test", "utf-8");
+	await git.add(".");
+	await git.commit("initial");
+	return sourceDir;
+}
+
+describe("ensureRegistryRepo", () => {
+	test("clones a bare repo on first call", async () => {
+		const dir = await setup();
+		const sourceDir = await createSourceRepo(dir);
+
+		const cacheDir = join(dir, "cache");
+		const repoDir = await ensureRegistryRepo("test-reg", sourceDir, cacheDir);
+
+		expect(existsSync(repoDir)).toBe(true);
+		const bareGit = simpleGit(repoDir);
+		const isBare = await bareGit.raw(["rev-parse", "--is-bare-repository"]);
+		expect(isBare.trim()).toBe("true");
+	});
+
+	test("fetches on subsequent calls", async () => {
+		const dir = await setup();
+		const sourceDir = await createSourceRepo(dir);
+
+		const cacheDir = join(dir, "cache");
+		await ensureRegistryRepo("test-reg", sourceDir, cacheDir);
+
+		// Add another commit to source
+		const git = simpleGit(sourceDir);
+		await writeFile(join(sourceDir, "SECOND.md"), "# Second", "utf-8");
+		await git.add(".");
+		await git.commit("second commit");
+
+		const repoDir = await ensureRegistryRepo("test-reg", sourceDir, cacheDir);
+		expect(existsSync(repoDir)).toBe(true);
+	});
+});

@@ -1,0 +1,15 @@
+# Projects
+
+Project Naming Theme: Elements
+
+## Active Projects
+
+- **Hydrogen** (03/29/2026): Core dependency manager — manifest, git resolution, installation, lifecycle, scanner, distribution
+
+- **Helium** (03/30/2026): Spec compliance — lockfile-first install, --frozen, manifest validation, update/remove fixes
+
+- **Lithium** (03/30/2026): Registries and discovery — registry management, search, info, registry-assisted `add`, `skillkit-index.yaml`
+
+## Completed Projects
+
+(none)

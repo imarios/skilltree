@@ -1,0 +1,11 @@
+node_modules/
+dist/
+npm/*/bin/
+*.tsbuildinfo
+bun.lock
+.env
+.DS_Store
+coverage/
+.claude/skills/
+.claude/agents/
+test

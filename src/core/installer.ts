@@ -1,0 +1,413 @@
+import { createHash } from "node:crypto";
+import {
+	chmod,
+	cp,
+	lstat,
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import simpleGit from "simple-git";
+import type { Lockfile } from "../types.js";
+import { readFileAtRef } from "./git.js";
+import type { ResolvedEntity } from "./graph.js";
+import { stripDotSlash } from "./paths.js";
+
+export interface InstallOptions {
+	prod?: boolean;
+	frozen?: boolean;
+	force?: boolean;
+	dryRun?: boolean;
+	installPath?: string;
+}
+
+export interface InstallPlan {
+	toInstall: Array<{
+		entity: ResolvedEntity;
+		action: "symlink" | "copy";
+		targetPath: string;
+	}>;
+	skipped: string[];
+	warnings: string[];
+}
+
+/**
+ * Compute SHA-256 integrity hash for a directory or file.
+ * Lists files recursively, sorts by relative path, concatenates path\0content, hashes.
+ */
+export async function computeIntegrity(path: string): Promise<string> {
+	const hash = createHash("sha256");
+	const files = await collectFiles(path);
+	files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+
+	for (const file of files) {
+		hash.update(`${file.relativePath}\0${file.content}`);
+	}
+
+	return `sha256-${hash.digest("hex")}`;
+}
+
+async function collectFiles(
+	basePath: string,
+	relativeTo?: string,
+): Promise<Array<{ relativePath: string; content: string }>> {
+	const root = relativeTo ?? basePath;
+	const results: Array<{ relativePath: string; content: string }> = [];
+
+	const stats = await lstat(basePath);
+	if (stats.isFile()) {
+		const content = await readFile(basePath, "utf-8");
+		const relativePath = basePath.replace(`${root}/`, "").replace(root, "");
+		results.push({ relativePath: relativePath || basename(basePath), content });
+		return results;
+	}
+
+	if (!stats.isDirectory()) return results;
+
+	const entries = await readdir(basePath, { withFileTypes: true });
+	for (const entry of entries) {
+		if (entry.name === ".git") continue;
+		const fullPath = join(basePath, entry.name);
+		if (entry.isFile()) {
+			const content = await readFile(fullPath, "utf-8");
+			const relativePath = fullPath.replace(`${root}/`, "");
+			results.push({ relativePath, content });
+		} else if (entry.isDirectory()) {
+			const subFiles = await collectFiles(fullPath, root);
+			results.push(...subFiles);
+		}
+	}
+
+	return results;
+}
+
+function basename(path: string): string {
+	return path.split("/").pop() ?? path;
+}
+
+/**
+ * Get the install target path for an entity or lockfile entry.
+ */
+export function getTargetPath(entity: { name: string; type: string }, installBase: string): string {
+	if (entity.type === "agent") {
+		return join(installBase, "agents", `${entity.name}.md`);
+	}
+	return join(installBase, "skills", entity.name);
+}
+
+/**
+ * Apply integrity hashes from an install run to lockfile entries,
+ * and preserve hashes from a previous lockfile for skipped entities.
+ */
+export function applyIntegrityHashes(
+	lockfile: Lockfile,
+	integrityMap: Map<string, string>,
+	existingLockfile?: Lockfile | null,
+): void {
+	for (const [key, integrity] of integrityMap) {
+		if (lockfile.packages[key]) {
+			lockfile.packages[key].integrity = integrity;
+		}
+	}
+	if (existingLockfile) {
+		for (const [key, entry] of Object.entries(existingLockfile.packages)) {
+			if (entry.integrity && lockfile.packages[key] && !lockfile.packages[key].integrity) {
+				lockfile.packages[key].integrity = entry.integrity;
+			}
+		}
+	}
+}
+
+/**
+ * Build an installation plan without executing it.
+ */
+export async function planInstall(
+	entities: Map<string, ResolvedEntity>,
+	installOrder: string[],
+	installBase: string,
+	options: InstallOptions,
+): Promise<InstallPlan> {
+	const toInstall: InstallPlan["toInstall"] = [];
+	const skipped: string[] = [];
+	const warnings: string[] = [];
+
+	for (const compositeKey of installOrder) {
+		const entity = entities.get(compositeKey);
+		if (!entity) continue;
+
+		// Skip dev deps in prod mode
+		if (options.prod && entity.group === "dev") {
+			skipped.push(compositeKey);
+			continue;
+		}
+
+		const targetPath = getTargetPath(entity, installBase);
+
+		// Determine action: symlink for local dev, copy for remote and prod
+		let action: "symlink" | "copy";
+		if (entity.local && !options.installPath) {
+			action = "symlink";
+		} else {
+			action = "copy";
+		}
+
+		toInstall.push({ entity, action, targetPath });
+	}
+
+	return { toInstall, skipped, warnings };
+}
+
+/**
+ * Execute an installation plan.
+ */
+export async function executeInstall(
+	plan: InstallPlan,
+	projectDir: string,
+	options: InstallOptions,
+): Promise<Map<string, string>> {
+	const integrityMap = new Map<string, string>();
+
+	// Ensure install directories exist
+	const installBase = options.installPath ?? join(projectDir, ".claude");
+	await mkdir(join(installBase, "skills"), { recursive: true });
+	await mkdir(join(installBase, "agents"), { recursive: true });
+
+	for (const item of plan.toInstall) {
+		const { entity, action, targetPath } = item;
+
+		const skip = await prepareTarget(targetPath, entity, options, plan);
+		if (skip) continue;
+
+		if (action === "symlink") {
+			const sourcePath = resolve(projectDir, entity.path);
+			await mkdir(dirname(targetPath), { recursive: true });
+			await symlink(sourcePath, targetPath);
+		} else if (action === "copy") {
+			if (entity.local) {
+				await copyEntityFiles(resolve(projectDir, entity.path), targetPath, entity.type);
+			} else if (entity.cachePath) {
+				await copyFromGitCache(entity, targetPath);
+			}
+			await setReadOnly(targetPath);
+			integrityMap.set(entity.key, await computeIntegrity(targetPath));
+		}
+	}
+
+	return integrityMap;
+}
+
+/**
+ * Prepare the target path for installation. Removes existing files/symlinks.
+ * Returns true if the item should be skipped (already installed, no --force).
+ */
+async function prepareTarget(
+	targetPath: string,
+	entity: ResolvedEntity,
+	options: InstallOptions,
+	plan: InstallPlan,
+): Promise<boolean> {
+	try {
+		const stats = await lstat(targetPath);
+		if (stats.isSymbolicLink()) {
+			await rm(targetPath);
+		} else if (stats.isDirectory() || stats.isFile()) {
+			if (!options.force && !entity.local) {
+				plan.warnings.push(`${entity.name} already installed. Use --force to overwrite.`);
+				return true;
+			}
+			await makeWritable(targetPath);
+			await rm(targetPath, { recursive: true });
+		}
+	} catch {
+		// Target doesn't exist — that's fine
+	}
+	return false;
+}
+
+/**
+ * Copy entity files from a local source, excluding .git directories.
+ */
+async function copyEntityFiles(
+	sourcePath: string,
+	targetPath: string,
+	entityType: string,
+): Promise<void> {
+	if (entityType === "agent") {
+		// Single file copy
+		await mkdir(dirname(targetPath), { recursive: true });
+		await cp(sourcePath, targetPath);
+	} else {
+		// Directory copy, excluding .git
+		await mkdir(targetPath, { recursive: true });
+		await cp(sourcePath, targetPath, {
+			recursive: true,
+			filter: (src) => !src.includes("/.git"),
+		});
+	}
+}
+
+/**
+ * Copy files from git cache at a specific ref.
+ */
+async function copyFromGitCache(entity: ResolvedEntity, targetPath: string): Promise<void> {
+	if (!entity.cachePath) return;
+
+	const ref = entity.tag ?? entity.commit;
+	const path = stripDotSlash(entity.path);
+
+	try {
+		if (entity.type === "agent") {
+			await mkdir(dirname(targetPath), { recursive: true });
+			const content = await readFileAtRef(entity.cachePath, ref, path);
+			await writeFile(targetPath, content, "utf-8");
+		} else {
+			await mkdir(targetPath, { recursive: true });
+			await copyTreeFromGit(entity.cachePath, ref, path, targetPath);
+		}
+	} catch (cause) {
+		const refLabel = entity.tag ?? entity.commit.slice(0, 8);
+		const repo = entity.repo ?? "unknown repo";
+		throw new Error(
+			`"${entity.name}" not found at path "${entity.path}" in ${repo} at ${refLabel}. It may have been moved or removed.`,
+			{ cause },
+		);
+	}
+}
+
+/**
+ * Copy a directory tree from a git bare repo using a single `ls-tree -r`
+ * call instead of recursive subprocess spawning.
+ */
+async function copyTreeFromGit(
+	cachePath: string,
+	ref: string,
+	treePath: string,
+	targetDir: string,
+): Promise<void> {
+	const git = simpleGit(cachePath);
+
+	// Single recursive ls-tree: lists all blobs in the subtree at once
+	const treeArg = treePath === "." ? ref : `${ref}:${treePath}`;
+	const lsOutput = await git.raw(["ls-tree", "-r", treeArg]);
+
+	for (const line of lsOutput.trim().split("\n")) {
+		if (!line) continue;
+		const match = line.match(/^(\d+)\s+blob\s+[a-f0-9]+\t(.+)$/);
+		if (!match) continue;
+
+		const [, , relativePath] = match;
+		if (!relativePath) continue;
+
+		const itemPath = treePath === "." ? relativePath : `${treePath}/${relativePath}`;
+		const targetItemPath = join(targetDir, relativePath);
+
+		await mkdir(dirname(targetItemPath), { recursive: true });
+		const content = await readFileAtRef(cachePath, ref, itemPath);
+		await writeFile(targetItemPath, content, "utf-8");
+	}
+}
+
+/**
+ * Make files writable so they can be deleted/overwritten.
+ */
+async function makeWritable(path: string): Promise<void> {
+	const stats = await lstat(path);
+	if (stats.isFile()) {
+		await chmod(path, 0o644);
+	} else if (stats.isDirectory()) {
+		await chmod(path, 0o755);
+		const entries = await readdir(path, { withFileTypes: true });
+		for (const entry of entries) {
+			await makeWritable(join(path, entry.name));
+		}
+	}
+}
+
+/**
+ * Set read-only permissions (chmod 444 for files).
+ * Directories keep 755 so they can be managed (deleted, overwritten).
+ */
+async function setReadOnly(path: string): Promise<void> {
+	const stats = await lstat(path);
+	if (stats.isFile()) {
+		await chmod(path, 0o444);
+	} else if (stats.isDirectory()) {
+		const entries = await readdir(path, { withFileTypes: true });
+		for (const entry of entries) {
+			await setReadOnly(join(path, entry.name));
+		}
+	}
+}
+
+export type VerifyStatus = "ok" | "modified" | "linked" | "missing" | "stale" | "broken";
+
+/**
+ * Verify installed entities against lockfile integrity hashes.
+ *
+ * @param projectDir - The project root directory, used to resolve relative paths
+ *   in entity.path for local deps. Pass the global dir for global installs.
+ */
+export async function verifyInstalled(
+	entities: Map<string, ResolvedEntity>,
+	installBase: string,
+	lockfileIntegrity: Record<string, string>,
+	projectDir?: string,
+): Promise<Array<{ name: string; status: VerifyStatus }>> {
+	const results: Array<{ name: string; status: VerifyStatus }> = [];
+
+	for (const [, entity] of entities) {
+		const targetPath = getTargetPath(entity, installBase);
+
+		const status = await checkEntityStatus(entity, targetPath, lockfileIntegrity, projectDir);
+		results.push({ name: entity.name, status });
+	}
+
+	return results;
+}
+
+async function checkEntityStatus(
+	entity: ResolvedEntity,
+	targetPath: string,
+	lockfileIntegrity: Record<string, string>,
+	projectDir?: string,
+): Promise<VerifyStatus> {
+	try {
+		const stats = await lstat(targetPath);
+
+		if (stats.isSymbolicLink()) {
+			try {
+				await stat(targetPath);
+				return "linked";
+			} catch {
+				return "broken";
+			}
+		}
+
+		const expectedIntegrity = lockfileIntegrity[entity.key];
+		if (!expectedIntegrity) return "ok";
+
+		const actualIntegrity = await computeIntegrity(targetPath);
+		if (actualIntegrity !== expectedIntegrity) return "modified";
+
+		// Check if vendored local dep is stale (source changed since vendor)
+		if (entity.local) {
+			try {
+				const sourcePath = entity.path.startsWith("/")
+					? entity.path
+					: resolve(projectDir ?? ".", entity.path);
+				const sourceIntegrity = await computeIntegrity(sourcePath);
+				if (sourceIntegrity !== expectedIntegrity) return "stale";
+			} catch {
+				// Can't read source — not stale
+			}
+		}
+		return "ok";
+	} catch {
+		return "missing";
+	}
+}
