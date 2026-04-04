@@ -1,3 +1,9 @@
+## v0.11.2 (2026-04-04)
+
+### Fix
+
+- sync package.json version and fix cz version_files pattern
+
 ## v0.11.1 (2026-04-04)
 
 ### Fix
