@@ -26,14 +26,16 @@ skilltree is `npm` for skills: declare what you need in `skilltree.yaml`, run `s
 
 ```bash
 # npm / npx (no install needed)
-npx skilltree
+npx skilltree-pm
 
 # Or install globally
-npm install -g skilltree
+npm install -g skilltree-pm
 
 # Or with Bun
-bun install -g skilltree
+bun install -g skilltree-pm
 ```
+
+> **Note:** The npm package is `skilltree-pm`, but the command is `skilltree`.
 
 ## Quick Start
 
