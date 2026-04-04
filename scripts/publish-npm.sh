@@ -7,7 +7,7 @@ set -euo pipefail
 # Prerequisites:
 #   - Run ./scripts/build-npm.sh first
 #   - Be logged in to npm (npm login)
-#   - Have publish access to @skilltree org
+#   - Have publish access to @imarios scope
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -50,20 +50,20 @@ done
 # Publish platform packages first
 for dir in "${PLATFORMS[@]}"; do
   echo ""
-  echo "Publishing @skilltree/$dir@${VERSION}..."
+  echo "Publishing @imarios/skilltree-$dir@${VERSION}..."
   (cd "$ROOT_DIR/npm/$dir" && npm publish --access public $DRY_RUN $PROVENANCE)
 done
 
 # Publish main package last
 echo ""
-echo "Publishing skilltree@${VERSION}..."
+echo "Publishing skilltree-pm@${VERSION}..."
 (cd "$ROOT_DIR" && npm publish --access public $DRY_RUN $PROVENANCE)
 
 echo ""
 echo "Done! Published:"
-echo "  skilltree@${VERSION}"
+echo "  skilltree-pm@${VERSION}"
 for dir in "${PLATFORMS[@]}"; do
-  echo "  @skilltree/$dir@${VERSION}"
+  echo "  @imarios/skilltree-$dir@${VERSION}"
 done
 echo ""
-echo "Users can now run: npx skilltree"
+echo "Users can now run: npx skilltree-pm"

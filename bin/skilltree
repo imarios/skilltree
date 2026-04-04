@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
-// Bin shim: detects platform/arch, finds the right @skillkit binary, and executes it.
+// Bin shim: detects platform/arch, finds the right binary, and executes it.
 
 const { execFileSync } = require("child_process");
 const { join } = require("path");
 
 const PLATFORMS = {
-  "darwin-arm64": "@skilltree/cli-darwin-arm64",
-  "darwin-x64": "@skilltree/cli-darwin-x64",
-  "linux-x64": "@skilltree/cli-linux-x64",
-  "linux-arm64": "@skilltree/cli-linux-arm64",
+  "darwin-arm64": "@imarios/skilltree-cli-darwin-arm64",
+  "darwin-x64": "@imarios/skilltree-cli-darwin-x64",
+  "linux-x64": "@imarios/skilltree-cli-linux-x64",
+  "linux-arm64": "@imarios/skilltree-cli-linux-arm64",
 };
 
 const platformKey = `${process.platform}-${process.arch}`;
@@ -17,7 +17,7 @@ const packageName = PLATFORMS[platformKey];
 
 if (!packageName) {
   console.error(
-    `skillkit: unsupported platform ${platformKey}\n` +
+    `skilltree: unsupported platform ${platformKey}\n` +
     `Supported: ${Object.keys(PLATFORMS).join(", ")}`
   );
   process.exit(1);
@@ -27,10 +27,10 @@ let binPath;
 try {
   // Resolve the binary from the platform-specific package
   const pkgDir = require.resolve(`${packageName}/package.json`);
-  binPath = join(pkgDir, "..", "bin", "skillkit");
+  binPath = join(pkgDir, "..", "bin", "skilltree");
 } catch {
   console.error(
-    `skillkit: could not find package "${packageName}".\n` +
+    `skilltree: could not find package "${packageName}".\n` +
     `This usually means the optional dependency was not installed.\n` +
     `Try reinstalling: npm install skilltree`
   );

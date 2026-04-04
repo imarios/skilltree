@@ -1,4 +1,4 @@
-# @skilltree/cli-darwin-x64
+# @imarios/skilltree-cli-darwin-x64
 
 Platform-specific binary for [skilltree](https://github.com/imarios/skilltree) on macOS Intel.
 

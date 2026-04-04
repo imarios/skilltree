@@ -1,4 +1,4 @@
-# @skilltree/cli-linux-x64
+# @imarios/skilltree-cli-linux-x64
 
 Platform-specific binary for [skilltree](https://github.com/imarios/skilltree) on Linux x64.
 
