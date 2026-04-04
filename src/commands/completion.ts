@@ -88,7 +88,11 @@ const COMMANDS: CmdDef[] = [
 			{ long: "--json", description: "Output results as JSON" },
 		],
 	},
-	{ name: "teach", description: "Install the skilltree skill globally" },
+	{
+		name: "teach",
+		description: "Install the skilltree skill to all detected coding agents",
+		flags: [{ long: "--agent", description: "Install to a specific agent only", takesArg: true }],
+	},
 	{
 		name: "search",
 		description: "Search registries for skills and agents",

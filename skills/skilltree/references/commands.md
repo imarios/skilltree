@@ -346,11 +346,15 @@ skilltree cache clean
 
 ## `skilltree teach`
 
-Install the skilltree skill globally so all Claude Code sessions know how to use skilltree.
+Install the skilltree skill to all detected coding agents.
+
+| Flag | Description |
+|------|-------------|
+| `--agent <name>` | Install to a specific agent only |
 
 ```bash
-skilltree teach              # Install to ~/.claude/skills/skilltree/
-skilltree teach ./project    # Install to a specific directory
+skilltree teach                  # Install to all detected agents
+skilltree teach --agent claude   # Install to Claude Code only
 ```
 
 ## `skilltree completion [shell]`

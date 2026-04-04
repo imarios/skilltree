@@ -1,33 +1,50 @@
 import { cp, mkdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { getGlobalInstallBase } from "../core/paths.js";
+import { detectInstalledAgents, resolveGlobalTarget } from "../core/agents.js";
 import { dim, pc, success } from "../core/ui.js";
 
-/**
- * Install the skilltree skill globally (or to a target directory) so
- * Claude Code sessions know how to use skilltree.
- *
- * Default target: ~/.claude/skills/skilltree/
- */
-export async function teachCommand(target?: string): Promise<void> {
-	const basePath = target ?? getGlobalInstallBase();
-	const skillDir = join(basePath, "skills", "skilltree");
+export interface TeachOptions {
+	homeDir?: string; // Override home directory for testing
+	agent?: string; // Restrict to specific agent
+}
 
-	// Find the source skill directory (shipped with skilltree)
+/**
+ * Install the skilltree skill globally so coding agents know how to use skilltree.
+ *
+ * Auto-detects installed agents and installs to all by default.
+ * Use --agent to restrict to a specific agent.
+ */
+export async function teachCommand(opts?: TeachOptions): Promise<void> {
 	const sourceDir = await findSkillSource();
 
-	// Clean and copy
-	try {
-		await rm(skillDir, { recursive: true });
-	} catch {
-		// Doesn't exist yet
+	const detected = await detectInstalledAgents(opts?.homeDir);
+
+	if (detected.length === 0) {
+		throw new Error("no agents detected — use --agent <name> or install a coding agent first");
 	}
 
-	await mkdir(dirname(skillDir), { recursive: true });
-	await cp(sourceDir, skillDir, { recursive: true });
+	const agentsToInstall = opts?.agent ? [opts.agent] : detected;
 
-	success(`Installed skilltree skill to ${skillDir}`);
-	console.log("All Claude Code sessions will now know how to use skilltree.");
+	for (const agent of agentsToInstall) {
+		const basePath = opts?.homeDir ? join(opts.homeDir, `.${agent}`) : resolveGlobalTarget(agent);
+		const skillDir = join(basePath, "skills", "skilltree");
+
+		try {
+			await rm(skillDir, { recursive: true });
+		} catch {
+			// Doesn't exist yet
+		}
+
+		await mkdir(dirname(skillDir), { recursive: true });
+		await cp(sourceDir, skillDir, { recursive: true });
+
+		success(`Installed skilltree skill to ${skillDir}`);
+	}
+
+	if (agentsToInstall.length > 1) {
+		console.log(`\nInstalled to ${agentsToInstall.length} agents: ${agentsToInstall.join(", ")}`);
+	}
+
 	console.log("");
 	console.log(dim("For shell tab completion, add to your ~/.zshrc:"));
 	console.log(pc.cyan('  eval "$(skilltree completion zsh)"'));

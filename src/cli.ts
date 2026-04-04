@@ -146,10 +146,11 @@ program
 	});
 
 program
-	.command("teach [target]")
-	.description("Install the skilltree skill globally so Claude Code knows how to use it")
-	.action(async (target?: string) => {
-		await teachCommand(target);
+	.command("teach")
+	.description("Install the skilltree skill to all detected coding agents")
+	.option("--agent <name>", "Install to a specific agent only")
+	.action(async (opts) => {
+		await teachCommand({ agent: opts.agent });
 	});
 
 // Vendor commands

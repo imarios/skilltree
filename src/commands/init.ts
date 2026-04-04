@@ -1,13 +1,19 @@
 import { writeFile } from "node:fs/promises";
 import { basename } from "node:path";
+import { detectInstalledAgents } from "../core/agents.js";
 import { globalManifestExists, MANIFEST_NEW, manifestExists } from "../core/filenames.js";
 import { addGitignoreEntries, getSkillAgentIgnoreEntries } from "../core/gitignore.js";
 import { serializeManifest, writeGlobalManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
-import { success, warn } from "../core/ui.js";
+import { dim, success, warn } from "../core/ui.js";
 import type { Manifest } from "../types.js";
 
-export async function initCommand(dir: string, options?: { global?: boolean }): Promise<void> {
+export interface InitOptions {
+	global?: boolean;
+	homeDir?: string; // Override home directory for agent detection (testing)
+}
+
+export async function initCommand(dir: string, options?: InitOptions): Promise<void> {
 	if (options?.global) {
 		return initGlobal();
 	}
@@ -19,10 +25,20 @@ export async function initCommand(dir: string, options?: { global?: boolean }): 
 		throw new Error(`${MANIFEST_NEW} already exists. Remove it first or edit it directly.`);
 	}
 
+	// Auto-detect installed agents
+	const detected = await detectInstalledAgents(options?.homeDir);
+	const installTargets = detected.length > 0 ? detected : ["claude"];
+
+	if (detected.length > 0) {
+		console.log(dim(`Detected agents: ${detected.join(", ")}`));
+	} else {
+		console.log(dim("No agents detected — defaulting to claude"));
+	}
+
 	const projectName = basename(dir);
 	const manifest: Manifest = {
 		name: projectName,
-		dev_install_path: ".claude",
+		install_targets: installTargets,
 		dependencies: {},
 		"dev-dependencies": {},
 	};
@@ -30,9 +46,15 @@ export async function initCommand(dir: string, options?: { global?: boolean }): 
 	await writeFile(manifestPath, serializeManifest(manifest), "utf-8");
 	success(`Created ${MANIFEST_NEW}`);
 
-	// Update .gitignore
-	const ignoreEntries = getSkillAgentIgnoreEntries(".claude");
-	const added = await addGitignoreEntries(dir, ignoreEntries);
+	// Update .gitignore for all targets
+	const ignoreEntries: string[] = [];
+	for (const target of installTargets) {
+		const resolvedDir = target.startsWith(".") || target.startsWith("/") ? target : `.${target}`;
+		ignoreEntries.push(...getSkillAgentIgnoreEntries(resolvedDir));
+	}
+	// Deduplicate
+	const uniqueEntries = [...new Set(ignoreEntries)];
+	const added = await addGitignoreEntries(dir, uniqueEntries);
 	if (added.length > 0) {
 		success(`Updated .gitignore (added ${added.join(", ")})`);
 	}

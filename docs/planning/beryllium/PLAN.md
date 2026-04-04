@@ -53,12 +53,12 @@ Wire `install_targets` into the install pipeline — install to each target inde
 Rewrite `teach` to use skilltree's own global dep mechanism. `init` auto-detects agents.
 
 ### Tasks
-- [ ] Refactor `teach` — replace manual copy with `add --global skilltree --local <bundled-source>` + `install --global`
-- [ ] `teach` auto-detection — detect agents, install to all by default
-- [ ] `teach --agent <name>` flag — restrict to specific agent
-- [ ] No agents detected — error with helpful message
-- [ ] Verify the skilltree skill appears in global lockfile as a proper dependency
-- [ ] `skilltree init` — auto-detect agents, pre-populate `install_targets`, fallback to `[claude]`
+- [ ] Refactor `teach` to use global deps (deferred — current direct copy approach made agent-aware instead)
+- [x] `teach` auto-detection — detect agents, install to all by default
+- [x] `teach --agent <name>` flag — restrict to specific agent
+- [x] No agents detected — error with helpful message
+- [ ] Verify the skilltree skill appears in global lockfile as a proper dependency (deferred with teach-as-global-dep)
+- [x] `skilltree init` — auto-detect agents, pre-populate `install_targets`, fallback to `[claude]`
 - [ ] Update `make setup` to use new teach behavior
 
 ## Phase 5: Polish

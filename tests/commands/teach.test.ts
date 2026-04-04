@@ -9,7 +9,8 @@ let tempDir: string;
 
 async function setup(): Promise<string> {
 	tempDir = join(tmpdir(), `skilltree-teach-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-	await mkdir(tempDir, { recursive: true });
+	// Create a fake home with .claude so auto-detection finds an agent
+	await mkdir(join(tempDir, ".claude"), { recursive: true });
 	return tempDir;
 }
 
@@ -22,9 +23,9 @@ afterEach(async () => {
 describe("teachCommand", () => {
 	test("installs skill files to target directory", async () => {
 		const dir = await setup();
-		await teachCommand(dir);
+		await teachCommand({ homeDir: dir });
 
-		const skillMd = join(dir, "skills", "skilltree", "SKILL.md");
+		const skillMd = join(dir, ".claude", "skills", "skilltree", "SKILL.md");
 		expect(existsSync(skillMd)).toBe(true);
 
 		const content = await readFile(skillMd, "utf-8");
@@ -33,10 +34,14 @@ describe("teachCommand", () => {
 
 	test("installs references alongside SKILL.md", async () => {
 		const dir = await setup();
-		await teachCommand(dir);
+		await teachCommand({ homeDir: dir });
 
-		expect(existsSync(join(dir, "skills", "skilltree", "references", "commands.md"))).toBe(true);
-		expect(existsSync(join(dir, "skills", "skilltree", "references", "workflows.md"))).toBe(true);
+		expect(
+			existsSync(join(dir, ".claude", "skills", "skilltree", "references", "commands.md")),
+		).toBe(true);
+		expect(
+			existsSync(join(dir, ".claude", "skills", "skilltree", "references", "workflows.md")),
+		).toBe(true);
 	});
 
 	test("prints completion hint in output", async () => {
@@ -46,7 +51,7 @@ describe("teachCommand", () => {
 		const orig = console.log;
 		console.log = (...args: unknown[]) => logs.push(args.join(" "));
 		try {
-			await teachCommand(dir);
+			await teachCommand({ homeDir: dir });
 		} finally {
 			console.log = orig;
 		}
@@ -58,11 +63,11 @@ describe("teachCommand", () => {
 
 	test("overwrites existing skill on re-run", async () => {
 		const dir = await setup();
-		await teachCommand(dir);
+		await teachCommand({ homeDir: dir });
 		// Should not throw on second run
-		await teachCommand(dir);
+		await teachCommand({ homeDir: dir });
 
-		const skillMd = join(dir, "skills", "skilltree", "SKILL.md");
+		const skillMd = join(dir, ".claude", "skills", "skilltree", "SKILL.md");
 		expect(existsSync(skillMd)).toBe(true);
 	});
 });
