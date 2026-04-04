@@ -63,6 +63,22 @@ setup: build ## Build and install binary + skill + completions
 		echo "  Add to your shell rc file:"; \
 		echo "    \033[36mexport PATH=\"\$$HOME/.skilltree/bin:\$$PATH\"\033[0m"; \
 	fi
+	@# Warn if npm-installed version is also on PATH
+	@NPM_BIN=$$(which -a skilltree 2>/dev/null | grep -v "$(HOME)/.skilltree/bin" | head -1); \
+	if [ -n "$$NPM_BIN" ]; then \
+		echo "  \033[33m⚠ npm-installed skilltree also found at: $$NPM_BIN\033[0m"; \
+		if echo "$$PATH" | tr ':' '\n' | grep -n "." | grep -q ".*skilltree/bin" && \
+		   SETUP_POS=$$(echo "$$PATH" | tr ':' '\n' | grep -n "$(HOME)/.skilltree/bin" | head -1 | cut -d: -f1) && \
+		   NPM_DIR=$$(dirname "$$NPM_BIN") && \
+		   NPM_POS=$$(echo "$$PATH" | tr ':' '\n' | grep -n "$$NPM_DIR" | head -1 | cut -d: -f1) && \
+		   [ "$$SETUP_POS" -gt "$$NPM_POS" ] 2>/dev/null; then \
+			echo "  \033[33m  npm version takes precedence — move ~/.skilltree/bin earlier in PATH\033[0m"; \
+			echo "  \033[33m  or run: npm uninstall -g skilltree-pm\033[0m"; \
+		else \
+			echo "  \033[33m  dev version takes precedence (good). To clean up: npm uninstall -g skilltree-pm\033[0m"; \
+		fi; \
+		echo ""; \
+	fi
 	@echo ""
 	@echo "  For tab completions (zsh):"
 	@echo "    \033[36msource \$$HOME/.skilltree/completions/_skilltree\033[0m"
