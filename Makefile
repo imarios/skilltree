@@ -1,5 +1,5 @@
 BUN := $(HOME)/.bun/bin/bun
-.PHONY: help install test lint format typecheck check build clean dev setup release eval eval-llm demo
+.PHONY: help install test lint format typecheck check build clean dev setup release eval eval-llm gh-demo-gif
 .DEFAULT_GOAL := help
 
 help: ## Show available targets
@@ -71,7 +71,7 @@ setup: build ## Build and install binary + skill + completions
 	@echo "    \033[36mskilltree registry init\033[0m"
 	@echo ""
 
-demo: ## Record demo GIF and upload to latest release
+gh-demo-gif: ## Record demo GIF and upload to latest release
 	@command -v vhs >/dev/null || (echo "Error: vhs not installed. Run: brew install vhs"; exit 1)
 	vhs demo/demo.tape
 	@TAG=$$(git describe --tags --abbrev=0 2>/dev/null); \
