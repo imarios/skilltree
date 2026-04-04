@@ -8,7 +8,7 @@
 
 Dependency manager for AI agent skills and agents. Uses git repos as the registry, resolves transitive dependencies, supports semver version pinning via git tags, and produces lockfiles for reproducible installs.
 
-[![demo](https://github.com/imarios/skilltree/releases/download/v0.11.2/demo.gif)](https://github.com/imarios/skilltree/releases/download/v0.11.2/demo.mp4)
+![demo](https://github.com/imarios/skilltree/releases/download/v0.11.2/demo.gif)
 
 ## Why skilltree?
 
