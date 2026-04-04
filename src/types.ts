@@ -54,6 +54,7 @@ export interface LockfileEntry {
 
 export interface Lockfile {
 	lockfile_version: number;
+	install_targets?: string[];
 	packages: Record<string, LockfileEntry>;
 }
 

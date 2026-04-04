@@ -17,6 +17,7 @@ import {
 import {
 	expandSources,
 	getDevInstallPath,
+	getInstallTargets,
 	loadManifestOrThrow,
 	validateManifestOrThrow,
 } from "../core/manifest.js";
@@ -74,47 +75,60 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 	const result = await resolveWithLockfile(manifest, existingLockfile, dir);
 	throwOnResolutionErrors(result);
 
-	// Determine install paths
-	const devInstallBase = options.installPath ?? join(dir, getDevInstallPath(manifest));
+	// Determine install targets
+	const resolvedTargets = options.installPath
+		? [options.installPath]
+		: getInstallTargets(manifest).map((t) => join(dir, t));
+
 	const srcInstallBase = manifest.src_install_path ? join(dir, manifest.src_install_path) : null;
-	const primaryBase = options.prod && srcInstallBase ? srcInstallBase : devInstallBase;
+	let integrityMap: Map<string, string> = new Map();
 
-	const plan = await planInstall(result.entities, result.installOrder, primaryBase, options);
+	for (const installBase of resolvedTargets) {
+		const primaryBase = options.prod && srcInstallBase ? srcInstallBase : installBase;
+		const plan = await planInstall(result.entities, result.installOrder, primaryBase, options);
 
-	printInstallOrder(plan);
+		printInstallOrder(plan);
 
-	if (plan.skipped.length > 0) {
-		console.log(dim(`\nSkipped ${plan.skipped.length} dev dependencies (--prod)`));
-	}
+		if (plan.skipped.length > 0) {
+			console.log(dim(`\nSkipped ${plan.skipped.length} dev dependencies (--prod)`));
+		}
 
-	if (options.dryRun) {
-		console.log(pc.yellow("\nDry run — no files written."));
-		return;
-	}
+		if (options.dryRun) {
+			console.log(pc.yellow("\nDry run — no files written."));
+			continue;
+		}
 
-	console.log(`\nInstalling ${pc.bold(String(plan.toInstall.length))} entities...`);
-	const integrityMap = await executeInstall(plan, dir, options);
+		console.log(`\nInstalling ${pc.bold(String(plan.toInstall.length))} entities...`);
+		integrityMap = await executeInstall(plan, dir, options);
 
-	// Dual install: if src_install_path is set and not --prod,
-	// also copy prod deps to src_install_path
-	if (srcInstallBase && !options.prod) {
-		const srcOptions: InstallOptions = { ...options, prod: true, installPath: srcInstallBase };
-		const srcPlan = await planInstall(
-			result.entities,
-			result.installOrder,
-			srcInstallBase,
-			srcOptions,
-		);
-		if (srcPlan.toInstall.length > 0) {
-			await executeInstall(srcPlan, dir, srcOptions);
+		// Dual install: if src_install_path is set and not --prod,
+		// also copy prod deps to src_install_path
+		if (srcInstallBase && !options.prod) {
+			const srcOptions: InstallOptions = {
+				...options,
+				prod: true,
+				installPath: srcInstallBase,
+			};
+			const srcPlan = await planInstall(
+				result.entities,
+				result.installOrder,
+				srcInstallBase,
+				srcOptions,
+			);
+			if (srcPlan.toInstall.length > 0) {
+				await executeInstall(srcPlan, dir, srcOptions);
+			}
+		}
+
+		for (const warning of plan.warnings) {
+			warn(warning);
 		}
 	}
 
-	for (const warning of plan.warnings) {
-		warn(warning);
-	}
+	if (options.dryRun) return;
 
 	const lockfile = buildLockfile(result.entities);
+	lockfile.install_targets = getInstallTargets(manifest);
 	applyIntegrityHashes(lockfile, integrityMap, existingLockfile);
 	await writeLockfile(dir, lockfile);
 	console.log(dim("Updated skilltree.lock"));

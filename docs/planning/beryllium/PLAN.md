@@ -38,15 +38,15 @@ CLI for managing install targets without editing YAML.
 Wire `install_targets` into the install pipeline — install to each target independently.
 
 ### Tasks
-- [ ] Installer loop — iterate over resolved targets, run install for each
-- [ ] Local deps — one symlink per target, each pointing to source
-- [ ] Remote deps — one copy per target (or symlink to cache if available)
-- [ ] Global install — agent names resolve to global home paths (`claude` → `~/.claude`)
-- [ ] `--install-path` override — kept as single-target one-off, overrides `install_targets` for that invocation
-- [ ] Stale target detection — if lockfile records targets not in current `install_targets`, warn (no auto-delete)
-- [ ] Lockfile — record `install_targets` in lockfile
-- [ ] Vendor — single target only; require `--target <name>` when multiple targets configured
-- [ ] Output — show which targets were installed to
+- [x] Installer loop — iterate over resolved targets, run install for each
+- [x] Local deps — one symlink per target, each pointing to source
+- [x] Remote deps — one copy per target (or symlink to cache if available)
+- [ ] Global install — agent names resolve to global home paths (deferred to Phase 4)
+- [x] `--install-path` override — kept as single-target one-off, overrides `install_targets` for that invocation
+- [ ] Stale target detection — if lockfile records targets not in current `install_targets`, warn (deferred to Phase 5)
+- [x] Lockfile — record `install_targets` in lockfile
+- [ ] Vendor — single target only; require `--target <name>` when multiple targets configured (deferred to Phase 5)
+- [x] Output — show which targets were installed to
 
 ## Phase 4: Teach as Global Dep + Init Detection
 
