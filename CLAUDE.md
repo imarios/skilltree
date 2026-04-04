@@ -83,6 +83,23 @@ bun build --compile src/cli.ts --outfile dist/skilltree
 
 Project deps (`.claude/`, gitignored) and global deps (`~/.claude/`) coexist — project always shadows global. See `docs/specs/global.md` and `docs/specs/vendor.md` for full specs.
 
+## npm Publishing
+
+- **Package name**: `skilltree-pm` (command is still `skilltree`)
+- **Platform binaries**: `@imarios/skilltree-cli-{darwin,linux}-{arm64,x64}`
+- **Release flow**: `make release V=x.y.z` bumps version, tags, installs locally. Then `git push origin main --tags` triggers the `publish.yml` workflow which builds all platforms and publishes to npm.
+- **Manual publish**: `./scripts/build-npm.sh && ./scripts/publish-npm.sh`
+
+## Demo GIF
+
+The README demo is a GIF hosted on GitHub Releases (not in git). Re-record only when the demo content is stale (new features, changed commands) — not every release.
+
+```bash
+make gh-demo-gif   # records demo/demo.tape with VHS, uploads to latest release
+```
+
+The tape script is at `demo/demo.tape`. See `demo/README.md` for details.
+
 ## Implementation Phases
 
 Follow phases 1-9 in docs/specs/spec.md. Use TDD.
