@@ -2,8 +2,11 @@
 
 // Bin shim: detects platform/arch, finds the right binary, and executes it.
 
-const { execFileSync } = require("child_process");
-const { join } = require("path");
+import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
+import { join, dirname } from "node:path";
+
+const require = createRequire(import.meta.url);
 
 const PLATFORMS = {
   "darwin-arm64": "@imarios/skilltree-cli-darwin-arm64",
@@ -26,13 +29,13 @@ if (!packageName) {
 let binPath;
 try {
   // Resolve the binary from the platform-specific package
-  const pkgDir = require.resolve(`${packageName}/package.json`);
-  binPath = join(pkgDir, "..", "bin", "skilltree");
+  const pkgPath = require.resolve(`${packageName}/package.json`);
+  binPath = join(dirname(pkgPath), "bin", "skilltree");
 } catch {
   console.error(
     `skilltree: could not find package "${packageName}".\n` +
     `This usually means the optional dependency was not installed.\n` +
-    `Try reinstalling: npm install skilltree`
+    `Try reinstalling: npm install skilltree-pm`
   );
   process.exit(1);
 }
