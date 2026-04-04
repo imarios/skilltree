@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/imarios/skilltree/actions/workflows/ci.yml/badge.svg)](https://github.com/imarios/skilltree/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/imarios/skilltree/graph/badge.svg)](https://codecov.io/gh/imarios/skilltree)
+[![npm](https://img.shields.io/npm/v/skilltree-pm)](https://www.npmjs.com/package/skilltree-pm)
 
 Dependency manager for AI agent skills and agents. Uses git repos as the registry, resolves transitive dependencies, supports semver version pinning via git tags, and produces lockfiles for reproducible installs.
 
