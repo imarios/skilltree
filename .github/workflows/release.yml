@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Bump Version & Release
+    runs-on: ubuntu-latest
+    # Skip if the push was made by this workflow (avoid infinite loop)
+    if: "!contains(github.event.head_commit.message, 'bump:')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch all tags
+        run: git fetch --tags origin
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install commitizen
+        run: pip install "commitizen>=4.13,<5"
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Check for version-bumping commits
+        id: check
+        run: |
+          EXIT_CODE=0
+          OUTPUT=$(cz bump --dry-run --yes 2>&1) || EXIT_CODE=$?
+          echo "$OUTPUT"
+          if [ "$EXIT_CODE" -eq 21 ] || [ "$EXIT_CODE" -eq 3 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No version-bumping commits found (exit $EXIT_CODE) — skipping release."
+          elif echo "$OUTPUT" | grep -qE "NoneIncrementExit|NO_COMMITS_FOUND|NO_INCREMENT|nothing to do|No commits found"; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "No version-bumping commits found — skipping release."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump version
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          cz bump --no-verify --yes --changelog || {
+            EXIT_CODE=$?
+            if [ "$EXIT_CODE" -eq 16 ]; then
+              echo "Changelog generation had issues (exit 16), but version was bumped."
+              cz bump --no-verify --yes
+            else
+              exit $EXIT_CODE
+            fi
+          }
+
+      - name: Push version commit and tag
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          git push origin main
+          TAG=$(git describe --tags --abbrev=0)
+          git push origin "$TAG"
+
+      - name: Create GitHub release
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(git describe --tags --abbrev=0)
+          VERSION=${TAG#v}
+          BODY=$(awk "/^## ${VERSION}/,/^## [0-9]/" CHANGELOG.md | head -n -1 | tail -n +2)
+          if [ -z "$BODY" ]; then
+            BODY="Release ${TAG}"
+          fi
+          COMMIT=$(git rev-parse HEAD)
+          gh release create "$TAG" --title "$TAG" --notes "$BODY" --target "$COMMIT"

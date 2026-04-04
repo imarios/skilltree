@@ -87,7 +87,8 @@ Project deps (`.claude/`, gitignored) and global deps (`~/.claude/`) coexist —
 
 - **Package name**: `skilltree-pm` (command is still `skilltree`)
 - **Platform binaries**: `@imarios/skilltree-cli-{darwin,linux}-{arm64,x64}`
-- **Release flow**: `make release V=x.y.z` bumps version, tags, installs locally. Then `git push origin main --tags` triggers the `publish.yml` workflow which builds all platforms and publishes to npm.
+- **Release flow**: Automated via conventional commits. Push a `feat:` or `fix:` commit to main → `release.yml` runs `cz bump` → bumps version in `package.json` + `.cz.toml`, generates `CHANGELOG.md`, tags, pushes → `publish.yml` triggers on the new tag → builds all platforms and publishes to npm.
+- **Manual release**: `make release V=x.y.z` for explicit version control.
 - **Manual publish**: `./scripts/build-npm.sh && ./scripts/publish-npm.sh`
 
 ## Demo GIF
