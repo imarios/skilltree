@@ -203,6 +203,25 @@ dev-dependencies:                  # installed to .claude/ ONLY
 skilltree install --prod --frozen   # CI: prod deps only, lockfile-only, no resolution
 ```
 
+### Multi-Agent Support
+
+Skills work across Claude Code, Codex, Cursor, Copilot, Gemini CLI, and Windsurf. Install to multiple agents at once:
+
+```yaml
+install_targets:
+  - claude
+  - codex
+```
+
+```bash
+skilltree install              # installs to both .claude/ and .codex/
+skilltree targets list          # see detected and configured agents
+skilltree targets add cursor    # add another agent
+skilltree targets detect        # auto-detect installed agents
+```
+
+Migrating from `dev_install_path`? Run `skilltree targets migrate`.
+
 ### Dependency Scanning
 
 Skills often reference other skills in their body text — "Use the `testing` skill for coverage checks." AI agents like Claude Code or Codex can resolve these references at runtime from whatever skills happen to be installed. But when you share your project, those skills may not be there. A teammate clones the repo and the references point to nothing.
@@ -252,7 +271,12 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `skilltree scan <paths...>` | Detect undeclared deps in skill body text |
 | `skilltree vendor` | Enter vendor mode (copy deps, commit to git) |
 | `skilltree unvendor` | Exit vendor mode (restore symlinks + gitignore) |
-| `skilltree teach [target]` | Install the skilltree skill so Claude Code knows how to use it |
+| `skilltree teach` | Install the skilltree skill to all detected coding agents |
+| `skilltree targets list` | Show detected and configured coding agents |
+| `skilltree targets add <target>` | Add an agent or path to install targets |
+| `skilltree targets remove <target>` | Remove an agent or path from install targets |
+| `skilltree targets detect` | Auto-detect agents and add missing ones |
+| `skilltree targets migrate` | Convert `dev_install_path` to `install_targets` |
 | `skilltree search <query>` | Search registries for skills and agents |
 | `skilltree info <name>` | Show detailed info about a skill or agent |
 | `skilltree registry init` | Seed popular community registries |

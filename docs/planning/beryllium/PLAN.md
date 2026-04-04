@@ -66,7 +66,7 @@ Rewrite `teach` to use skilltree's own global dep mechanism. `init` auto-detects
 Error messages, documentation, migration guide.
 
 ### Tasks
-- [ ] Error message quality — review all error paths for clarity
-- [ ] Migration guide — document `dev_install_path` → `install_targets` migration
-- [ ] README update — multi-agent usage examples, `targets` command docs
-- [ ] Completion updates — `targets` and `--agent` flag completions
+- [x] Error message quality — reviewed, all error paths have clear messages
+- [ ] Migration guide — document `dev_install_path` → `install_targets` migration (deferred to separate doc)
+- [x] README update — multi-agent usage examples, `targets` command docs
+- [x] Completion updates — `targets` and `--agent` flag completions (done in Phase 2 and 4)
