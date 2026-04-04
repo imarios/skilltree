@@ -5,6 +5,8 @@
 
 Dependency manager for AI agent skills and agents. Uses git repos as the registry, resolves transitive dependencies, supports semver version pinning via git tags, and produces lockfiles for reproducible installs.
 
+![skilltree demo](https://github.com/imarios/skilltree/releases/download/v0.10.1/demo.gif)
+
 ## Why skilltree?
 
 AI agent skills ([SKILL.md](https://agentskills.io/specification)) are the open standard for giving coding agents reusable instructions. Existing tools treat skills as independent files — copy to a directory, done. But real-world skill ecosystems develop dependency graphs: a `code-review` skill depends on `testing`, `linting`, and `language-support`. An agent depends on 5 skills spread across 3 repos.

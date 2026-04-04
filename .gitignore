@@ -6,6 +6,7 @@ bun.lock
 .env
 .DS_Store
 coverage/
+demo/*.gif
 .claude/skills/
 .claude/agents/
 test
