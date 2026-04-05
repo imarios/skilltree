@@ -70,3 +70,15 @@ Error messages, documentation, migration guide.
 - [ ] Migration guide — document `dev_install_path` → `install_targets` migration (deferred to separate doc)
 - [x] README update — multi-agent usage examples, `targets` command docs
 - [x] Completion updates — `targets` and `--agent` flag completions (done in Phase 2 and 4)
+
+## Phase 6: Teach as Global Dependency
+
+Rewrite `teach` to use the skilltree install pipeline instead of manual copy. Make global install respect `install_targets`.
+
+### Tasks
+- [ ] `teach` calls `addCommand` + `installCommand` instead of manual copy
+- [ ] `teach` sets `install_targets` on global manifest from detected agents
+- [ ] `installGlobal()` uses `getInstallTargets()` with global resolution
+- [ ] `getInstallTargets()` supports `global` option for `resolveGlobalTarget()`
+- [ ] Skilltree skill appears in global lockfile after teach
+- [ ] `teach` is idempotent (second run updates, doesn't error)
