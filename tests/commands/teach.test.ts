@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { teachCommand } from "../../src/commands/teach.js";
+import { readGlobalLockfile } from "../../src/core/lockfile.js";
+import { readGlobalManifest } from "../../src/core/manifest.js";
 
 let tempDir: string;
 
 async function setup(): Promise<string> {
 	tempDir = join(tmpdir(), `skilltree-teach-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-	// Create a fake home with .claude so auto-detection finds an agent
-	await mkdir(join(tempDir, ".claude"), { recursive: true });
+	await mkdir(join(tempDir, "home", ".claude"), { recursive: true });
 	return tempDir;
 }
 
@@ -21,37 +21,37 @@ afterEach(async () => {
 });
 
 describe("teachCommand", () => {
-	test("installs skill files to target directory", async () => {
+	test("adds skilltree skill to global manifest", async () => {
 		const dir = await setup();
-		await teachCommand({ homeDir: dir });
+		const globalDir = join(dir, "global-config");
+		await teachCommand({ homeDir: join(dir, "home"), globalDir });
 
-		const skillMd = join(dir, ".claude", "skills", "skilltree", "SKILL.md");
-		expect(existsSync(skillMd)).toBe(true);
-
-		const content = await readFile(skillMd, "utf-8");
-		expect(content).toContain("name: skilltree");
+		const manifest = await readGlobalManifest(globalDir);
+		expect(manifest.dependencies?.skilltree).toBeDefined();
+		const dep = manifest.dependencies?.skilltree as { local?: string };
+		expect(dep.local).toContain("skills/skilltree");
 	});
 
-	test("installs references alongside SKILL.md", async () => {
+	test("creates lockfile with skilltree entry", async () => {
 		const dir = await setup();
-		await teachCommand({ homeDir: dir });
+		const globalDir = join(dir, "global-config");
+		await teachCommand({ homeDir: join(dir, "home"), globalDir });
 
-		expect(
-			existsSync(join(dir, ".claude", "skills", "skilltree", "references", "commands.md")),
-		).toBe(true);
-		expect(
-			existsSync(join(dir, ".claude", "skills", "skilltree", "references", "workflows.md")),
-		).toBe(true);
+		const lockfile = await readGlobalLockfile(globalDir);
+		expect(lockfile).not.toBeNull();
+		expect(lockfile?.packages?.skilltree).toBeDefined();
+		expect(lockfile?.packages?.skilltree?.type).toBe("skill");
 	});
 
 	test("prints completion hint in output", async () => {
 		const dir = await setup();
+		const globalDir = join(dir, "global-config");
 
 		const logs: string[] = [];
 		const orig = console.log;
 		console.log = (...args: unknown[]) => logs.push(args.join(" "));
 		try {
-			await teachCommand({ homeDir: dir });
+			await teachCommand({ homeDir: join(dir, "home"), globalDir });
 		} finally {
 			console.log = orig;
 		}
@@ -63,11 +63,11 @@ describe("teachCommand", () => {
 
 	test("overwrites existing skill on re-run", async () => {
 		const dir = await setup();
-		await teachCommand({ homeDir: dir });
-		// Should not throw on second run
-		await teachCommand({ homeDir: dir });
+		const globalDir = join(dir, "global-config");
+		await teachCommand({ homeDir: join(dir, "home"), globalDir });
+		await teachCommand({ homeDir: join(dir, "home"), globalDir });
 
-		const skillMd = join(dir, ".claude", "skills", "skilltree", "SKILL.md");
-		expect(existsSync(skillMd)).toBe(true);
+		const manifest = await readGlobalManifest(globalDir);
+		expect(manifest.dependencies?.skilltree).toBeDefined();
 	});
 });

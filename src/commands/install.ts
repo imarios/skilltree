@@ -171,10 +171,13 @@ async function installGlobal(options: InstallCommandOptions): Promise<void> {
 	}
 
 	const globalDir = options.globalDir ?? getGlobalDir();
-	const installBase = getGlobalInstallBase();
 
 	const manifest = await loadManifestOrThrow("", { global: true, globalDir });
 	validateManifestOrThrow(manifest, true);
+
+	const resolvedTargets = getInstallTargets(manifest, { global: true });
+	// Fallback: if no install_targets set, use legacy hardcoded path
+	const installBases = resolvedTargets.length > 0 ? resolvedTargets : [getGlobalInstallBase()];
 
 	const existingLockfile = await readGlobalLockfile(globalDir);
 
@@ -184,7 +187,7 @@ async function installGlobal(options: InstallCommandOptions): Promise<void> {
 		}
 		await frozenInstall(manifest, existingLockfile, globalDir, {
 			...options,
-			installPath: installBase,
+			installPath: installBases[0],
 		});
 		return;
 	}
@@ -192,23 +195,14 @@ async function installGlobal(options: InstallCommandOptions): Promise<void> {
 	const result = await resolveWithLockfile(manifest, existingLockfile, globalDir, "Global ");
 	throwOnResolutionErrors(result);
 
-	const plan = await planInstall(result.entities, result.installOrder, installBase, {
-		...options,
-	});
+	const integrityMap = await installToTargets(result, installBases, null, globalDir, options);
 
-	printInstallOrder(plan);
-
-	if (options.dryRun) {
-		console.log(pc.yellow("\nDry run — no files written."));
-		return;
-	}
-
-	console.log(
-		`\nInstalling ${pc.bold(String(plan.toInstall.length))} entities to ${dim(installBase)}...`,
-	);
-	const integrityMap = await executeInstall(plan, globalDir, options);
+	if (options.dryRun) return;
 
 	const lockfile = buildLockfile(result.entities, { global: true });
+	if (manifest.install_targets) {
+		lockfile.install_targets = getInstallTargets(manifest, { global: true });
+	}
 	applyIntegrityHashes(lockfile, integrityMap, existingLockfile);
 	await writeGlobalLockfile(lockfile, globalDir);
 	console.log(dim("Updated global.lock"));

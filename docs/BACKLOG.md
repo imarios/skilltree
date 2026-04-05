@@ -10,7 +10,7 @@
 
 - [x] **R17-R18: Global manifest `--global` flag for targets** — CLI wiring for `--global` on all targets subcommands. → Fixed.
 
-- [ ] **R21: Teach as global dep** — Rewrite `teach` to use `add --global` + `install --global` so the skilltree skill is a proper global dependency with lockfile tracking. Requires solving: bundled skill source isn't in a git repo. Medium-high effort.
+- [x] **R21: Teach as global dep** — `teach` now uses `addCommand` + `installCommand` internally. Skilltree skill appears in global lockfile. → Fixed in Phase 6.
 
 - [x] **Migration guide** — Documented in commands.md under `targets migrate`. → Fixed.
 

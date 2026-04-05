@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import YAML from "yaml";
 import type { Dependency, EntityType, LocalDependency, Manifest } from "../types.js";
 import { isSourceDependency } from "../types.js";
-import { resolveTarget } from "./agents.js";
+import { resolveGlobalTarget, resolveTarget } from "./agents.js";
 import { resolveGlobalManifestPath, resolveManifestPath } from "./filenames.js";
 import { expandTilde, isLocalSource } from "./paths.js";
 import { error, warn } from "./ui.js";
@@ -87,9 +87,10 @@ export function getDevInstallPath(manifest: Manifest): string {
  * - If only `dev_install_path` is set, return it as a single-element array (with deprecation warning)
  * - If neither is set, default to [".claude"]
  */
-export function getInstallTargets(manifest: Manifest): string[] {
+export function getInstallTargets(manifest: Manifest, opts?: { global?: boolean }): string[] {
+	const resolve = opts?.global ? resolveGlobalTarget : resolveTarget;
 	if (manifest.install_targets) {
-		return manifest.install_targets.map(resolveTarget);
+		return manifest.install_targets.map(resolve);
 	}
 	if (manifest.dev_install_path || manifest.install_path) {
 		warn(

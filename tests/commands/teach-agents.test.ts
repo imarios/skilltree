@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { teachCommand } from "../../src/commands/teach.js";
+import { readGlobalLockfile } from "../../src/core/lockfile.js";
+import { readGlobalManifest } from "../../src/core/manifest.js";
 
 let tempDir: string;
 
@@ -17,39 +18,44 @@ afterEach(async () => {
 });
 
 describe("teach auto-detection", () => {
-	test("installs to single detected agent", async () => {
+	test("detects single agent and adds to global manifest", async () => {
 		const dir = await makeTempDir();
 		const fakeHome = join(dir, "home");
+		const globalDir = join(dir, "global-config");
 		await mkdir(join(fakeHome, ".codex"), { recursive: true });
 
-		await teachCommand({ homeDir: fakeHome });
+		await teachCommand({ homeDir: fakeHome, globalDir });
 
-		const skillMd = join(fakeHome, ".codex", "skills", "skilltree", "SKILL.md");
-		expect(existsSync(skillMd)).toBe(true);
+		const manifest = await readGlobalManifest(globalDir);
+		expect(manifest.install_targets).toEqual(["codex"]);
+		expect(manifest.dependencies?.skilltree).toBeDefined();
 	});
 
-	test("installs to all detected agents by default", async () => {
+	test("detects all agents and sets install_targets", async () => {
 		const dir = await makeTempDir();
 		const fakeHome = join(dir, "home");
+		const globalDir = join(dir, "global-config");
 		await mkdir(join(fakeHome, ".claude"), { recursive: true });
 		await mkdir(join(fakeHome, ".codex"), { recursive: true });
 
-		await teachCommand({ homeDir: fakeHome });
+		await teachCommand({ homeDir: fakeHome, globalDir });
 
-		expect(existsSync(join(fakeHome, ".claude", "skills", "skilltree", "SKILL.md"))).toBe(true);
-		expect(existsSync(join(fakeHome, ".codex", "skills", "skilltree", "SKILL.md"))).toBe(true);
+		const manifest = await readGlobalManifest(globalDir);
+		expect(manifest.install_targets).toContain("claude");
+		expect(manifest.install_targets).toContain("codex");
 	});
 
-	test("--agent restricts to specific agent", async () => {
+	test("--agent restricts install_targets to one agent", async () => {
 		const dir = await makeTempDir();
 		const fakeHome = join(dir, "home");
+		const globalDir = join(dir, "global-config");
 		await mkdir(join(fakeHome, ".claude"), { recursive: true });
 		await mkdir(join(fakeHome, ".codex"), { recursive: true });
 
-		await teachCommand({ homeDir: fakeHome, agent: "claude" });
+		await teachCommand({ homeDir: fakeHome, agent: "claude", globalDir });
 
-		expect(existsSync(join(fakeHome, ".claude", "skills", "skilltree", "SKILL.md"))).toBe(true);
-		expect(existsSync(join(fakeHome, ".codex", "skills", "skilltree", "SKILL.md"))).toBe(false);
+		const manifest = await readGlobalManifest(globalDir);
+		expect(manifest.install_targets).toEqual(["claude"]);
 	});
 
 	test("errors when no agents detected", async () => {
@@ -58,5 +64,61 @@ describe("teach auto-detection", () => {
 		await mkdir(fakeHome, { recursive: true });
 
 		await expect(teachCommand({ homeDir: fakeHome })).rejects.toThrow("no agents detected");
+	});
+});
+
+describe("teach as global dep", () => {
+	test("adds skilltree to global manifest as a local dependency", async () => {
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "home");
+		const globalDir = join(dir, "global-config");
+		await mkdir(join(fakeHome, ".claude"), { recursive: true });
+
+		await teachCommand({ homeDir: fakeHome, globalDir });
+
+		const manifest = await readGlobalManifest(globalDir);
+		expect(manifest.dependencies?.skilltree).toBeDefined();
+		const dep = manifest.dependencies?.skilltree as { local?: string };
+		expect(dep.local).toBeDefined();
+	});
+
+	test("creates global lockfile with skilltree entry", async () => {
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "home");
+		const globalDir = join(dir, "global-config");
+		await mkdir(join(fakeHome, ".claude"), { recursive: true });
+
+		await teachCommand({ homeDir: fakeHome, globalDir });
+
+		const lockfile = await readGlobalLockfile(globalDir);
+		expect(lockfile).not.toBeNull();
+		expect(lockfile?.packages?.skilltree).toBeDefined();
+	});
+
+	test("is idempotent — second run updates without error", async () => {
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "home");
+		const globalDir = join(dir, "global-config");
+		await mkdir(join(fakeHome, ".claude"), { recursive: true });
+
+		await teachCommand({ homeDir: fakeHome, globalDir });
+		await teachCommand({ homeDir: fakeHome, globalDir });
+
+		const manifest = await readGlobalManifest(globalDir);
+		expect(manifest.dependencies?.skilltree).toBeDefined();
+	});
+
+	test("sets install_targets on global manifest from detected agents", async () => {
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "home");
+		const globalDir = join(dir, "global-config");
+		await mkdir(join(fakeHome, ".claude"), { recursive: true });
+		await mkdir(join(fakeHome, ".codex"), { recursive: true });
+
+		await teachCommand({ homeDir: fakeHome, globalDir });
+
+		const manifest = await readGlobalManifest(globalDir);
+		expect(manifest.install_targets).toContain("claude");
+		expect(manifest.install_targets).toContain("codex");
 	});
 });

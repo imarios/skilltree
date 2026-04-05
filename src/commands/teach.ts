@@ -1,18 +1,24 @@
-import { cp, mkdir, rm, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { detectInstalledAgents, resolveGlobalTarget } from "../core/agents.js";
-import { dim, pc, success } from "../core/ui.js";
+import { detectInstalledAgents } from "../core/agents.js";
+import { writeGlobalManifest } from "../core/manifest.js";
+import { getGlobalDir } from "../core/paths.js";
+import { dim, pc } from "../core/ui.js";
+import type { Manifest } from "../types.js";
+import { addCommand } from "./add.js";
+import { installCommand } from "./install.js";
 
 export interface TeachOptions {
 	homeDir?: string; // Override home directory for testing
 	agent?: string; // Restrict to specific agent
+	globalDir?: string; // Override global config directory for testing
 }
 
 /**
  * Install the skilltree skill globally so coding agents know how to use skilltree.
  *
+ * Uses the skilltree install pipeline: add --global + install --global.
  * Auto-detects installed agents and installs to all by default.
- * Use --agent to restrict to a specific agent.
  */
 export async function teachCommand(opts?: TeachOptions): Promise<void> {
 	const sourceDir = await findSkillSource();
@@ -24,22 +30,26 @@ export async function teachCommand(opts?: TeachOptions): Promise<void> {
 	}
 
 	const agentsToInstall = opts?.agent ? [opts.agent] : detected;
+	const globalDir = opts?.globalDir ?? getGlobalDir();
 
-	for (const agent of agentsToInstall) {
-		const basePath = opts?.homeDir ? join(opts.homeDir, `.${agent}`) : resolveGlobalTarget(agent);
-		const skillDir = join(basePath, "skills", "skilltree");
-
-		try {
-			await rm(skillDir, { recursive: true });
-		} catch {
-			// Doesn't exist yet
-		}
-
-		await mkdir(dirname(skillDir), { recursive: true });
-		await cp(sourceDir, skillDir, { recursive: true });
-
-		success(`Installed skilltree skill to ${skillDir}`);
+	// Ensure global manifest exists with install_targets
+	let manifest: Manifest;
+	try {
+		const { readGlobalManifest } = await import("../core/manifest.js");
+		manifest = await readGlobalManifest(globalDir);
+	} catch {
+		manifest = { dependencies: {} };
 	}
+
+	// Set install_targets from detected agents
+	manifest.install_targets = agentsToInstall;
+	await writeGlobalManifest(manifest, globalDir);
+
+	// Add skilltree as a global dependency
+	await addCommand("skilltree", { local: sourceDir, global: true, globalDir }, "");
+
+	// Install global deps (uses the full pipeline)
+	await installCommand("", { global: true, globalDir });
 
 	if (agentsToInstall.length > 1) {
 		console.log(`\nInstalled to ${agentsToInstall.length} agents: ${agentsToInstall.join(", ")}`);

@@ -1,16 +1,17 @@
 # Phase 6: Short Memory
 
-## Stubs to Implement
+## All stubs implemented
 
-### `src/commands/teach.ts`
-- [ ] Replace manual copy loop with `addCommand()` + `installCommand()` calls
-- [ ] Set `install_targets` on global manifest based on detected agents
-- [ ] Keep `findSkillSource()` unchanged
-- [ ] Keep agent detection unchanged
+### `src/commands/teach.ts` ✅
+- [x] Replace manual copy loop with `addCommand()` + `installCommand()` calls
+- [x] Set `install_targets` on global manifest based on detected agents
+- [x] Keep `findSkillSource()` unchanged
+- [x] Keep agent detection unchanged
+- [x] Added `globalDir` to TeachOptions for testing
 
-### `src/commands/install.ts`
-- [ ] `installGlobal()` — use `getInstallTargets(manifest, { global: true })` instead of `getGlobalInstallBase()`
-- [ ] Loop over global targets like project install does
+### `src/commands/install.ts` ✅
+- [x] `installGlobal()` — uses `getInstallTargets(manifest, { global: true })` + `installToTargets()`
+- [x] Removed hardcoded `getGlobalInstallBase()` for single-target
 
-### `src/core/manifest.ts`
-- [ ] `getInstallTargets()` — add `global` option to resolve via `resolveGlobalTarget()`
+### `src/core/manifest.ts` ✅
+- [x] `getInstallTargets()` — added `global` option to resolve via `resolveGlobalTarget()`
