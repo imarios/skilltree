@@ -14,17 +14,18 @@ Use this skill when:
 - Scanning skills for undeclared dependencies
 - Setting up global dependencies (`skilltree install --global`)
 - Vendoring skills for distribution (`skilltree vendor`)
+- Managing install targets across coding agents (`skilltree targets`)
 
 ## Reference Routing Table
 
 | Need | Read |
 |------|------|
 | Command syntax and flags | `references/commands.md` |
-| Step-by-step tasks (install, upgrade, Docker, global, vendor) | `references/workflows.md` |
+| Step-by-step tasks (install, upgrade, Docker, global, vendor, multi-agent) | `references/workflows.md` |
 
 ## Key Concepts
 
-**Manifest (`skilltree.yaml`)** — Declares what you want: repo URLs, version constraints, local paths. Two groups: `dependencies` (production) and `dev-dependencies` (local only).
+**Manifest (`skilltree.yaml`)** — Declares what you want: repo URLs, version constraints, local paths, and install targets. Two groups: `dependencies` (production) and `dev-dependencies` (local only).
 
 **Lockfile (`skilltree.lock`)** — Records what you got: resolved versions, exact commit SHAs, integrity hashes. Checked into git for reproducibility.
 
@@ -38,21 +39,35 @@ Use this skill when:
 
 **Registries** — Git repos registered globally (`~/.skilltree/config.yaml`) for skill discovery. Registries are authoring-time tools — they help find and add skills via `skilltree search` but are never in the install or resolution path. The manifest stays self-contained.
 
+## Install Targets (Multi-Agent)
+
+skilltree supports multiple coding agents. The `install_targets` field in `skilltree.yaml` controls where skills are installed:
+
+```yaml
+install_targets:
+  - claude    # → .claude/
+  - codex     # → .codex/
+```
+
+Known agents: `claude`, `codex`, `cursor`, `copilot`, `gemini`, `windsurf`. Custom paths use `./` prefix (e.g., `./my-agent`).
+
+Manage targets with `skilltree targets {list,add,remove,detect,migrate}`. When absent, `install_targets` defaults to `[claude]`.
+
 ## Global vs Project vs Vendor
 
 Three scopes, fully independent:
 
 | Need | Mechanism | Install target | Committed to git |
 |------|-----------|---------------|-----------------|
-| Project needs a skill | `skilltree.yaml` | `.claude/` | No (gitignored) |
-| You want a skill everywhere | `~/.skilltree/global.yaml` | `~/.claude/` | No (personal) |
-| Ship skills without upstream access | `skilltree vendor` | `.claude/` | Yes (committed) |
+| Project needs a skill | `skilltree.yaml` | Per `install_targets` | No (gitignored) |
+| You want a skill everywhere | `~/.skilltree/global.yaml` | Per detected agents | No (personal) |
+| Ship skills without upstream access | `skilltree vendor` | Single target | Yes (committed) |
 
 **Global deps are a personal convenience, not a project dependency.** If the project *requires* a skill, put it in `skilltree.yaml`. Global is for "I always want this available" — teammates don't need your global deps.
 
-**Vendor mode is for distribution.** Copies all resolved deps as real files (no symlinks) into `.claude/`, removes them from `.gitignore`, and sets `vendor: true`. Consumers `git clone` and it works — no `skilltree install`, no upstream access needed. Fully reversible with `skilltree unvendor`.
+**Vendor mode is for distribution.** Copies all resolved deps as real files (no symlinks), removes them from `.gitignore`, and sets `vendor: true`. Consumers `git clone` and it works — no `skilltree install`, no upstream access needed. Vendor operates on a single target; use `--target` when multiple are configured. Fully reversible with `skilltree unvendor`.
 
-When the same skill exists in both project and global scope, **project wins** (Claude Code's built-in shadowing: `.claude/` > `~/.claude/`).
+When the same skill exists in both project and global scope, **project wins** (the agent's built-in shadowing).
 
 ## CRITICAL: Installed files are read-only
 

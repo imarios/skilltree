@@ -123,19 +123,47 @@ skilltree cache clean
 skilltree install
 ```
 
-## Teach Claude Code about skilltree
+## Teach coding agents about skilltree
 
 ```bash
-# Install skilltree skill globally (all projects)
+# Install skilltree skill to all detected agents
 skilltree teach
 
-# Install to a specific project
-skilltree teach ./my-project
+# Install to a specific agent only
+skilltree teach --agent claude
+```
+
+## Set up multi-agent install targets
+
+Install skills to multiple coding agents at once:
+
+```bash
+# See what agents are installed
+skilltree targets list
+
+# Add agents to install targets
+skilltree targets add codex
+skilltree targets add cursor
+
+# Auto-detect all installed agents
+skilltree targets detect
+
+# Install deploys to all targets
+skilltree install
+```
+
+### Migrate from dev_install_path
+
+If your project uses the old `dev_install_path` field:
+
+```bash
+skilltree targets migrate    # Converts dev_install_path → install_targets
+skilltree targets add codex  # Now you can add more agents
 ```
 
 ## Set up global dependencies
 
-Global deps install to `~/.claude/` — available in every project without adding to each `skilltree.yaml`.
+Global deps install to all detected agent homes — available in every project without adding to each `skilltree.yaml`.
 
 ```bash
 # Initialize global manifest
