@@ -18,14 +18,15 @@ skilltree is `npm` for skills: declare what you need in `skilltree.yaml`, run `s
 
 ### How it compares
 
-| | skilltree | npx skills | Microsoft APM | skillpm |
-|---|---|---|---|---|
-| Transitive dependency resolution | Yes | No | Yes | Yes (via npm) |
-| Semver range constraints (`^2.0.0`) | Yes | No | No (explicit refs) | Yes (via npm) |
-| Lockfile | Yes | Partial | Yes | Yes (via npm) |
-| Registry / discovery | Yes (git repos) | No | No | Yes (npmjs.org) |
-| Git-native (no registry server) | Yes | Yes | Yes | No (npmjs.org) |
-| Single binary, zero infrastructure | Yes | N/A | No (Python/pip) | No (Node.js/npm) |
+|                                    | skilltree                        | CC plugins          | npx skills | Microsoft APM    | skillpm          |
+|------------------------------------|----------------------------------|---------------------|------------|------------------|------------------|
+| Transitive dependency resolution   | Yes                              | No                  | No         | Yes              | Yes (via npm)    |
+| Semver range constraints (`^2.0.0`)| Yes                              | No (git refs only)  | No         | No (explicit refs)| Yes (via npm)   |
+| Lockfile                           | Yes                              | No                  | Partial    | Yes              | Yes (via npm)    |
+| Registry / discovery               | Yes (git repos)                  | Yes (git repos)     | No         | No               | Yes (npmjs.org)  |
+| Git-native (no registry server)    | Yes                              | Yes                 | Yes        | Yes              | No (npmjs.org)   |
+| Multi-agent support                | Yes (Claude, Codex, Cursor, ...) | No (Claude Code only)| No        | No               | No               |
+| Single binary, zero infrastructure | Yes                              | Built-in            | N/A        | No (Python/pip)  | No (Node.js/npm) |
 
 ## Install
 
