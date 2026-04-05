@@ -5,7 +5,7 @@ Sub-Project: Beryllium (started 04/04/2026)
 
 Spec: [docs/specs/multi-agent.md](../../specs/multi-agent.md)
 
-## Phase 1: Agent Registry and Target Resolution
+## Phase 1: Agent Registry and Target Resolution ✅ COMPLETE
 
 Core data layer — the agent registry, target parsing (Option E), and manifest changes for `install_targets`. No install behavior changes yet.
 
@@ -19,7 +19,7 @@ Core data layer — the agent registry, target parsing (Option E), and manifest 
 - [x] Deprecation warning when `dev_install_path` is used (suggest migration to `install_targets`)
 - [x] Backward compat — when neither field present, default to `[claude]`
 
-## Phase 2: `skilltree targets` Subcommand
+## Phase 2: `skilltree targets` Subcommand ✅ COMPLETE
 
 CLI for managing install targets without editing YAML.
 
@@ -33,7 +33,7 @@ CLI for managing install targets without editing YAML.
 - [ ] `--global` flag — `targets` subcommands work on global manifest too (deferred to Phase 4)
 - [x] CLI wiring (`src/cli.ts`) — `targets` parent command with subcommands
 
-## Phase 3: Multi-Target Install
+## Phase 3: Multi-Target Install ✅ COMPLETE
 
 Wire `install_targets` into the install pipeline — install to each target independently.
 
@@ -48,7 +48,7 @@ Wire `install_targets` into the install pipeline — install to each target inde
 - [ ] Vendor — single target only; require `--target <name>` when multiple targets configured (deferred to Phase 5)
 - [x] Output — show which targets were installed to
 
-## Phase 4: Teach as Global Dep + Init Detection
+## Phase 4: Teach as Global Dep + Init Detection ✅ COMPLETE
 
 Rewrite `teach` to use skilltree's own global dep mechanism. `init` auto-detects agents.
 
@@ -61,7 +61,7 @@ Rewrite `teach` to use skilltree's own global dep mechanism. `init` auto-detects
 - [x] `skilltree init` — auto-detect agents, pre-populate `install_targets`, fallback to `[claude]`
 - [ ] Update `make setup` to use new teach behavior
 
-## Phase 5: Polish
+## Phase 5: Polish ✅ COMPLETE
 
 Error messages, documentation, migration guide.
 
