@@ -13,74 +13,106 @@ Set LetterSpacing 0
 Set Padding 20
 Set TypingSpeed 35ms
 
+# --- Hidden setup: clean HOME so registries start empty ---
+
+Hide
+Type "export DEMO_HOME=$(mktemp -d)"
+Enter
+Type "mkdir -p $DEMO_HOME/.claude $DEMO_HOME/.codex"
+Enter
+Type "export HOME=$DEMO_HOME"
+Enter
+Type "cd $(mktemp -d)"
+Enter
+Sleep 500ms
+Show
+
 # --- Scene 1: Init a new project ---
 
 Type "# 1. Initialize a new project"
 Enter
 Sleep 500ms
 
-Type "cd $(mktemp -d) && skilltree init"
+Type "skilltree init"
 Enter
 Sleep 1.5s
 
-# --- Scene 2: Add skills from a git repo ---
+# --- Scene 2: Add a git repo as a registry ---
 
 Type ""
 Enter
-Type "# 2. Add skills from any git repo (semver pinned)"
+Type "# 2. Add a git repo as a skill registry"
 Enter
 Sleep 500ms
 
-Type "skilltree add typescript-coding \"
+Type "skilltree registry add github.com/imarios/open-vibes"
 Enter
-Type "  --repo github.com/imarios/open-vibes --path skills/typescript-coding --version '^1.0.0'"
-Enter
-Sleep 3s
+Sleep 4s
 
-Type "skilltree add general-coding \"
-Enter
-Type "  --repo github.com/imarios/open-vibes --path skills/general-coding --version '^1.0.0'"
-Enter
-Sleep 3s
-
-# --- Scene 3: Install with resolution ---
+# --- Scene 3: Search by keyword ---
 
 Type ""
 Enter
-Type "# 3. Resolve dependencies and install (creates lockfile)"
+Type "# 3. Search the registry"
+Enter
+Sleep 500ms
+
+Type "skilltree search coding"
+Enter
+Sleep 3s
+
+# --- Scene 4: Add by name (no --repo boilerplate) ---
+
+Type ""
+Enter
+Type "# 4. Add by name — repo + path resolved from registry"
+Enter
+Sleep 500ms
+
+Type "skilltree add frontend-coding"
+Enter
+Sleep 3s
+
+# --- Scene 5: Install with transitive dependency resolution ---
+
+Type ""
+Enter
+Type "# 5. Install — resolves transitive deps, creates lockfile"
 Enter
 Sleep 500ms
 
 Type "skilltree install"
 Enter
-Sleep 4s
+Sleep 5s
 
-# --- Scene 4: Show what's installed ---
+# --- Scene 6: Show the dependency tree ---
 
 Type ""
 Enter
-Type "# 4. See what's installed"
+Type "# 6. Dependency tree (frontend-coding pulled in typescript-coding)"
 Enter
 Sleep 500ms
 
-Type "skilltree list"
+Type "skilltree deps tree"
 Enter
 Sleep 2s
 
-# --- Scene 5: Verify integrity ---
+# --- Scene 7: Show installed files ---
 
 Type ""
 Enter
-Type "# 5. Verify installed files match lockfile"
+Type "# 7. Skills installed to every detected agent"
 Enter
 Sleep 500ms
 
-Type "skilltree verify"
+Type "ls .claude/skills/ .codex/skills/"
 Enter
 Sleep 2s
 
+# --- Outro ---
+
 Type ""
 Enter
-Type "# Skills installed to .claude/ — ready for Claude Code"
+Type "# Added 1 skill, got 2 — works across Claude Code, Codex, and more"
 Enter
 Sleep 3s

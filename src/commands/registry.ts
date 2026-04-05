@@ -37,13 +37,18 @@ export async function registryAddCommand(
 	url: string,
 	opts: RegistryAddOptions,
 	configPath?: string,
+	cacheDir?: string,
 ): Promise<void> {
 	// Store the cloneable URL (preserves git@ for SSH); use normalized form only for name inference
 	const repo = cleanGitUrl(url);
 	const name = opts.name ?? inferRegistryName(url);
 	await addRegistry(name, repo, configPath);
 	success(`Added registry '${name}' ${dim(`(${repo})`)}`);
-	console.log(`Run ${pc.cyan(`'skilltree registry update ${name}'`)} to index available skills.`);
+	try {
+		await registryUpdateCommand(name, configPath, cacheDir);
+	} catch {
+		console.log(`Run ${pc.cyan(`'skilltree registry update ${name}'`)} to index available skills.`);
+	}
 }
 
 export async function registryRemoveCommand(

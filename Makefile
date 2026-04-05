@@ -1,5 +1,5 @@
 BUN := $(HOME)/.bun/bin/bun
-.PHONY: help install test lint format typecheck check build clean dev setup release eval eval-llm gh-demo
+.PHONY: help install test lint format typecheck check build clean dev setup release eval eval-llm demo gh-demo
 .DEFAULT_GOAL := help
 
 help: ## Show available targets
@@ -87,12 +87,19 @@ setup: build ## Build and install binary + skill + completions
 	@echo "    \033[36mskilltree registry init\033[0m"
 	@echo ""
 
-gh-demo: ## Record demo video and publish to GitHub Pages
+demo: ## Record demo GIF + MP4 locally (no publish)
 	@command -v vhs >/dev/null || (echo "Error: vhs not installed. Run: brew install vhs"; exit 1)
 	@command -v ffmpeg >/dev/null || (echo "Error: ffmpeg not installed. Run: brew install ffmpeg"; exit 1)
 	vhs demo/demo.tape
 	ffmpeg -y -i demo/demo.gif -movflags faststart -pix_fmt yuv420p \
 		-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" demo/demo.mp4
+	@echo ""
+	@echo "  \033[32m✔\033[0m Recorded locally"
+	@echo "  GIF: demo/demo.gif"
+	@echo "  MP4: demo/demo.mp4"
+	@echo "  Run 'make gh-demo' to publish to GitHub Pages"
+
+gh-demo: demo ## Record demo and publish to GitHub Pages
 	@WORK=$$(mktemp -d); \
 	git worktree add "$$WORK" gh-pages; \
 	cp demo/demo.gif demo/demo.mp4 "$$WORK/"; \
