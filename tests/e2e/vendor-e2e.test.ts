@@ -347,4 +347,34 @@ dependencies:
 		expect(gitignore).toContain(".claude/skills/");
 		expect(gitignore).toContain(".claude/agents/");
 	});
+
+	test("vendor with multiple install_targets requires --target", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+		await writeFile(
+			join(dir, "skilltree.yaml"),
+			"install_targets:\n  - claude\n  - codex\ndependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
+		);
+		await writeFile(join(dir, ".gitignore"), ".claude/skills/\n.claude/agents/\n");
+
+		await expect(vendorCommand(dir, {})).rejects.toThrow("--target");
+	});
+
+	test("vendor with single install_target works without --target", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+		await writeFile(
+			join(dir, "skilltree.yaml"),
+			"install_targets:\n  - claude\ndependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
+		);
+		await writeFile(join(dir, ".gitignore"), ".claude/skills/\n.claude/agents/\n");
+
+		await installCommand(dir, {});
+		await vendorCommand(dir, {});
+
+		const skillPath = join(dir, ".claude", "skills", "my-skill");
+		const stats = await lstat(skillPath);
+		expect(stats.isSymbolicLink()).toBe(false);
+		expect(stats.isDirectory()).toBe(true);
+	});
 });

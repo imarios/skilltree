@@ -268,36 +268,41 @@ const targets = program.command("targets").description("Manage install targets (
 targets
 	.command("list")
 	.description("Show known agents with detected and configured status")
-	.action(async () => {
-		await targetsListCommand(process.cwd());
+	.option("-g, --global", "Show global targets")
+	.action(async (opts) => {
+		await targetsListCommand(process.cwd(), { global: opts.global });
 	});
 
 targets
 	.command("add <target>")
 	.description("Add an agent or path to install_targets")
-	.action(async (target: string) => {
-		await targetsAddCommand(target, process.cwd());
+	.option("-g, --global", "Add to global manifest")
+	.action(async (target: string, opts) => {
+		await targetsAddCommand(target, process.cwd(), { global: opts.global });
 	});
 
 targets
 	.command("remove <target>")
 	.description("Remove an agent or path from install_targets")
-	.action(async (target: string) => {
-		await targetsRemoveCommand(target, process.cwd());
+	.option("-g, --global", "Remove from global manifest")
+	.action(async (target: string, opts) => {
+		await targetsRemoveCommand(target, process.cwd(), { global: opts.global });
 	});
 
 targets
 	.command("detect")
 	.description("Scan for installed agents and add missing ones")
-	.action(async () => {
-		await targetsDetectCommand(process.cwd());
+	.option("-g, --global", "Detect for global manifest")
+	.action(async (opts) => {
+		await targetsDetectCommand(process.cwd(), { global: opts.global });
 	});
 
 targets
 	.command("migrate")
 	.description("Convert dev_install_path to install_targets")
-	.action(async () => {
-		await targetsMigrateCommand(process.cwd());
+	.option("-g, --global", "Migrate global manifest")
+	.action(async (opts) => {
+		await targetsMigrateCommand(process.cwd(), { global: opts.global });
 	});
 
 const cache = program.command("cache").description("Cache management commands");

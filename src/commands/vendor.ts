@@ -15,6 +15,7 @@ import {
 } from "../core/lockfile.js";
 import {
 	getDevInstallPath,
+	getInstallTargets,
 	loadManifestOrThrow,
 	validateManifestOrThrow,
 	writeManifest,
@@ -25,13 +26,21 @@ import type { Lockfile } from "../types.js";
 export interface VendorOptions {
 	frozen?: boolean;
 	dryRun?: boolean;
+	target?: string;
 }
 
 export async function vendorCommand(dir: string, options: VendorOptions): Promise<void> {
 	const manifest = await loadManifestOrThrow(dir);
 	validateManifestOrThrow(manifest);
 
-	const devInstallPath = getDevInstallPath(manifest);
+	// Resolve vendor target — single target only
+	const targets = getInstallTargets(manifest);
+	if (targets.length > 1 && !options.target) {
+		throw new Error(
+			`vendor requires --target <name> when multiple install targets are configured.\nTargets: ${targets.join(", ")}`,
+		);
+	}
+	const devInstallPath = options.target ?? targets[0] ?? getDevInstallPath(manifest);
 	const installBase = join(dir, devInstallPath);
 
 	const existingLockfile = await readLockfile(dir);

@@ -299,22 +299,36 @@ After unvendoring, run `skilltree install` to restore normal symlinked installs.
 
 Show all known coding agents with their detection and configuration status.
 
+| Flag | Description |
+|------|-------------|
+| `--global` | Show global targets |
+
 ```bash
 skilltree targets list
+skilltree targets list --global
 ```
 
 ## `skilltree targets add <target>`
 
 Add an agent or custom path to `install_targets` in `skilltree.yaml`.
 
+| Flag | Description |
+|------|-------------|
+| `--global` | Add to global manifest |
+
 ```bash
 skilltree targets add codex         # Add a known agent
 skilltree targets add ./my-agent    # Add a custom path
+skilltree targets add --global codex
 ```
 
 ## `skilltree targets remove <target>`
 
 Remove an agent or path from `install_targets`.
+
+| Flag | Description |
+|------|-------------|
+| `--global` | Remove from global manifest |
 
 ```bash
 skilltree targets remove codex
@@ -324,17 +338,27 @@ skilltree targets remove codex
 
 Scan for installed coding agents and add any missing ones to `install_targets`.
 
+| Flag | Description |
+|------|-------------|
+| `--global` | Detect for global manifest |
+
 ```bash
 skilltree targets detect
 ```
 
 ## `skilltree targets migrate`
 
-Convert legacy `dev_install_path` to the new `install_targets` field.
+Convert legacy `dev_install_path` to the new `install_targets` field. Use this when upgrading an existing project.
+
+| Flag | Description |
+|------|-------------|
+| `--global` | Migrate global manifest |
 
 ```bash
 skilltree targets migrate
 ```
+
+**Migration guide**: If your project uses `dev_install_path: .claude`, run `skilltree targets migrate` to convert to `install_targets: [claude]`. After migrating, you can add more agents with `skilltree targets add codex`. The `targets add/remove/detect` commands require migration first — they will error with a helpful message if `dev_install_path` is still set.
 
 ## `skilltree cache clean`
 

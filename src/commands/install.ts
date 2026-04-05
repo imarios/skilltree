@@ -81,9 +81,36 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 		: getInstallTargets(manifest).map((t) => join(dir, t));
 
 	const srcInstallBase = manifest.src_install_path ? join(dir, manifest.src_install_path) : null;
+	const integrityMap = await installToTargets(
+		result,
+		resolvedTargets,
+		srcInstallBase,
+		dir,
+		options,
+	);
+
+	if (options.dryRun) return;
+
+	warnStaleTargets(existingLockfile, getInstallTargets(manifest));
+
+	const lockfile = buildLockfile(result.entities);
+	lockfile.install_targets = getInstallTargets(manifest);
+	applyIntegrityHashes(lockfile, integrityMap, existingLockfile);
+	await writeLockfile(dir, lockfile);
+	console.log(dim("Updated skilltree.lock"));
+	success("Done.");
+}
+
+async function installToTargets(
+	result: { entities: Map<string, ResolvedEntity>; installOrder: string[] },
+	targets: string[],
+	srcInstallBase: string | null,
+	dir: string,
+	options: InstallOptions,
+): Promise<Map<string, string>> {
 	let integrityMap: Map<string, string> = new Map();
 
-	for (const installBase of resolvedTargets) {
+	for (const installBase of targets) {
 		const primaryBase = options.prod && srcInstallBase ? srcInstallBase : installBase;
 		const plan = await planInstall(result.entities, result.installOrder, primaryBase, options);
 
@@ -101,14 +128,8 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 		console.log(`\nInstalling ${pc.bold(String(plan.toInstall.length))} entities...`);
 		integrityMap = await executeInstall(plan, dir, options);
 
-		// Dual install: if src_install_path is set and not --prod,
-		// also copy prod deps to src_install_path
 		if (srcInstallBase && !options.prod) {
-			const srcOptions: InstallOptions = {
-				...options,
-				prod: true,
-				installPath: srcInstallBase,
-			};
+			const srcOptions: InstallOptions = { ...options, prod: true, installPath: srcInstallBase };
 			const srcPlan = await planInstall(
 				result.entities,
 				result.installOrder,
@@ -125,14 +146,18 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 		}
 	}
 
-	if (options.dryRun) return;
+	return integrityMap;
+}
 
-	const lockfile = buildLockfile(result.entities);
-	lockfile.install_targets = getInstallTargets(manifest);
-	applyIntegrityHashes(lockfile, integrityMap, existingLockfile);
-	await writeLockfile(dir, lockfile);
-	console.log(dim("Updated skilltree.lock"));
-	success("Done.");
+function warnStaleTargets(existingLockfile: Lockfile | null, currentTargets: string[]): void {
+	if (!existingLockfile?.install_targets) return;
+	for (const oldTarget of existingLockfile.install_targets) {
+		if (!currentTargets.includes(oldTarget)) {
+			warn(
+				`stale target ${oldTarget}/ still has installed skills — remove manually if no longer needed`,
+			);
+		}
+	}
 }
 
 async function installGlobal(options: InstallCommandOptions): Promise<void> {

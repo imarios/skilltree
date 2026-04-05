@@ -110,4 +110,33 @@ describe("e2e multi-target install", () => {
 		const lockfile = parseLockfile(lockContent);
 		expect(lockfile.install_targets).toEqual([".claude", ".codex"]);
 	});
+
+	test("warns about stale targets in lockfile", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+
+		// First install with two targets
+		await writeManifest(
+			dir,
+			"install_targets:\n  - claude\n  - codex\ndependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
+		);
+		await installCommand(dir, {});
+
+		// Now remove codex from manifest and reinstall
+		await writeManifest(
+			dir,
+			"install_targets:\n  - claude\ndependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
+		);
+
+		const warnings: string[] = [];
+		const origWarn = console.warn;
+		console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+		try {
+			await installCommand(dir, {});
+		} finally {
+			console.warn = origWarn;
+		}
+
+		expect(warnings.some((w) => w.includes("stale target") && w.includes(".codex"))).toBe(true);
+	});
 });
