@@ -1,3 +1,18 @@
+## v0.12.0 (2026-04-05)
+
+### Feat
+
+- teach uses global dependency pipeline (Beryllium Phase 6)
+- teach auto-detects agents, init uses install_targets (Beryllium Phase 4)
+- multi-target install support (Beryllium Phase 3)
+- add skilltree targets subcommand (Beryllium Phase 2)
+- add agent registry and install_targets support (Beryllium Phase 1)
+
+### Fix
+
+- address Beryllium backlog — stale targets, vendor guard, global flag, migration guide
+- warn in make setup when npm-installed skilltree is also on PATH
+
 ## v0.11.2 (2026-04-04)
 
 ### Fix
