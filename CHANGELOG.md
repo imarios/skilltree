@@ -1,3 +1,9 @@
+## v0.13.0 (2026-04-05)
+
+### Feat
+
+- auto-index on registry add, revamp demo, split make demo target
+
 ## v0.12.0 (2026-04-05)
 
 ### Feat
