@@ -1,3 +1,9 @@
+## v0.13.1 (2026-04-06)
+
+### Fix
+
+- correct install paths for codex, copilot, and windsurf targets
+
 ## v0.13.0 (2026-04-05)
 
 ### Feat
