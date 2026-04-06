@@ -34,9 +34,9 @@ describe("e2e multi-target install", () => {
 
 		await installCommand(dir, {});
 
-		// Skill should be in both .claude/skills/ and .codex/skills/
+		// Skill should be in both .claude/skills/ and .agents/skills/
 		const claudeSkill = join(dir, ".claude", "skills", "my-skill");
-		const codexSkill = join(dir, ".codex", "skills", "my-skill");
+		const codexSkill = join(dir, ".agents", "skills", "my-skill");
 
 		expect(existsSync(claudeSkill)).toBe(true);
 		expect(existsSync(codexSkill)).toBe(true);
@@ -60,7 +60,7 @@ describe("e2e multi-target install", () => {
 		await installCommand(dir, {});
 
 		expect(existsSync(join(dir, ".claude", "skills", "my-skill"))).toBe(true);
-		expect(existsSync(join(dir, ".codex", "skills", "my-skill"))).toBe(false);
+		expect(existsSync(join(dir, ".agents", "skills", "my-skill"))).toBe(false);
 	});
 
 	test("mixed agent + custom path installs to both", async () => {
@@ -92,7 +92,7 @@ describe("e2e multi-target install", () => {
 		// Only .override should have the skill
 		expect(existsSync(join(dir, ".override", "skills", "my-skill"))).toBe(true);
 		expect(existsSync(join(dir, ".claude", "skills", "my-skill"))).toBe(false);
-		expect(existsSync(join(dir, ".codex", "skills", "my-skill"))).toBe(false);
+		expect(existsSync(join(dir, ".agents", "skills", "my-skill"))).toBe(false);
 	});
 
 	test("lockfile records install_targets after install", async () => {
@@ -108,7 +108,7 @@ describe("e2e multi-target install", () => {
 
 		const lockContent = await readFile(join(dir, "skilltree.lock"), "utf-8");
 		const lockfile = parseLockfile(lockContent);
-		expect(lockfile.install_targets).toEqual([".claude", ".codex"]);
+		expect(lockfile.install_targets).toEqual([".claude", ".agents"]);
 	});
 
 	test("warns about stale targets in lockfile", async () => {
@@ -137,6 +137,6 @@ describe("e2e multi-target install", () => {
 			console.warn = origWarn;
 		}
 
-		expect(warnings.some((w) => w.includes("stale target") && w.includes(".codex"))).toBe(true);
+		expect(warnings.some((w) => w.includes("stale target") && w.includes(".agents"))).toBe(true);
 	});
 });

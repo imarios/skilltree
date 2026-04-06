@@ -418,7 +418,7 @@ install_targets:
 dependencies: {}
 `);
 		const targets = getInstallTargets(manifest);
-		expect(targets).toEqual([".claude", ".codex"]);
+		expect(targets).toEqual([".claude", ".agents"]);
 	});
 
 	test('returns [".claude"] when neither install_targets nor dev_install_path set', () => {

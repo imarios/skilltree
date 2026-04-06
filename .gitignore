@@ -13,3 +13,4 @@ demo/*.mp4
 test
 package-lock.json
 .playwright-cli/
+.firecrawl/

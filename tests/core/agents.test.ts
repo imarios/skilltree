@@ -15,15 +15,15 @@ describe("resolveTarget", () => {
 		expect(resolveTarget("claude")).toBe(".claude");
 	});
 
-	test('resolves "codex" to ".codex"', () => {
-		expect(resolveTarget("codex")).toBe(".codex");
+	test('resolves "codex" to ".agents"', () => {
+		expect(resolveTarget("codex")).toBe(".agents");
 	});
 
 	test("resolves all 6 known agents correctly", () => {
 		expect(resolveTarget("claude")).toBe(".claude");
-		expect(resolveTarget("codex")).toBe(".codex");
+		expect(resolveTarget("codex")).toBe(".agents");
 		expect(resolveTarget("cursor")).toBe(".cursor");
-		expect(resolveTarget("copilot")).toBe(".copilot");
+		expect(resolveTarget("copilot")).toBe(".github");
 		expect(resolveTarget("gemini")).toBe(".gemini");
 		expect(resolveTarget("windsurf")).toBe(".windsurf");
 	});
@@ -52,8 +52,12 @@ describe("resolveGlobalTarget", () => {
 		expect(resolveGlobalTarget("claude")).toBe(join(home, ".claude"));
 	});
 
-	test('resolves "codex" to expanded ~/.codex', () => {
-		expect(resolveGlobalTarget("codex")).toBe(join(home, ".codex"));
+	test('resolves "codex" to expanded ~/.agents', () => {
+		expect(resolveGlobalTarget("codex")).toBe(join(home, ".agents"));
+	});
+
+	test('resolves "windsurf" to expanded ~/.codeium/windsurf', () => {
+		expect(resolveGlobalTarget("windsurf")).toBe(join(home, ".codeium", "windsurf"));
 	});
 
 	test("passes through literal paths unchanged", () => {
@@ -71,8 +75,8 @@ describe("pathToAgentName", () => {
 		expect(pathToAgentName(".claude")).toBe("claude");
 	});
 
-	test('maps ".codex" back to "codex"', () => {
-		expect(pathToAgentName(".codex")).toBe("codex");
+	test('maps ".agents" back to "codex"', () => {
+		expect(pathToAgentName(".agents")).toBe("codex");
 	});
 
 	test('returns null for unknown path ".custom"', () => {
@@ -81,9 +85,9 @@ describe("pathToAgentName", () => {
 
 	test("maps all 6 known agent dirs back to names", () => {
 		expect(pathToAgentName(".claude")).toBe("claude");
-		expect(pathToAgentName(".codex")).toBe("codex");
+		expect(pathToAgentName(".agents")).toBe("codex");
 		expect(pathToAgentName(".cursor")).toBe("cursor");
-		expect(pathToAgentName(".copilot")).toBe("copilot");
+		expect(pathToAgentName(".github")).toBe("copilot");
 		expect(pathToAgentName(".gemini")).toBe("gemini");
 		expect(pathToAgentName(".windsurf")).toBe("windsurf");
 	});
@@ -99,7 +103,7 @@ describe("detectInstalledAgents", () => {
 	test("returns agent names for existing home directories", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-agents-"));
 
-		// Create fake agent home directories
+		// Create fake agent home directories (detection uses detectDir, not dir)
 		await mkdir(join(tempDir, ".claude"));
 		await mkdir(join(tempDir, ".codex"));
 
@@ -123,6 +127,24 @@ describe("detectInstalledAgents", () => {
 
 		const agents = await detectInstalledAgents(tempDir);
 		expect(agents).toEqual(["gemini"]);
+	});
+
+	test("detects codex via .codex dir even though install dir is .agents", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-agents-"));
+
+		await mkdir(join(tempDir, ".codex"));
+
+		const agents = await detectInstalledAgents(tempDir);
+		expect(agents).toContain("codex");
+	});
+
+	test("detects copilot via .copilot dir even though install dir is .github", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-agents-"));
+
+		await mkdir(join(tempDir, ".copilot"));
+
+		const agents = await detectInstalledAgents(tempDir);
+		expect(agents).toContain("copilot");
 	});
 });
 

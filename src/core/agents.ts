@@ -5,6 +5,8 @@ import { expandTilde, isLocalSource } from "./paths.js";
 interface AgentEntry {
 	dir: string;
 	globalHome: string;
+	/** Directory to check in $HOME for auto-detection (when different from dir). */
+	detectDir?: string;
 }
 
 /**
@@ -14,11 +16,11 @@ interface AgentEntry {
  */
 export const AGENT_REGISTRY: Record<string, AgentEntry> = {
 	claude: { dir: ".claude", globalHome: "~/.claude" },
-	codex: { dir: ".codex", globalHome: "~/.codex" },
-	copilot: { dir: ".copilot", globalHome: "~/.copilot" },
+	codex: { dir: ".agents", globalHome: "~/.agents", detectDir: ".codex" },
+	copilot: { dir: ".github", globalHome: "~/.copilot", detectDir: ".copilot" },
 	cursor: { dir: ".cursor", globalHome: "~/.cursor" },
 	gemini: { dir: ".gemini", globalHome: "~/.gemini" },
-	windsurf: { dir: ".windsurf", globalHome: "~/.windsurf" },
+	windsurf: { dir: ".windsurf", globalHome: "~/.codeium/windsurf" },
 };
 
 function lookupAgent(target: string): AgentEntry {
@@ -73,7 +75,8 @@ export async function detectInstalledAgents(homeDir?: string): Promise<string[]>
 	const results = await Promise.all(
 		Object.entries(AGENT_REGISTRY).map(async ([name, entry]) => {
 			try {
-				const s = await stat(join(base, entry.dir));
+				const checkDir = entry.detectDir ?? entry.dir;
+				const s = await stat(join(base, checkDir));
 				return s.isDirectory() ? name : null;
 			} catch {
 				return null;
