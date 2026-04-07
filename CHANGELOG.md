@@ -1,3 +1,9 @@
+## v0.14.0 (2026-04-07)
+
+### Feat
+
+- auto-run make setup after version bumps via post-merge hook
+
 ## v0.13.1 (2026-04-06)
 
 ### Fix
