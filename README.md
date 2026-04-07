@@ -310,6 +310,8 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 
 ```bash
 bun install            # Install dependencies
+pre-commit install     # Install pre-commit hooks
+pre-commit install --hook-type post-merge  # Auto-rebuild after version bumps
 bun test               # Run tests
 bun run lint           # Biome linter
 bun run typecheck      # TypeScript strict mode

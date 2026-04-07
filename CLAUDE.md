@@ -53,6 +53,8 @@ skilltree/
 
 ```bash
 bun install
+pre-commit install
+pre-commit install --hook-type post-merge  # auto-rebuilds local binary after version bumps
 bun test
 bun run dev -- install
 bun build --compile src/cli.ts --outfile dist/skilltree
