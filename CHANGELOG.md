@@ -1,3 +1,9 @@
+## v0.14.1 (2026-04-14)
+
+### Fix
+
+- add codecov config and upload coverage on PRs
+
 ## v0.14.0 (2026-04-07)
 
 ### Feat
