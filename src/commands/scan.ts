@@ -123,6 +123,10 @@ function displayDetections(result: ScanResult): void {
 		}
 	} else if (result.undeclared.length > 0) {
 		console.log(`  Undeclared: ${pc.yellow(result.undeclared.join(", "))}`);
+	} else if (result.llmSuggestions?.length) {
+		for (const dep of result.llmSuggestions) {
+			console.log(`  ${pc.green("+")} ${pc.cyan(dep)}  ${dim("[llm]")}`);
+		}
 	}
 }
 
