@@ -1,3 +1,9 @@
+## v0.14.2 (2026-04-16)
+
+### Fix
+
+- display LLM suggestions in scan output when no undeclared deps found
+
 ## v0.14.1 (2026-04-14)
 
 ### Fix
