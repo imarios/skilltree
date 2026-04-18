@@ -61,4 +61,109 @@ describe("origin-manifest transitive resolution", () => {
 		expect(child?.tag).toBe("v1.0.0");
 		expect(child?.local).toBe(false);
 	});
+
+	test("falls through to conventional probe when origin has no skilltree.yaml", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[
+				{ path: "skills/parent", name: "parent", dependencies: ["child"] },
+				{ path: "skills/child", name: "child" },
+			],
+			"v1.0.0",
+			// No manifestYaml — origin has no skilltree.yaml
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/parent",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors).toEqual([]);
+		const child = result.entities.get("skill:child");
+		expect(child).toBeDefined();
+		expect(child?.path).toBe("skills/child");
+	});
+
+	test("falls through to conventional probe when origin skilltree.yaml doesn't declare the name", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		const originManifestYaml = [
+			"name: origin",
+			"dependencies:",
+			"  unrelated:",
+			"    local: ./skills/unrelated",
+			"",
+		].join("\n");
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[
+				{ path: "skills/parent", name: "parent", dependencies: ["child"] },
+				{ path: "skills/child", name: "child" },
+				{ path: "skills/unrelated", name: "unrelated" },
+			],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/parent",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors).toEqual([]);
+		const child = result.entities.get("skill:child");
+		expect(child).toBeDefined();
+		expect(child?.path).toBe("skills/child");
+	});
+
+	test("malformed origin skilltree.yaml falls through silently", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[
+				{ path: "skills/parent", name: "parent", dependencies: ["child"] },
+				{ path: "skills/child", name: "child" },
+			],
+			"v1.0.0",
+			"not: valid: yaml: [unclosed",
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/parent",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors).toEqual([]);
+		const child = result.entities.get("skill:child");
+		expect(child).toBeDefined();
+		expect(child?.path).toBe("skills/child");
+	});
 });
