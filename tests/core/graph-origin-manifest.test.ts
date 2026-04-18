@@ -209,4 +209,74 @@ describe("origin-manifest transitive resolution", () => {
 		expect(child).toBeDefined();
 		expect(child?.path).toBe("skills/child");
 	});
+
+	test("analysi-backend scenario: multi-level transitive chain through unconventional layout", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		// Origin layout mimics analysi-backend: skills under skills/source/<name>.
+		// task-builder depends on hypothesis-building-task AND task-naming.
+		// Origin's manifest declares both as local:.
+		const originManifestYaml = [
+			"name: analysi-backend",
+			"dependencies:",
+			"  task-builder:",
+			"    local: ./skills/source/task-builder",
+			"  hypothesis-building-task:",
+			"    local: ./skills/source/hypothesis-building-task",
+			"  task-naming:",
+			"    local: ./skills/source/task-naming",
+			"",
+		].join("\n");
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"analysi-backend",
+			[
+				{
+					path: "skills/source/task-builder",
+					name: "task-builder",
+					dependencies: ["hypothesis-building-task", "task-naming"],
+				},
+				{
+					path: "skills/source/hypothesis-building-task",
+					name: "hypothesis-building-task",
+				},
+				{ path: "skills/source/task-naming", name: "task-naming" },
+			],
+			"v2.0.0",
+			originManifestYaml,
+		);
+
+		// Consumer only declares task-builder; transitive deps should auto-resolve.
+		const consumerManifest: Manifest = {
+			dependencies: {
+				"task-builder": {
+					repo: `file://${originRepo}`,
+					path: "skills/source/task-builder",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors).toEqual([]);
+
+		const taskBuilder = result.entities.get("skill:task-builder");
+		const hyp = result.entities.get("skill:hypothesis-building-task");
+		const naming = result.entities.get("skill:task-naming");
+
+		expect(taskBuilder).toBeDefined();
+		expect(hyp).toBeDefined();
+		expect(naming).toBeDefined();
+
+		// All three share the origin repo and tag.
+		expect(taskBuilder?.tag).toBe("v2.0.0");
+		expect(hyp?.tag).toBe("v2.0.0");
+		expect(naming?.tag).toBe("v2.0.0");
+
+		// Transitive deps point at the unconventional paths from origin's manifest.
+		expect(hyp?.path).toBe("skills/source/hypothesis-building-task");
+		expect(naming?.path).toBe("skills/source/task-naming");
+	});
 });
