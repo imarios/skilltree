@@ -17,7 +17,7 @@ import {
 	pathExistsAtRef,
 	readFileAtRef,
 } from "./git.js";
-import { expandSources } from "./manifest.js";
+import { expandSources, parseManifest } from "./manifest.js";
 import { expandTilde, stripDotSlash } from "./paths.js";
 import { resolveIntersection } from "./resolver.js";
 
@@ -62,6 +62,9 @@ interface ResolutionState {
 	manifestKeys: Set<string>;
 	errors: string[];
 	warnings: string[];
+	/** depName -> origin repo URL, for informative error when a transitive dep
+	 * is only in origin's dev-dependencies (not exposed to downstream consumers). */
+	originDevDepHints: Map<string, string>;
 }
 
 export async function resolveAll(
@@ -82,6 +85,7 @@ export async function resolveAll(
 		]),
 		errors: [],
 		warnings: [],
+		originDevDepHints: new Map(),
 	};
 
 	await resolveRepoVersions(expanded, state);
@@ -374,6 +378,7 @@ async function resolveTransitive(
 	if (checkExistingResolution(depName, parentType, parentGroup, parentCompositeKey, state)) return;
 	if (await tryResolveFromManifest(depName, parentGroup, state)) return;
 	if (await tryResolveFromLocalSource(depName, parentGroup, parentCompositeKey, state)) return;
+	if (await tryResolveFromOriginManifest(depName, parentGroup, parentCompositeKey, state)) return;
 	if (await tryResolveFromSameRepo(depName, parentGroup, parentCompositeKey, state)) return;
 	addUnresolvedError(depName, parentCompositeKey, state);
 }
@@ -425,6 +430,66 @@ async function tryResolveFromLocalSource(
 	const parentEntity = state.entities.get(parentCompositeKey);
 	if (!parentEntity?.sourceDir) return false;
 	return resolveFromLocalSource(parentEntity.sourceDir, depName, parentGroup, state);
+}
+
+async function tryResolveFromOriginManifest(
+	depName: string,
+	parentGroup: DependencyGroup,
+	parentCompositeKey: string,
+	state: ResolutionState,
+): Promise<boolean> {
+	const parentEntity = state.entities.get(parentCompositeKey);
+	if (!parentEntity?.repo) return false;
+
+	const resolution = state.repoResolutions.get(parentEntity.repo);
+	if (!resolution) return false;
+
+	const ref = resolution.tag ?? resolution.commit;
+
+	let manifestContent: string;
+	try {
+		manifestContent = await readFileAtRef(resolution.cachePath, ref, "skilltree.yaml");
+	} catch {
+		return false;
+	}
+
+	let originManifest: Manifest;
+	try {
+		originManifest = parseManifest(manifestContent);
+	} catch {
+		return false;
+	}
+
+	const expanded = expandSources(originManifest);
+	const prodEntry = expanded.dependencies?.[depName];
+	const devEntry = expanded["dev-dependencies"]?.[depName];
+
+	if (!prodEntry) {
+		if (devEntry) {
+			state.originDevDepHints.set(depName, parentEntity.repo);
+		}
+		return false;
+	}
+
+	// Only `local:` entries are supported in this iteration. Cross-repo
+	// (repo:/source:-expanded-to-repo) entries in origin's manifest fall
+	// through to the conventional probe — full cross-repo transitive resolution
+	// is a planned follow-up.
+	if (!isLocalDependency(prodEntry)) {
+		return false;
+	}
+
+	const localPath = stripDotSlash(prodEntry.local);
+	const syntheticDep = {
+		repo: parentEntity.repo,
+		path: localPath,
+		...(prodEntry.type ? { type: prodEntry.type } : {}),
+		...(prodEntry.name ? { name: prodEntry.name } : {}),
+	};
+
+	const actualName = prodEntry.name ?? depName;
+	await resolveEntity(depName, actualName, syntheticDep, parentGroup, state);
+	return true;
 }
 
 async function tryResolveFromSameRepo(
