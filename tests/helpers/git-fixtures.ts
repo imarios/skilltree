@@ -16,6 +16,7 @@ export async function createTestRepo(
 		isAgent?: boolean;
 	}>,
 	tagVersion?: string,
+	manifestYaml?: string,
 ): Promise<string> {
 	const repoDir = join(baseDir, repoName);
 	await mkdir(repoDir, { recursive: true });
@@ -51,6 +52,10 @@ export async function createTestRepo(
 				`---\nname: ${skill.name}\n${deps}\n---\n\n# ${skill.name}\n\nSkill content here.\n`,
 			);
 		}
+	}
+
+	if (manifestYaml !== undefined) {
+		await writeFile(join(repoDir, "skilltree.yaml"), manifestYaml);
 	}
 
 	await git.add(".");
