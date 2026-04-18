@@ -135,6 +135,49 @@ describe("origin-manifest transitive resolution", () => {
 		expect(child?.path).toBe("skills/child");
 	});
 
+	test("does not expose origin dev-dependencies; error hints at the reason", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		// Origin declares `child` only as a dev-dependency.
+		const originManifestYaml = [
+			"name: origin",
+			"dependencies: {}",
+			"dev-dependencies:",
+			"  child:",
+			"    local: ./skills/source/child",
+			"",
+		].join("\n");
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[
+				{ path: "skills/source/parent", name: "parent", dependencies: ["child"] },
+				{ path: "skills/source/child", name: "child" },
+			],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/source/parent",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors.length).toBe(1);
+		const err = result.errors[0];
+		expect(err).toContain('declares dependency "child"');
+		expect(err).toContain("dev-dependency in origin");
+		expect(err).toContain("not exposed to downstream consumers");
+	});
+
 	test("malformed origin skilltree.yaml falls through silently", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
 

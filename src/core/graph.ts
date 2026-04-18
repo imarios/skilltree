@@ -537,9 +537,37 @@ function addUnresolvedError(
 	const parentEntity = state.entities.get(parentCompositeKey);
 	const parentName = parentEntity?.name ?? parentCompositeKey;
 	const parentSource = parentEntity?.repo ? `from ${parentEntity.repo}` : "local";
-	state.errors.push(
-		`${parentName} (${parentSource}) declares dependency "${depName}",\n     not found in: manifest, resolution context, or ${parentEntity?.repo ?? "local filesystem"}\n     Fix: skilltree add ${depName} --repo <repo-url> --path <path>`,
-	);
+	const devHintRepo = state.originDevDepHints.get(depName);
+
+	const lines = [
+		`${parentName} (${parentSource}) declares dependency "${depName}",`,
+		`     not found in:`,
+		`       - your skilltree.yaml`,
+		`       - already-resolved dependencies`,
+	];
+
+	if (parentEntity?.repo) {
+		lines.push(`       - origin's skilltree.yaml dependencies (${parentEntity.repo})`);
+		lines.push(`       - conventional paths in ${parentEntity.repo}`);
+	} else {
+		lines.push(`       - local filesystem`);
+	}
+
+	if (devHintRepo) {
+		lines.push("");
+		lines.push(
+			`     Note: "${depName}" is declared as a dev-dependency in origin's manifest (${devHintRepo}).`,
+		);
+		lines.push(`     dev-dependencies are not exposed to downstream consumers.`);
+		lines.push(
+			`     Fix: upstream should move it to \`dependencies\`, or declare ${depName} explicitly in your own skilltree.yaml.`,
+		);
+	} else {
+		lines.push("");
+		lines.push(`     Fix: skilltree add ${depName} --repo <repo-url> --path <path>`);
+	}
+
+	state.errors.push(lines.join("\n"));
 }
 
 async function resolveFromLocalSource(
