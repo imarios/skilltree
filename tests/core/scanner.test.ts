@@ -223,6 +223,48 @@ describe("scanFile", () => {
 		expect(result?.detected).not.toContain("dedicated");
 	});
 
+	test("filters common English words (stopwords) before 'skill'", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeSkill(
+			dir,
+			"my-skill",
+			[
+				"This is a companion skill that helps with related work.",
+				"The expected skill level is intermediate.",
+				"Pick the right skill for the job, or the following skill as a fallback.",
+				"Use the relevant skill when appropriate.",
+				"Apply the correct skill; the same skill may not fit everywhere.",
+			].join("\n"),
+		);
+
+		const result = await scanFile(filePath);
+		for (const word of [
+			"companion",
+			"expected",
+			"related",
+			"right",
+			"following",
+			"relevant",
+			"correct",
+			"same",
+		]) {
+			expect(result?.detected).not.toContain(word);
+		}
+	});
+
+	test("still detects real hyphenated skills alongside stopwords", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeSkill(
+			dir,
+			"my-skill",
+			"The companion skill is python-coding; use the python-coding skill for Python work.",
+		);
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).toContain("python-coding");
+		expect(result?.detected).not.toContain("companion");
+	});
+
 	test("filters short names (< 2 chars)", async () => {
 		const dir = await makeTempDir();
 		const filePath = await writeSkill(dir, "my-skill", "Use the x skill and use the ab skill.");

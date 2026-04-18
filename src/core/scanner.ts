@@ -27,6 +27,63 @@ const PATTERNS = [
  */
 const MIN_NAME_LENGTH = 2;
 
+/**
+ * Common English words that appear before "skill" in prose but are not skill
+ * names (e.g., "a companion skill", "the expected skill"). Matched only for
+ * single-token captures — hyphenated names like "python-coding" are never
+ * filtered since real skill IDs are conventionally hyphenated.
+ */
+const STOPWORDS = new Set([
+	"appropriate",
+	"best",
+	"certain",
+	"chosen",
+	"companion",
+	"complete",
+	"correct",
+	"critical",
+	"dedicated",
+	"different",
+	"entire",
+	"essential",
+	"expected",
+	"first",
+	"following",
+	"full",
+	"general",
+	"given",
+	"important",
+	"key",
+	"last",
+	"main",
+	"multiple",
+	"named",
+	"necessary",
+	"new",
+	"next",
+	"old",
+	"optional",
+	"other",
+	"particular",
+	"previous",
+	"primary",
+	"proper",
+	"related",
+	"relevant",
+	"required",
+	"right",
+	"same",
+	"selected",
+	"similar",
+	"single",
+	"specific",
+	"target",
+	"useful",
+	"various",
+	"whole",
+	"wrong",
+]);
+
 export interface ScanResult {
 	file: string;
 	name?: string;
@@ -67,10 +124,11 @@ export async function scanFile(filePath: string): Promise<ScanResult | null> {
 			if (match === null) break;
 			const depName = match[1];
 			if (depName && depName.length >= MIN_NAME_LENGTH) {
-				// Filter self-references
-				if (depName !== name) {
-					detected.add(depName);
-				}
+				// Filter self-references and common English stopwords (false positives
+				// like "a companion skill"). Hyphenated names bypass the stopword check.
+				if (depName === name) continue;
+				if (!depName.includes("-") && STOPWORDS.has(depName.toLowerCase())) continue;
+				detected.add(depName);
 			}
 		}
 	}
