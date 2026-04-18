@@ -167,10 +167,19 @@ Name-only list. Resolution details (repo, version) come from the consumer's `ski
 6. Build a DAG using **composite keys** (`type:name`)
 
 **Transitive resolution priority:**
-1. Manifest lookup (either group)
-2. Resolution context (already resolved by another chain)
-3. Same-repo default (look in the same repo as the parent entity)
-4. Error (with actionable fix message)
+1. Resolution context (already resolved by another chain)
+2. Manifest lookup (consumer's `skilltree.yaml`, either group)
+3. Local-source probe (when the parent is a local dep, look inside its source dir)
+4. Origin-manifest lookup (when the parent is a remote dep, read the origin repo's `skilltree.yaml` at the pinned ref and look up `dependencies[name]`; `dev-dependencies` are NOT exposed to downstream consumers)
+5. Same-repo conventional probe (`skills/<name>/SKILL.md`, `agents/<name>.md`, `<name>/SKILL.md`)
+6. Error (with actionable fix message)
+
+**Origin-manifest lookup details:**
+- Only `dependencies` from origin are consulted, never `dev-dependencies`. Dev-only deps stay upstream-private.
+- If origin's entry is `local: ./path/in/repo`, it is treated as a same-repo dep pinned to the parent's tag. This lets authors organize skills at any path (e.g., `skills/source/<name>/`) while keeping auto-resolution for consumers.
+- If origin's entry is `repo:`/`source:` (cross-repo), it currently falls through to the conventional probe -- full cross-repo transitive via origin manifest is a planned follow-up.
+- If origin's `skilltree.yaml` is missing, malformed, or doesn't declare the name, resolution falls through silently to the conventional probe.
+- If origin declared the name only under `dev-dependencies`, the error message includes a specific hint pointing at the upstream author.
 
 **Declaration order:** Manifest entries processed top to bottom, `dependencies` before `dev-dependencies`. First resolution of a name wins for same-name entities in different repos.
 
