@@ -1,3 +1,9 @@
+## v0.14.3 (2026-04-18)
+
+### Fix
+
+- filter common English stopwords from regex scan matches
+
 ## v0.14.2 (2026-04-16)
 
 ### Fix
