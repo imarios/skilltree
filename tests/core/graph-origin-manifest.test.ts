@@ -279,4 +279,57 @@ describe("origin-manifest transitive resolution", () => {
 		expect(hyp?.path).toBe("skills/source/hypothesis-building-task");
 		expect(naming?.path).toBe("skills/source/task-naming");
 	});
+
+	test("cross-repo: origin manifest's repo: entry resolves against a third-party repo", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		// Third-party repo: ships the transitively-needed skill at a conventional path.
+		const thirdPartyRepo = await createTestRepo(
+			tempDir,
+			"third-party",
+			[{ path: "skills/helper", name: "helper" }],
+			"v1.2.0",
+		);
+
+		// Origin repo: parent references `helper`; origin's manifest declares
+		// helper as a remote dep in the third-party repo.
+		const originManifestYaml = [
+			"name: origin",
+			"dependencies:",
+			"  helper:",
+			`    repo: file://${thirdPartyRepo}`,
+			"    path: skills/helper",
+			`    version: "*"`,
+			"",
+		].join("\n");
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[{ path: "skills/parent", name: "parent", dependencies: ["helper"] }],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/parent",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors).toEqual([]);
+
+		const helper = result.entities.get("skill:helper");
+		expect(helper).toBeDefined();
+		expect(helper?.repo).toBe(`file://${thirdPartyRepo}`);
+		expect(helper?.path).toBe("skills/helper");
+		expect(helper?.tag).toBe("v1.2.0");
+		expect(helper?.local).toBe(false);
+	});
 });
