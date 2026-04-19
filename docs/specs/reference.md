@@ -177,7 +177,8 @@ Name-only list. Resolution details (repo, version) come from the consumer's `ski
 **Origin-manifest lookup details:**
 - Only `dependencies` from origin are consulted, never `dev-dependencies`. Dev-only deps stay upstream-private.
 - If origin's entry is `local: ./path/in/repo`, it is treated as a same-repo dep pinned to the parent's tag. This lets authors organize skills at any path (e.g., `skills/source/<name>/`) while keeping auto-resolution for consumers.
-- If origin's entry is `repo:`/`source:` (cross-repo), it currently falls through to the conventional probe -- full cross-repo transitive via origin manifest is a planned follow-up.
+- If origin's entry is `repo:` or `source:` (cross-repo), the target repo is cloned and resolved on-demand under origin's declared constraint. Already-resolved repos are reused; a constraint conflict produces a `Cross-repo transitive constraint conflict` error.
+- If origin's `local:` path is absolute (e.g., from a `source:` alias expanding to a filesystem path on origin's author's machine), the entry is skipped silently since consumers cannot use such paths.
 - If origin's `skilltree.yaml` is missing, malformed, or doesn't declare the name, resolution falls through silently to the conventional probe.
 - If origin declared the name only under `dev-dependencies`, the error message includes a specific hint pointing at the upstream author.
 

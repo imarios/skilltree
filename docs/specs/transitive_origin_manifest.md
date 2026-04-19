@@ -1,14 +1,19 @@
 # Origin-Manifest Transitive Resolution
 
 +++
-version = "1.0"
-date = "2026-04-18"
+version = "1.1"
+date = "2026-04-19"
 status = "active"
 
 [[changelog]]
 version = "1.0"
 date = "2026-04-18"
 summary = "Initial spec — origin-manifest lookup for transitive deps (local: entries)."
+
+[[changelog]]
+version = "1.1"
+date = "2026-04-19"
+summary = "R7 shipped — cross-repo entries (repo:/source:) in origin's manifest are resolved on-demand."
 +++
 
 ## Problem Statement
@@ -29,7 +34,7 @@ Concrete failure: a consumer declares `task-builder` (pulled remotely from a rep
 
 - Exposing origin's `dev-dependencies` to downstream consumers (see R4).
 - Changing the resolver's behavior for **direct** dependencies — only transitive resolution is affected.
-- Full cross-repo transitive resolution via origin's manifest (entries in origin that use `repo:`/`source:` to point at third-party repos). See Future Work.
+- Origin-manifest lookup for **direct** dependencies (consumers dropping `path:` from their own entries and inheriting it from origin). Not yet motivated.
 
 ## Requirements
 
@@ -39,7 +44,8 @@ Concrete failure: a consumer declares `task-builder` (pulled remotely from a rep
 - **R4**: The resolver MUST NOT expose `dev-dependencies` declared in the origin manifest. If the transitive dep is only present in origin's `dev-dependencies`, resolution fails with an informative error (R5).
 - **R5**: When all lookup tiers fail, the error message MUST enumerate every location the resolver checked (consumer manifest, resolution context, origin manifest dependencies, conventional paths). If the dep was present in origin's `dev-dependencies`, the error MUST include a specific hint pointing at the upstream author.
 - **R6**: The convention-based same-repo probe (`skills/<name>`, `agents/<name>.md`, `<name>`) MUST still run after the origin-manifest lookup, preserving zero-config behavior for repos without a `skilltree.yaml`.
-- **R7**: Cross-repo entries (`repo:`/`source:`-expanded-to-`repo:`) in the origin's manifest MUST fall through to the conventional probe. They are explicitly deferred; see Future Work.
+- **R7**: Cross-repo entries (`repo:`/`source:`-expanded-to-`repo:`) in the origin's manifest MUST be resolved on-demand. If the target repo is not yet in `repoResolutions`, clone and resolve it using origin's constraint. If the repo is already resolved, the existing resolution MUST satisfy origin's constraint; otherwise emit a `Cross-repo transitive constraint conflict` error.
+- **R8**: An origin manifest entry whose `local:` path is absolute (starts with `/` or `~`, typically from a `source:` alias expanding to origin's author's filesystem) MUST be skipped silently. Consumers cannot use such paths; fall through to the conventional probe.
 
 ## Constraints
 
@@ -59,11 +65,13 @@ After this spec ships, `resolveTransitive()` checks:
 | Origin entry (in `dependencies:`) | Synthesized dep |
 |-----------------------------------|-----------------|
 | `local: ./path/in/repo` | `{repo: parentRepo, path: stripDotSlash(local), type?, name?}` pinned to parent's tag. |
-| `repo:` / `source:` → `repo:` | Falls through to conventional probe (deferred, see Future Work). |
+| `local:` with absolute path (from source→local) | Skipped silently (R8) — consumer can't use origin-author filesystem paths. |
+| `repo:` or `source:` → `repo:` | Resolved on-demand (R7). Existing repo reused when origin's constraint is satisfied; otherwise an intersection-conflict error. |
 
 ### Versioning
 
 - `local:` entries in origin resolve at the **parent's resolved tag**, consistent with "one repo = one version" (spec `decisions.md` §1). No separate version constraint from the origin manifest applies.
+- `repo:`/`source:` entries in origin resolve under origin's declared constraint (default `"*"`). If the target repo is already resolved from another chain, its existing version must satisfy origin's constraint; otherwise a cross-repo constraint conflict error fires.
 - The consumer's own `skilltree.yaml` is never mutated. Transitive resolution writes only to the in-memory resolution context and the lockfile.
 
 ## Error Handling
@@ -74,7 +82,10 @@ After this spec ships, `resolveTransitive()` checks:
 | Origin `skilltree.yaml` malformed | Silent fall-through | No crash; final error (if any) reflects convention miss |
 | Origin declares dep under `dependencies` with `local:` | Resolved from origin's path, pinned to parent's tag | Auto-resolved; no consumer action needed |
 | Origin declares dep under `dev-dependencies` only | Fall-through → error with dev-dep hint | Error names the upstream author as the fix site |
-| Origin declares dep with `repo:` (cross-repo) | Fall-through → convention probe → error | Deferred; consumer must declare explicitly |
+| Origin declares dep with `repo:` or `source:` (cross-repo) | Resolved on-demand against origin's constraint (R7) | Transparent to consumer |
+| Origin's cross-repo target conflicts with already-resolved version | Error: cross-repo transitive constraint conflict | Consumer declares the repo explicitly to align constraints |
+| Origin's cross-repo target is unreachable | Git operation failed error | Standard repo-fetch error |
+| Origin's `local:` path is absolute (from source→local) | Skipped silently, fall-through to conventional probe (R8) | Indistinguishable from today's behavior |
 | Name not declared anywhere in origin | Fall-through to convention probe | Standard behavior |
 
 Example error (all tiers failed, no dev-dep hint):
@@ -106,8 +117,15 @@ Example error (dev-dep hint):
 - [x] Fall-through: origin manifest present but doesn't declare the name → conventional probe runs.
 - [x] Fall-through: origin manifest is malformed YAML → no crash, conventional probe runs.
 - [x] Dev-dep rejection: origin declares name only in `dev-dependencies` → error includes the dev-dep hint.
-- [ ] Cross-repo via origin manifest (`repo:` entry) — deferred to Future Work.
-- [ ] `source:` alias via origin manifest — deferred to Future Work.
+- [x] Cross-repo via origin manifest (`repo:` entry): on-demand clone + resolve, pinned to origin's constraint.
+- [x] `source:` alias via origin manifest: expanded through origin's `sources:` map, then resolved cross-repo.
+- [x] Cross-repo version constraint: origin's constraint pins the tag when the repo is otherwise unconstrained.
+- [x] Cross-repo reuse: an already-resolved repo is reused when origin's constraint is satisfied.
+- [x] Cross-repo constraint conflict: clear error when origin's constraint can't be met by the existing resolution.
+- [x] Cross-repo unreachable target: clean `Git operation failed` error, no crash.
+- [x] Consumer pre-declaration wins: tier 2 (consumer manifest) precedes tier 4 (origin manifest).
+- [x] Absolute `local:` path (source→local on origin's machine): skipped silently, conventional probe runs.
+- [x] Multi-level chain: cross-repo transitive dep itself pulls in a grandchild via third-party's manifest.
 
 ## Open Questions
 
@@ -115,5 +133,5 @@ None.
 
 ## Future Work
 
-- **Cross-repo transitive via origin manifest (R7 follow-up).** Support `repo:` and `source:` entries in origin's `dependencies:`. Requires on-demand repo resolution (cloning a previously-unseen repo during transitive lookup) and constraint intersection with any pre-existing resolution for that repo. Currently these entries fall through to the conventional probe and then to an error.
 - **Origin-manifest lookup for direct deps.** Consumers could drop `path:` from their own entries and have it resolved from origin's manifest. Not yet motivated — direct deps generally know their own path.
+- **Transitive lockfile provenance.** `skilltree deps tree` and error messages currently show the direct parent that pulled in a cross-repo transitive. For deep chains, showing the full origin-manifest provenance (`parent → origin-manifest → third-party`) would aid debugging version conflicts.
