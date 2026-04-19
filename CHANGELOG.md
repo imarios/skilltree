@@ -1,3 +1,14 @@
+## v0.15.0 (2026-04-19)
+
+### Feat
+
+- informative error when transitive dep is upstream dev-only
+- resolve transitive deps via origin repo's skilltree.yaml
+
+### Refactor
+
+- rename analysi-backend references to nested-source-layout
+
 ## v0.14.3 (2026-04-18)
 
 ### Fix
