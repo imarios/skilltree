@@ -1,10 +1,21 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import simpleGit from "simple-git";
 import { resolveAll } from "../../src/core/graph.js";
 import type { Manifest } from "../../src/types.js";
 import { createTestRepo } from "../helpers/git-fixtures.js";
+
+async function addSecondTag(repoDir: string, tag: string, markerFile: string): Promise<void> {
+	// Make a trivial commit and tag it. Used for tests that need two tags
+	// on a non-bare working repo without going through the bare-fetch dance.
+	await writeFile(join(repoDir, markerFile), `tagged ${tag}\n`);
+	const git = simpleGit(repoDir);
+	await git.add(".");
+	await git.commit(`Update for ${tag}`);
+	await git.addTag(tag);
+}
 
 let tempDir: string;
 
@@ -331,5 +342,433 @@ describe("origin-manifest transitive resolution", () => {
 		expect(helper?.path).toBe("skills/helper");
 		expect(helper?.tag).toBe("v1.2.0");
 		expect(helper?.local).toBe(false);
+	});
+
+	test("cross-repo: origin's source: alias expands to a remote repo", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		const thirdPartyRepo = await createTestRepo(
+			tempDir,
+			"third-party",
+			[{ path: "skills/shared-skill", name: "shared-skill" }],
+			"v2.0.0",
+		);
+
+		// Origin uses a source alias that expands to the third-party repo URL.
+		const originManifestYaml = [
+			"name: origin",
+			"sources:",
+			`  tp: file://${thirdPartyRepo}`,
+			"dependencies:",
+			"  shared-skill:",
+			"    source: tp",
+			"    path: skills/shared-skill",
+			`    version: "*"`,
+			"",
+		].join("\n");
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[{ path: "skills/parent", name: "parent", dependencies: ["shared-skill"] }],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/parent",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors).toEqual([]);
+		const shared = result.entities.get("skill:shared-skill");
+		expect(shared).toBeDefined();
+		expect(shared?.repo).toBe(`file://${thirdPartyRepo}`);
+		expect(shared?.tag).toBe("v2.0.0");
+	});
+
+	test("cross-repo: version constraint from origin pins the tag", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		// Third-party repo with two tags — origin constrains to the older line.
+		const thirdPartyRepo = await createTestRepo(
+			tempDir,
+			"third-party",
+			[{ path: "skills/helper", name: "helper" }],
+			"v1.0.0",
+		);
+		// Add a second, incompatible major-version tag.
+		await addSecondTag(thirdPartyRepo, "v2.0.0", "v2-marker.txt");
+
+		const originManifestYaml = [
+			"name: origin",
+			"dependencies:",
+			"  helper:",
+			`    repo: file://${thirdPartyRepo}`,
+			"    path: skills/helper",
+			`    version: "^1.0.0"`,
+			"",
+		].join("\n");
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[{ path: "skills/parent", name: "parent", dependencies: ["helper"] }],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/parent",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors).toEqual([]);
+		const helper = result.entities.get("skill:helper");
+		expect(helper?.tag).toBe("v1.0.0");
+	});
+
+	test("cross-repo: reuses an already-resolved repo if origin's constraint is satisfied", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		// Third-party repo has two skills — consumer directly depends on one
+		// (which pins the repo's tag), origin transitively references the other.
+		const thirdPartyRepo = await createTestRepo(
+			tempDir,
+			"third-party",
+			[
+				{ path: "skills/direct", name: "direct" },
+				{ path: "skills/transitive", name: "transitive" },
+			],
+			"v1.0.0",
+		);
+
+		const originManifestYaml = [
+			"name: origin",
+			"dependencies:",
+			"  transitive:",
+			`    repo: file://${thirdPartyRepo}`,
+			"    path: skills/transitive",
+			`    version: "*"`,
+			"",
+		].join("\n");
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[{ path: "skills/parent", name: "parent", dependencies: ["transitive"] }],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/parent",
+					version: "*",
+				},
+				direct: {
+					repo: `file://${thirdPartyRepo}`,
+					path: "skills/direct",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors).toEqual([]);
+		const direct = result.entities.get("skill:direct");
+		const transitive = result.entities.get("skill:transitive");
+		expect(direct?.tag).toBe("v1.0.0");
+		expect(transitive?.tag).toBe("v1.0.0");
+		// Same cache path -> same repo resolution was reused, not re-cloned.
+		expect(direct?.repo).toBe(transitive?.repo);
+	});
+
+	test("cross-repo: constraint conflict with already-resolved repo produces clear error", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		// Third-party repo has both v1.0.0 and v2.0.0.
+		const thirdPartyRepo = await createTestRepo(
+			tempDir,
+			"third-party",
+			[
+				{ path: "skills/direct", name: "direct" },
+				{ path: "skills/transitive", name: "transitive" },
+			],
+			"v1.0.0",
+		);
+		await addSecondTag(thirdPartyRepo, "v2.0.0", "v2-marker.txt");
+
+		// Origin declares transitive at ^1.0.0, but the consumer pins the
+		// third-party repo to ^2.0.0 via its own `direct` dep. Incompatible.
+		const originManifestYaml = [
+			"name: origin",
+			"dependencies:",
+			"  transitive:",
+			`    repo: file://${thirdPartyRepo}`,
+			"    path: skills/transitive",
+			`    version: "^1.0.0"`,
+			"",
+		].join("\n");
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[{ path: "skills/parent", name: "parent", dependencies: ["transitive"] }],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/parent",
+					version: "*",
+				},
+				direct: {
+					repo: `file://${thirdPartyRepo}`,
+					path: "skills/direct",
+					version: "^2.0.0",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors.length).toBeGreaterThan(0);
+		const err = result.errors.join("\n");
+		expect(err).toContain("Cross-repo transitive constraint conflict");
+		expect(err).toContain("2.0.0");
+	});
+
+	test("cross-repo: unreachable third-party repo produces a clear error, not a crash", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		const bogusRepo = `file://${join(tempDir, "does-not-exist")}`;
+		const originManifestYaml = [
+			"name: origin",
+			"dependencies:",
+			"  ghost:",
+			`    repo: ${bogusRepo}`,
+			"    path: skills/ghost",
+			`    version: "*"`,
+			"",
+		].join("\n");
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[{ path: "skills/parent", name: "parent", dependencies: ["ghost"] }],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/parent",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors.length).toBeGreaterThan(0);
+		const err = result.errors.join("\n");
+		expect(err).toContain("Git operation failed");
+	});
+
+	test("cross-repo: consumer pre-declaration wins (tier 2 beats tier 4)", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		const thirdPartyRepo = await createTestRepo(
+			tempDir,
+			"third-party",
+			[
+				{ path: "skills/helper", name: "helper" },
+				{ path: "different/path/helper-v2", name: "helper" },
+			],
+			"v1.0.0",
+		);
+
+		// Origin points helper at skills/helper.
+		const originManifestYaml = [
+			"name: origin",
+			"dependencies:",
+			"  helper:",
+			`    repo: file://${thirdPartyRepo}`,
+			"    path: skills/helper",
+			`    version: "*"`,
+			"",
+		].join("\n");
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[{ path: "skills/parent", name: "parent", dependencies: ["helper"] }],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		// Consumer overrides path — their declaration must win over origin's.
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/parent",
+					version: "*",
+				},
+				helper: {
+					repo: `file://${thirdPartyRepo}`,
+					path: "different/path/helper-v2",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors).toEqual([]);
+		const helper = result.entities.get("skill:helper");
+		expect(helper?.path).toBe("different/path/helper-v2");
+	});
+
+	test("cross-repo: absolute local: path from source→local expansion is skipped silently", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		// Origin's manifest has a source alias that points at an absolute
+		// filesystem path (e.g., origin author's machine). After expansion this
+		// becomes a LocalDep with an absolute `local:` path, which consumers
+		// cannot use — resolver must skip and fall through to the convention probe.
+		const originManifestYaml = [
+			"name: origin",
+			"sources:",
+			"  mine: /does/not/exist/on/consumer",
+			"dependencies:",
+			"  child:",
+			"    source: mine",
+			"    path: skills/child",
+			"",
+		].join("\n");
+
+		// Origin also ships the skill at the conventional path so the fall-through works.
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[
+				{ path: "skills/parent", name: "parent", dependencies: ["child"] },
+				{ path: "skills/child", name: "child" },
+			],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/parent",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors).toEqual([]);
+		const child = result.entities.get("skill:child");
+		expect(child).toBeDefined();
+		// Resolved via the conventional probe, not the absolute local: path.
+		expect(child?.path).toBe("skills/child");
+	});
+
+	test("cross-repo: multi-level chain resolves recursively", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		// Third-party repo's skill itself declares a frontmatter dep,
+		// and the third-party's skilltree.yaml says where to find it
+		// (another skill in the same third-party repo at a nested path).
+		const thirdPartyManifestYaml = [
+			"name: third-party",
+			"dependencies:",
+			"  grandchild:",
+			"    local: ./skills/source/grandchild",
+			"",
+		].join("\n");
+
+		const thirdPartyRepo = await createTestRepo(
+			tempDir,
+			"third-party",
+			[
+				{ path: "skills/helper", name: "helper", dependencies: ["grandchild"] },
+				{ path: "skills/source/grandchild", name: "grandchild" },
+			],
+			"v1.0.0",
+			thirdPartyManifestYaml,
+		);
+
+		// Origin's manifest cross-references third-party for `helper`.
+		const originManifestYaml = [
+			"name: origin",
+			"dependencies:",
+			"  helper:",
+			`    repo: file://${thirdPartyRepo}`,
+			"    path: skills/helper",
+			`    version: "*"`,
+			"",
+		].join("\n");
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[{ path: "skills/parent", name: "parent", dependencies: ["helper"] }],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				parent: {
+					repo: `file://${originRepo}`,
+					path: "skills/parent",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors).toEqual([]);
+		const parent = result.entities.get("skill:parent");
+		const helper = result.entities.get("skill:helper");
+		const grandchild = result.entities.get("skill:grandchild");
+
+		expect(parent).toBeDefined();
+		expect(helper).toBeDefined();
+		expect(grandchild).toBeDefined();
+
+		// grandchild came from third-party repo via third-party's manifest
+		expect(grandchild?.repo).toBe(`file://${thirdPartyRepo}`);
+		expect(grandchild?.path).toBe("skills/source/grandchild");
 	});
 });

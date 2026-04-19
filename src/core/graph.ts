@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import semver from "semver";
 import simpleGit from "simple-git";
 import type {
 	Dependency,
@@ -471,25 +472,70 @@ async function tryResolveFromOriginManifest(
 		return false;
 	}
 
-	// Only `local:` entries are supported in this iteration. Cross-repo
-	// (repo:/source:-expanded-to-repo) entries in origin's manifest fall
-	// through to the conventional probe — full cross-repo transitive resolution
-	// is a planned follow-up.
-	if (!isLocalDependency(prodEntry)) {
+	if (isLocalDependency(prodEntry)) {
+		// Absolute `local:` paths come from `source:` aliases pointing at
+		// origin's author's filesystem. Consumers have no such path.
+		if (!isRelativeLocalPath(prodEntry.local)) return false;
+
+		const localPath = stripDotSlash(prodEntry.local);
+		const syntheticDep = {
+			repo: parentEntity.repo,
+			path: localPath,
+			...(prodEntry.type ? { type: prodEntry.type } : {}),
+			...(prodEntry.name ? { name: prodEntry.name } : {}),
+		};
+
+		const actualName = prodEntry.name ?? depName;
+		await resolveEntity(depName, actualName, syntheticDep, parentGroup, state);
+		return true;
+	}
+
+	if (isRemoteDependency(prodEntry)) {
+		const ok = await ensureRepoResolvedLazy(
+			prodEntry.repo,
+			prodEntry.version ?? "*",
+			parentEntity.repo,
+			state,
+		);
+		if (!ok) {
+			// Error already added by the helper; returning true short-circuits
+			// the remaining tiers so we don't emit a second, redundant error.
+			return true;
+		}
+
+		const actualName = prodEntry.name ?? depName;
+		await resolveEntity(depName, actualName, prodEntry, parentGroup, state);
+		return true;
+	}
+
+	return false;
+}
+
+function isRelativeLocalPath(path: string): boolean {
+	return !path.startsWith("/") && !path.startsWith("~");
+}
+
+async function ensureRepoResolvedLazy(
+	repo: string,
+	constraint: string,
+	originRepo: string,
+	state: ResolutionState,
+): Promise<boolean> {
+	const existing = state.repoResolutions.get(repo);
+	if (existing) {
+		if (constraint === "*") return true;
+		// Tagless resolution — can't validate a constraint against no version.
+		// Accept per today's behavior (tagless repos already warn during resolveOneRepo).
+		if (!existing.version) return true;
+		if (semver.satisfies(existing.version, constraint)) return true;
+		state.errors.push(
+			`Error: Cross-repo transitive constraint conflict\n\n  Origin ${originRepo} declares ${repo} with constraint "${constraint}",\n  but ${repo} is already resolved to ${existing.version}${existing.tag ? ` (tag ${existing.tag})` : ""} from another chain.\n\nFix: Align constraints by declaring ${repo} explicitly in your skilltree.yaml.`,
+		);
 		return false;
 	}
 
-	const localPath = stripDotSlash(prodEntry.local);
-	const syntheticDep = {
-		repo: parentEntity.repo,
-		path: localPath,
-		...(prodEntry.type ? { type: prodEntry.type } : {}),
-		...(prodEntry.name ? { name: prodEntry.name } : {}),
-	};
-
-	const actualName = prodEntry.name ?? depName;
-	await resolveEntity(depName, actualName, syntheticDep, parentGroup, state);
-	return true;
+	await resolveOneRepo(repo, [{ name: `<transitive via ${originRepo}>`, constraint }], state);
+	return state.repoResolutions.has(repo);
 }
 
 async function tryResolveFromSameRepo(
