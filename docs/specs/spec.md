@@ -60,15 +60,19 @@ The lockfile IS the resolution cache. Once resolved, future installs skip resolu
 ### Two kinds of dependency gaps
 
 **Gap 1 -- "Frontmatter declares a dep that can't be resolved"**
-Caught at `skilltree install` time. Resolution tries: manifest → resolution context → same-repo → error. All missing deps reported at once.
+Caught at `skilltree install` time. Resolution tries: resolution context → consumer manifest → local-source probe → origin-manifest lookup → same-repo conventional probe → error. All missing deps reported at once.
 
 ```
 Error: 2 unresolved dependencies
 
-  1. code-review declares dependency "linting"
-     not found in: manifest, resolution context, or same repo
-  2. code-review declares dependency "testing"
-     not found in: manifest, resolution context, or same repo
+  1. code-review (from github.com/org/repo) declares dependency "linting",
+     not found in:
+       - your skilltree.yaml
+       - already-resolved dependencies
+       - origin's skilltree.yaml dependencies (github.com/org/repo)
+       - conventional paths in github.com/org/repo
+  2. code-review (from github.com/org/repo) declares dependency "testing",
+     not found in: (same locations as above)
 ```
 
 **Gap 2 -- "Skill body references a skill not declared in frontmatter"**
@@ -230,12 +234,14 @@ The user controls whether `src_install_path` is tracked in git (committed, like 
 
 When skill A declares `dependencies: [B]` in its SKILL.md frontmatter, skilltree resolves B using this priority:
 
-1. **Manifest** -- B is in `skilltree.yaml`
-2. **Resolution context** -- B was already resolved by another chain
-3. **Same-origin default** -- B exists in the same origin as A (same git repo for remote deps, same local source directory for local-source deps; standalone `local:` deps skip this step). See [global.md](global.md) for local source details.
-4. **Error** -- actionable message with fix command
+1. **Resolution context** -- B was already resolved by another chain
+2. **Consumer manifest** -- B is in `skilltree.yaml` (either group)
+3. **Local-source probe** -- A came from a local source directory; look for B inside it. See [global.md](global.md) for local source details.
+4. **Origin-manifest lookup** -- A came from a remote repo; read the origin's `skilltree.yaml` at the pinned ref and look up B in `dependencies` (NOT `dev-dependencies`). If found as a `local:` entry, treat B as a same-repo dep pinned to A's tag. Lets authors organize repos without following the `skills/<name>/` convention.
+5. **Same-repo conventional probe** -- A came from a remote repo; probe `skills/<name>/SKILL.md`, `agents/<name>.md`, or `<name>/SKILL.md` at A's repo root.
+6. **Error** -- actionable message listing every location checked, with a fix command.
 
-The resolution context grows during graph construction, making resolution order-independent. Manifest entries processed in declaration order (`dependencies` before `dev-dependencies`).
+The resolution context grows during graph construction, making resolution order-independent. Manifest entries processed in declaration order (`dependencies` before `dev-dependencies`). See [reference.md](reference.md) for the full origin-manifest lookup semantics (cross-repo entries fall through; malformed origin manifests fall through silently).
 
 **Error collection:** Resolution does NOT halt on the first error. It continues through the entire graph, collecting all unresolvable dependencies, then reports them all at once. This lets the user fix all missing cross-repo deps in one pass instead of iterating through install-fail-fix cycles.
 

@@ -96,6 +96,8 @@ dependencies:
 
 skilltree resolves `code-review`, discovers it needs `testing` and `linting`, resolves those too, and installs all three.
 
+Transitive resolution works across any repo layout: if an origin repo ships its own `skilltree.yaml`, skilltree reads it to locate co-located skills (even nested under `skills/source/<name>/` or other custom paths). Repos without a manifest still resolve via the conventional `skills/<name>/` layout.
+
 ### Local Dependencies
 
 For skill authors iterating on a skill alongside the code it teaches. Local deps are **symlinked** — edits reflected instantly, no reinstall loop:
