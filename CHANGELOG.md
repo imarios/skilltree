@@ -1,3 +1,9 @@
+## v0.16.0 (2026-04-19)
+
+### Feat
+
+- cross-repo transitive resolution via origin manifest (R7)
+
 ## v0.15.0 (2026-04-19)
 
 ### Feat
