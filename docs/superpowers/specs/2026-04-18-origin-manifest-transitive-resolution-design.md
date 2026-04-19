@@ -13,9 +13,9 @@ agents/<name>.md
 <name>/SKILL.md
 ```
 
-Repos that organize skills differently -- e.g., `skills/source/<name>/` and `skills/dev/<name>/` as in `analysi-backend` -- cannot be auto-resolved transitively. Consumers must re-declare every transitive dependency in their own `skilltree.yaml`, defeating the point of transitive resolution.
+Repos that organize skills differently -- e.g., nesting them under `skills/source/<name>/` and `skills/dev/<name>/` -- cannot be auto-resolved transitively. Consumers must re-declare every transitive dependency in their own `skilltree.yaml`, defeating the point of transitive resolution.
 
-Concrete failure case: a consumer declares `task-builder` (pulled remotely from `analysi-backend`). `task-builder`'s frontmatter lists `hypothesis-building-task` as a dep. `analysi-backend` stores that skill at `skills/source/hypothesis-building-task/`, so the same-repo probe misses it. Install fails. The consumer has to manually add `hypothesis-building-task` to their own manifest, pointing at `skills/source/hypothesis-building-task` -- a path they shouldn't need to know about.
+Concrete failure case: a consumer declares `task-builder` (pulled remotely from a repo with a nested layout). `task-builder`'s frontmatter lists `hypothesis-building-task` as a dep. The origin repo stores that skill at `skills/source/hypothesis-building-task/`, so the same-repo probe misses it. Install fails. The consumer has to manually add `hypothesis-building-task` to their own manifest, pointing at `skills/source/hypothesis-building-task` -- a path they shouldn't need to know about.
 
 ## Goal
 
@@ -128,7 +128,7 @@ Unit tests, all against fixture repos:
 7. **Malformed `skilltree.yaml` in origin** -- silent fall-through, no crash.
 8. **Version inheritance** -- `local:` entry's synthesized dep is pinned to the parent's resolved tag, not `*`.
 
-Integration test: reproduce the `analysi-backend` scenario end-to-end -- consumer declares `task-builder` remotely, transitive `hypothesis-building-task` resolves from origin's `local:` declaration without requiring the consumer to add it.
+Integration test: reproduce the nested-source-layout scenario end-to-end -- consumer declares `task-builder` remotely, transitive `hypothesis-building-task` resolves from origin's `local:` declaration without requiring the consumer to add it.
 
 ## Open questions
 

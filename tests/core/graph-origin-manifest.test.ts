@@ -210,14 +210,14 @@ describe("origin-manifest transitive resolution", () => {
 		expect(child?.path).toBe("skills/child");
 	});
 
-	test("analysi-backend scenario: multi-level transitive chain through unconventional layout", async () => {
+	test("nested source-layout: multi-level transitive chain through unconventional layout", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
 
-		// Origin layout mimics analysi-backend: skills under skills/source/<name>.
+		// Origin layout nests skills under skills/source/<name> instead of skills/<name>.
 		// task-builder depends on hypothesis-building-task AND task-naming.
 		// Origin's manifest declares both as local:.
 		const originManifestYaml = [
-			"name: analysi-backend",
+			"name: nested-source-layout",
 			"dependencies:",
 			"  task-builder:",
 			"    local: ./skills/source/task-builder",
@@ -230,7 +230,7 @@ describe("origin-manifest transitive resolution", () => {
 
 		const originRepo = await createTestRepo(
 			tempDir,
-			"analysi-backend",
+			"nested-source-layout",
 			[
 				{
 					path: "skills/source/task-builder",

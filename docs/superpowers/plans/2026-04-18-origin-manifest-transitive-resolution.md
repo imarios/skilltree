@@ -600,7 +600,7 @@ git commit -m "feat: informative error when transitive dep is upstream dev-only"
 
 ---
 
-## Task 6: Integration test for the analysi-backend-style scenario
+## Task 6: Integration test for the nested-source-layout-style scenario
 
 **Files:**
 - Modify: `tests/core/graph-origin-manifest.test.ts`
@@ -610,14 +610,14 @@ git commit -m "feat: informative error when transitive dep is upstream dev-only"
 Append to `tests/core/graph-origin-manifest.test.ts`:
 
 ```typescript
-	test("analysi-backend scenario: multi-level transitive chain through unconventional layout", async () => {
+	test("nested-source-layout scenario: multi-level transitive chain through unconventional layout", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
 
-		// Origin layout mimics analysi-backend: skills under skills/source/<name>.
+		// Origin layout mimics nested-source-layout: skills under skills/source/<name>.
 		// task-builder depends on hypothesis-building-task AND task-naming.
 		// Origin's manifest declares both as local:.
 		const originManifestYaml = [
-			"name: analysi-backend",
+			"name: nested-source-layout",
 			"dependencies:",
 			"  task-builder:",
 			"    local: ./skills/source/task-builder",
@@ -630,7 +630,7 @@ Append to `tests/core/graph-origin-manifest.test.ts`:
 
 		const originRepo = await createTestRepo(
 			tempDir,
-			"analysi-backend",
+			"nested-source-layout",
 			[
 				{
 					path: "skills/source/task-builder",
@@ -690,7 +690,7 @@ Expected: All six tests PASS (includes the new integration test).
 
 ```bash
 git add tests/core/graph-origin-manifest.test.ts
-git commit -m "test: end-to-end analysi-backend-style transitive resolution"
+git commit -m "test: end-to-end nested-source-layout-style transitive resolution"
 ```
 
 ---
@@ -751,7 +751,7 @@ git commit -m "docs: document origin-manifest transitive resolution"
 Run: `bun run build` (if this repo uses `make`, run `make build` instead — check `package.json` scripts first).
 Expected: Fresh `dist/skilltree` binary.
 
-- [ ] **Step 2: Simulate a consumer of analysi-backend**
+- [ ] **Step 2: Simulate a consumer of nested-source-layout**
 
 Create a throwaway directory outside the repo:
 
