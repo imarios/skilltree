@@ -428,4 +428,50 @@ describe("addCommand", () => {
 		const manifest = await readManifest(dir);
 		expect((manifest.dependencies?.["my-skill"] as { version: string }).version).toBe("^2.0.0");
 	});
+
+	test("prints hint to run `skilltree install` after adding a project dep", async () => {
+		const dir = await setup();
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (msg: string) => logs.push(msg);
+		try {
+			await addCommand(
+				"task-builder",
+				{ repo: "github.com/company/skills", path: "skills/task-builder", version: "^2.0.0" },
+				dir,
+			);
+		} finally {
+			console.log = originalLog;
+		}
+
+		// Must tell the user the next step — adding to the manifest alone
+		// does not install the dep (lockfile is the source of truth for list/install).
+		const joined = logs.join("\n");
+		expect(joined).toContain("skilltree install");
+		expect(joined).not.toContain("--global");
+	});
+
+	test("prints hint to run `skilltree install --global` after adding a global dep", async () => {
+		const dir = await setup();
+		const localPath = join(dir, "skills", "my-skill");
+		await mkdir(localPath, { recursive: true });
+		await writeFile(join(localPath, "SKILL.md"), "---\nname: my-skill\n---\n");
+
+		const globalDir = join(dir, "global-config");
+		const { writeGlobalManifest } = await import("../../src/core/manifest.js");
+		await writeGlobalManifest({ dependencies: {} }, globalDir);
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (msg: string) => logs.push(msg);
+		try {
+			await addCommand("my-skill", { local: localPath, global: true, globalDir }, dir);
+		} finally {
+			console.log = originalLog;
+		}
+
+		const joined = logs.join("\n");
+		expect(joined).toContain("skilltree install --global");
+	});
 });
