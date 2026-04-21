@@ -1,3 +1,19 @@
+## v0.17.0 (2026-04-21)
+
+### Feat
+
+- **boron**: origin-manifest resolution for direct deps
+
+### Fix
+
+- **boron-phase-5**: 5-round refinement of the systemic hardening
+- **boron**: harden origin-manifest resolution from 5 rounds of review
+
+### Refactor
+
+- **boron-phase-5**: round 6/7 refinement — coverage + type safety
+- **boron**: phase 5 — systemic hardening from review patterns
+
 ## v0.16.0 (2026-04-19)
 
 ### Feat
