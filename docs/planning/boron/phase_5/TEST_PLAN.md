@@ -25,7 +25,7 @@ Plus negative cases:
 |-----|-------------|----------|
 | `{repo: "github.com/x/y"}` | any | `"github.com/x/y"` |
 | `{source: "vibes"}` | `{vibes: "github.com/x/y"}` | `"github.com/x/y"` |
-| `{source: "vibes"}` | `{}` (alias missing) | `"source:vibes"` |
+| `{source: "vibes"}` | `{}` (alias missing) | `"unresolved source alias: vibes"` (unspoofable sentinel — no git URL begins with whitespace) |
 | `{source: "mine"}` + path `foo` | `{mine: "~/skills"}` | `"local:<expanded>/foo"` |
 | `{local: "~/skills/foo"}` | any | `"local:<expanded>/foo"` (matches the source-aliased form above) |
 | `{}` | any | `"local"` |

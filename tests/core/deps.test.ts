@@ -13,9 +13,14 @@ describe("canonicalSource", () => {
 		expect(canonicalSource(dep, { vibes: "github.com/x/y" })).toBe("github.com/x/y");
 	});
 
-	test("source alias with no entry in sources returns `source:<alias>` sentinel", () => {
+	test("source alias with no entry in sources returns unspoofable sentinel (not collidable with a repo URL)", () => {
 		const dep = { source: "unknown", path: "p" } as unknown as Dependency;
-		expect(canonicalSource(dep, {})).toBe("source:unknown");
+		const key = canonicalSource(dep, {});
+		// Sentinel starts with whitespace — no git URL scheme does, so collision with
+		// a user-authored `repo:` value is impossible while remaining human-readable.
+		expect(key).toBe("unresolved source alias: unknown");
+		expect(canonicalSource({ repo: "source:unknown", path: "p" })).toBe("source:unknown");
+		expect(canonicalSource({ repo: "source:unknown", path: "p" })).not.toBe(key);
 	});
 
 	test("source alias to local path produces `local:<absolute>/<path>`", () => {
@@ -49,6 +54,32 @@ describe("canonicalSource", () => {
 	test("trailing slash in source-aliased local path is normalized away", () => {
 		const dep = { source: "mine", path: "foo" } as unknown as Dependency;
 		expect(canonicalSource(dep, { mine: "~/skills-root/" })).toBe(
+			`local:${homedir()}/skills-root/foo`,
+		);
+	});
+
+	test("path-side trailing slash in source-aliased form is normalized", () => {
+		const dep = { source: "mine", path: "foo/" } as unknown as Dependency;
+		expect(canonicalSource(dep, { mine: "~/skills-root" })).toBe(
+			`local:${homedir()}/skills-root/foo`,
+		);
+	});
+
+	test("local: dep with trailing slash unifies with the equivalent source-aliased form", () => {
+		const localDep: Dependency = { local: "~/skills-root/foo/" };
+		const sourceDep = { source: "mine", path: "foo" } as unknown as Dependency;
+		expect(canonicalSource(localDep)).toBe(canonicalSource(sourceDep, { mine: "~/skills-root" }));
+	});
+
+	test("local: dep with duplicate slashes unifies with the clean form", () => {
+		const dirty: Dependency = { local: "~/skills-root//foo" };
+		const clean: Dependency = { local: "~/skills-root/foo" };
+		expect(canonicalSource(dirty)).toBe(canonicalSource(clean));
+	});
+
+	test("source path starting with / doesn't produce a double slash", () => {
+		const dep = { source: "mine", path: "/foo" } as unknown as Dependency;
+		expect(canonicalSource(dep, { mine: "~/skills-root" })).toBe(
 			`local:${homedir()}/skills-root/foo`,
 		);
 	});

@@ -138,11 +138,11 @@ describe("addCommand", () => {
 		expect(dep && "path" in dep).toBe(false);
 	});
 
-	test("preserve-mode: overwrite keeps user-authored orthogonal fields (force_path, name)", async () => {
+	test("preserve-mode: overwrite keeps force_path and name (orthogonal user metadata)", async () => {
 		const dir = await setup();
-		// Seed with every orthogonal field the convention covers. CLI-driven
-		// fields (repo, path, version) are changed; orthogonal ones should
-		// survive the overwrite.
+		// Seed with orthogonal fields. CLI-driven fields (repo, path, version)
+		// change on re-add; orthogonal metadata survives because the CLI has
+		// no way to explicitly set them.
 		await writeFile(
 			join(dir, "skilltree.yaml"),
 			[

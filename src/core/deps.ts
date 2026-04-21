@@ -1,5 +1,5 @@
 import type { Dependency } from "../types.js";
-import { expandTilde, isLocalSource } from "./paths.js";
+import { canonicalPath, expandTilde, isLocalSource } from "./paths.js";
 
 /**
  * Canonical identity of a dependency's source for semantic equality.
@@ -20,7 +20,8 @@ import { expandTilde, isLocalSource } from "./paths.js";
  *
  * Contract:
  * - Remote (repo or alias-to-URL) → the URL.
- * - Remote alias with no entry in `sources` → `"source:<alias>"`.
+ * - Remote alias with no entry in `sources` → `"unresolved source alias: <alias>"`
+ *   (unspoofable — no real git URL begins with whitespace).
  * - Local path (direct or alias-to-local-path) → `"local:<expanded-absolute-path>"`.
  * - Any unrecognized / empty shape → `"local"`.
  */
@@ -34,18 +35,21 @@ export function canonicalSource(
 
 	if ("source" in dep && dep.source) {
 		const resolved = sources?.[dep.source];
-		if (!resolved) return `source:${dep.source}`;
+		// Unspoofable sentinel — no git URL scheme begins with spaces, so a
+		// user-authored repo URL can't collide with this fallback, yet the
+		// string is human-readable for warning messages.
+		if (!resolved) return `unresolved source alias: ${dep.source}`;
 		if (isLocalSource(resolved)) {
-			const base = expandTilde(resolved).replace(/\/$/, "");
+			const base = expandTilde(resolved);
 			const path = "path" in dep && typeof dep.path === "string" ? dep.path : "";
 			const full = path && path !== "." ? `${base}/${path}` : base;
-			return `local:${full}`;
+			return `local:/${canonicalPath(full)}`;
 		}
 		return resolved;
 	}
 
 	if ("local" in dep && dep.local) {
-		return `local:${expandTilde(dep.local)}`;
+		return `local:/${canonicalPath(expandTilde(dep.local))}`;
 	}
 
 	return "local";

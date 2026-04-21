@@ -147,8 +147,13 @@ function checkOverwrite(
 /**
  * Fields that belong to the user, not the CLI. When a user re-adds an
  * existing entry, these survive the overwrite unless the CLI has an
- * opinion (e.g., `--type`). Mutex / identity fields (repo, source, local,
- * path, version) are NOT preserved — CLI intent wins for those.
+ * opinion. Mutex / identity fields (repo, source, local, path, version)
+ * are NOT preserved — CLI intent wins for those.
+ *
+ * `name` is preserved because it's orthogonal YAML-key aliasing that no
+ * CLI flag sets. Users who want to remove an alias hand-edit YAML —
+ * the common case (re-add to bump version or path) must not silently
+ * drop their alias mapping.
  */
 const PRESERVED_FIELDS = ["force_path", "name"] as const;
 

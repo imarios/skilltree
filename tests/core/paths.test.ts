@@ -121,4 +121,27 @@ describe("canonicalPath", () => {
 	test("leading dotted directory (.claude) is preserved — not confused with ./", () => {
 		expect(canonicalPath(".claude/foo")).toBe(".claude/foo");
 	});
+
+	test.each([
+		["a/./b", "a/b"],
+		["/Users/x/./foo", "Users/x/foo"],
+		["skills/./foo/./bar", "skills/foo/bar"],
+		["a/./", "a"],
+	])("embedded /./ segments are stripped: canonicalPath(%j) === %j", (input, expected) => {
+		expect(canonicalPath(input)).toBe(expected);
+	});
+
+	test("/.. segments are preserved (callers guard via hasDotDotSegment)", () => {
+		expect(canonicalPath("a/../b")).toBe("a/../b");
+	});
+
+	test.each([
+		[".", ""],
+		["./", ""],
+		["/", ""],
+		["./.", ""],
+		["././", ""],
+	])("all root forms canonicalize to empty: canonicalPath(%j) === %j", (input, expected) => {
+		expect(canonicalPath(input)).toBe(expected);
+	});
 });

@@ -3,6 +3,12 @@ import { homedir } from "node:os";
 /**
  * Replace a leading `~` with the user's home directory.
  * If the path doesn't start with `~`, return it unchanged.
+ *
+ * Note: only `~` and `~/` are expanded. `~user` and `~user/...` (another
+ * user's home directory) are deliberately unsupported — Node has no
+ * built-in for it and skilltree is a single-user dev tool. Both forms
+ * pass through as literal strings; downstream `stat()` calls fail with a
+ * clear "Local path does not exist" error echoing the original input.
  */
 export function expandTilde(p: string): string {
 	if (p === "~") return homedir();
@@ -47,25 +53,34 @@ export function stripDotSlash(p: string): string {
 /**
  * Canonical form of a path for semantic equality comparison.
  *
- * Git tree paths are root-relative; several surface forms refer to the same
- * location (`./foo` vs `foo` vs `/foo`, trailing slashes, duplicate slashes,
- * repeated `./` prefixes). `canonicalPath` produces a single comparison key.
+ * Normalizes any path-shaped string — git tree paths (`./foo`, `foo`,
+ * `skills/foo`) and absolute filesystem paths (`/Users/...`, `~/...` after
+ * `expandTilde`) alike. Several surface forms refer to the same location
+ * (leading `./`, trailing slashes, duplicate slashes, repeated `./` prefixes);
+ * `canonicalPath` produces a single comparison key.
  *
  * Contract:
  * - Strip ALL leading `./` sequences.
- * - Strip leading `/` (git tree paths are root-relative).
+ * - Strip leading `/` (lossy for absolute paths — callers that need the
+ *   leading `/` back must re-prepend it; see `canonicalSource` in
+ *   `src/core/deps.ts` for the pattern).
  * - Collapse repeated `/` to a single `/`.
  * - Trim trailing `/`.
  * - Does NOT resolve `..` segments (callers that care use `hasDotDotSegment`).
- * - Does NOT touch path separators (`\`); we target POSIX git paths.
+ * - Does NOT touch path separators (`\`); we target POSIX paths.
  *
  * Use this wherever you need to ask "do these two paths refer to the same
- * location?" Do NOT use for paths that will be fed back to git or the
- * filesystem — those keep their original form.
+ * location?" Do NOT feed the result back to git or the filesystem without
+ * re-adding the leading `/` when the input was absolute.
  */
 export function canonicalPath(p: string): string {
-	return p
+	const normalized = p
 		.replace(/^(?:\.\/|\/)+/, "")
+		.replace(/\/\.(?=\/|$)/g, "") // strip embedded /./ segments (but not /..)
 		.replace(/\/+/g, "/")
 		.replace(/\/+$/, "");
+	// `.` alone refers to the current directory / root, same as the empty
+	// result produced by other root forms (`/`, `./`, `././`). Normalize to
+	// empty so all root representations compare equal.
+	return normalized === "." ? "" : normalized;
 }
