@@ -178,4 +178,40 @@ describe("ensureRegistryRepo", () => {
 		const repoDir = await ensureRegistryRepo("test-reg", sourceDir, cacheDir);
 		expect(existsSync(repoDir)).toBe(true);
 	});
+
+	test("re-clones when the registry URL changes (URL drift)", async () => {
+		// When config.yaml is edited to point a registry at a new URL, the
+		// cached bare repo's `origin` still points at the old URL. A plain
+		// `fetch` would silently pull from the wrong source. The cache must
+		// be invalidated and re-cloned against the new URL.
+		const dir = await setup();
+
+		const originalSource = await createSourceRepo(dir);
+		const cacheDir = join(dir, "cache");
+		await ensureRegistryRepo("test-reg", originalSource, cacheDir);
+
+		// Create an entirely separate source repo at a different path.
+		// Mark it with a unique file so we can prove the re-clone happened.
+		const newSource = join(dir, "new-source-repo");
+		await mkdir(newSource, { recursive: true });
+		const newGit = simpleGit(newSource);
+		await newGit.init();
+		await newGit.addConfig("user.email", "test@test.com");
+		await newGit.addConfig("user.name", "Test");
+		await writeFile(join(newSource, "ONLY_IN_NEW.md"), "# only in new", "utf-8");
+		await newGit.add(".");
+		await newGit.commit("only-in-new");
+
+		const repoDir = await ensureRegistryRepo("test-reg", newSource, cacheDir);
+
+		// The cached repo's origin should now point at the new source, not the old.
+		const cachedGit = simpleGit(repoDir);
+		const origin = (await cachedGit.raw(["config", "--get", "remote.origin.url"])).trim();
+		expect(origin).toBe(newSource);
+
+		// The unique file from the new source must be reachable in the cache.
+		const lsTree = await cachedGit.raw(["ls-tree", "-r", "--name-only", "HEAD"]);
+		expect(lsTree).toContain("ONLY_IN_NEW.md");
+		expect(lsTree).not.toContain("README.md");
+	});
 });
