@@ -172,7 +172,7 @@ dependencies:
 		expect(errors.some((e) => e.includes("mutually exclusive"))).toBe(true);
 	});
 
-	test("errors on remote dep missing path", () => {
+	test("accepts remote dep without path (R12 — inferred by resolver)", () => {
 		const manifest = parseManifest(`
 dependencies:
   no-path:
@@ -180,7 +180,7 @@ dependencies:
     version: "^1.0.0"
 `);
 		const errors = validateManifest(manifest);
-		expect(errors.some((e) => e.includes('require a "path"'))).toBe(true);
+		expect(errors).toEqual([]);
 	});
 
 	test("errors when both dev_install_path and install_targets present", () => {

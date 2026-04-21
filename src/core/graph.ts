@@ -185,7 +185,10 @@ async function processDeps(
 	if (!deps) return;
 	for (const [key, dep] of Object.entries(deps)) {
 		const entityName = "name" in dep && dep.name ? (dep.name as string) : key;
-		await resolveEntity(key, entityName, dep, defaultGroup, state);
+		// Consumer-declared direct deps are the only ones that can trigger R10
+		// path-warnings (synthesized deps inherit their path from origin and
+		// would always look "redundant").
+		await resolveEntity(key, entityName, dep, defaultGroup, state, true);
 	}
 }
 
@@ -195,11 +198,12 @@ async function resolveEntity(
 	dep: Dependency,
 	group: DependencyGroup,
 	state: ResolutionState,
+	fromConsumerManifest = false,
 ): Promise<void> {
 	if (isLocalDependency(dep)) {
 		await resolveLocalEntity(yamlKey, entityName, dep, group, state);
 	} else if (isRemoteDependency(dep)) {
-		await resolveRemoteEntity(yamlKey, entityName, dep, group, state);
+		await resolveRemoteEntity(yamlKey, entityName, dep, group, state, fromConsumerManifest);
 	}
 }
 
@@ -309,18 +313,46 @@ async function resolveLocalEntity(
 async function resolveRemoteEntity(
 	yamlKey: string,
 	entityName: string,
-	dep: { repo: string; path: string; version?: string; type?: EntityType; name?: string },
+	dep: {
+		repo: string;
+		path?: string;
+		version?: string;
+		type?: EntityType;
+		name?: string;
+		force_path?: boolean;
+	},
 	group: DependencyGroup,
 	state: ResolutionState,
+	fromConsumerManifest = false,
 ): Promise<void> {
 	const resolution = state.repoResolutions.get(dep.repo);
 	if (!resolution) return;
 
 	const ref = resolution.tag ?? resolution.commit;
 	let entityPath = dep.path;
+
+	if (!entityPath) {
+		const inferred = await inferDirectDepPath(entityName, dep.repo, resolution, state);
+		if (!inferred) {
+			state.errors.push(
+				`Error: "${entityName}" (from ${dep.repo}) has no path, and the resolver could not infer one from:\n       - origin's skilltree.yaml dependencies (${dep.repo})\n       - conventional paths in ${dep.repo}\n\n     Fix: add \`path:\` to your skilltree.yaml entry, or have origin declare "${entityName}" under \`dependencies:\` in its skilltree.yaml.`,
+			);
+			return;
+		}
+		entityPath = inferred;
+	} else if (fromConsumerManifest && !dep.force_path) {
+		// R10: consumer-declared explicit path — check against origin's declaration.
+		// Synthesized deps (from transitive resolution tiers) inherit their path
+		// from origin and would always look "redundant"; skip them.
+		const mismatch = await detectPathMismatch(entityName, entityPath, dep.repo, resolution);
+		if (mismatch) {
+			state.warnings.push(formatPathWarning(mismatch, entityName, entityPath, dep.repo));
+		}
+	}
+
 	let type = dep.type;
 	if (!type) {
-		const inferred = await inferTypeFromGit(resolution.cachePath, ref, dep.path);
+		const inferred = await inferTypeFromGit(resolution.cachePath, ref, entityPath);
 		type = inferred.type;
 		entityPath = inferred.resolvedPath;
 	}
@@ -513,6 +545,135 @@ async function tryResolveFromOriginManifest(
 
 function isRelativeLocalPath(path: string): boolean {
 	return !path.startsWith("/") && !path.startsWith("~");
+}
+
+function hasDotDotSegment(path: string): boolean {
+	return path.split("/").includes("..");
+}
+
+/**
+ * Check whether an explicit consumer path matches/conflicts with origin's
+ * declared path for the same name. Returns the mismatch kind and origin's
+ * path, or null if no comparable declaration exists. R10.
+ */
+async function detectPathMismatch(
+	entityName: string,
+	consumerPath: string,
+	consumerRepo: string,
+	resolution: RepoResolution,
+): Promise<{ kind: "redundant" | "override"; originPath: string } | null> {
+	const ref = resolution.tag ?? resolution.commit;
+
+	let manifestContent: string;
+	try {
+		manifestContent = await readFileAtRef(resolution.cachePath, ref, "skilltree.yaml");
+	} catch {
+		return null;
+	}
+
+	let originManifest: Manifest;
+	try {
+		originManifest = parseManifest(manifestContent);
+	} catch {
+		return null;
+	}
+
+	const expanded = expandSources(originManifest);
+	const entry = expanded.dependencies?.[entityName];
+	if (!entry) return null;
+
+	let originPath: string | null = null;
+	if (isLocalDependency(entry) && isRelativeLocalPath(entry.local)) {
+		const p = stripDotSlash(entry.local);
+		if (!hasDotDotSegment(p)) originPath = p;
+	} else if (
+		isRemoteDependency(entry) &&
+		entry.repo === consumerRepo &&
+		entry.path &&
+		!hasDotDotSegment(entry.path)
+	) {
+		originPath = entry.path;
+	}
+
+	if (!originPath) return null;
+
+	const normalizedConsumer = stripDotSlash(consumerPath);
+	return normalizedConsumer === originPath
+		? { kind: "redundant", originPath }
+		: { kind: "override", originPath };
+}
+
+function formatPathWarning(
+	mismatch: { kind: "redundant" | "override"; originPath: string },
+	entityName: string,
+	consumerPath: string,
+	originRepo: string,
+): string {
+	if (mismatch.kind === "redundant") {
+		return [
+			`Warning: \`${entityName}\` declares path "${consumerPath}", which is the`,
+			`  same path origin's skilltree.yaml declares for this name (${originRepo}).`,
+			`  You can omit \`path:\` — it will be inferred.`,
+		].join("\n");
+	}
+	return [
+		`Warning: \`${entityName}\` declares path "${consumerPath}", but origin's`,
+		`  skilltree.yaml declares this name at "${mismatch.originPath}" (${originRepo}).`,
+		`  If this override is intentional, set \`force_path: true\` to silence this warning.`,
+	].join("\n");
+}
+
+/**
+ * Infer a direct dep's missing `path:` by consulting origin's skilltree.yaml,
+ * then falling back to conventional paths. Returns the inferred entity path
+ * (suitable for inferTypeFromGit), or null if nothing works. See R9.
+ */
+async function inferDirectDepPath(
+	entityName: string,
+	consumerRepo: string,
+	resolution: RepoResolution,
+	_state: ResolutionState,
+): Promise<string | null> {
+	const ref = resolution.tag ?? resolution.commit;
+
+	// Tier 1: origin manifest lookup.
+	try {
+		const manifestContent = await readFileAtRef(resolution.cachePath, ref, "skilltree.yaml");
+		const originManifest = parseManifest(manifestContent);
+		const expanded = expandSources(originManifest);
+		const entry = expanded.dependencies?.[entityName];
+
+		if (entry) {
+			if (isLocalDependency(entry) && isRelativeLocalPath(entry.local)) {
+				const p = stripDotSlash(entry.local);
+				if (!hasDotDotSegment(p)) return p;
+			} else if (
+				isRemoteDependency(entry) &&
+				entry.repo === consumerRepo &&
+				entry.path &&
+				!hasDotDotSegment(entry.path)
+			) {
+				return entry.path;
+			}
+			// absolute-local / different-repo / has-.. → fall through to probe
+		}
+	} catch {
+		// missing or malformed origin manifest → fall through
+	}
+
+	// Tier 2: conventional probe.
+	const candidates = [`skills/${entityName}`, `agents/${entityName}.md`, entityName];
+	for (const candidate of candidates) {
+		try {
+			const probeFile = candidate.endsWith(".md") ? candidate : `${candidate}/SKILL.md`;
+			await readFileAtRef(resolution.cachePath, ref, probeFile);
+			return candidate;
+		} catch {
+			// try next
+		}
+	}
+
+	return null;
 }
 
 async function ensureRepoResolvedLazy(

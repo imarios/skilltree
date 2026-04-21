@@ -39,6 +39,35 @@ Use this skill when:
 
 **Registries** — Git repos registered globally (`~/.skilltree/config.yaml`) for skill discovery. Registries are authoring-time tools — they help find and add skills via `skilltree search` but are never in the install or resolution path. The manifest stays self-contained.
 
+## Origin-Manifest Resolution — Concepts Every Author and Consumer Should Know
+
+When a repo ships a `skilltree.yaml`, it becomes **self-describing**: downstream consumers (and skilltree itself) use that manifest as the authoritative map of what skills/agents the repo owns and where they live. This has concrete consequences:
+
+**If you consume from a repo that has a `skilltree.yaml`:**
+- You can omit `path:` on direct deps. Origin's manifest supplies it.
+  ```yaml
+  dependencies:
+    task-builder:
+      repo: github.com/org/analysi-backend
+      # no path: — skilltree reads origin's skilltree.yaml and fills it in
+  ```
+- If you *do* declare `path:` and it matches origin's declared path, skilltree warns "you can omit this." If it differs, you'll see an override warning suggesting `force_path: true` to silence it for intentional forks.
+- Transitive deps resolve automatically, even when the origin repo organizes skills at unconventional paths (e.g., `skills/source/<name>/`).
+- Cross-repo transitive deps work too: if origin's manifest references a third-party repo, skilltree clones and resolves it on demand (respecting origin's version constraint).
+
+**If you publish a repo that others will use as a skill source:**
+- Your `skilltree.yaml` is part of your **public contract**. Changes to `dependencies:` affect downstream consumers.
+- Skills declared under `dev-dependencies:` stay private — they will never be exposed to downstream consumers. A consumer transitively needing a dev-dep gets a clear error pointing you, the upstream author, as the fix site.
+- If you reorganize paths (e.g., move `skills/foo/` → `skills/src/foo/`) at a new tag, consumers pinning the old tag are unaffected; consumers pinning `*` or branches pick up the change via the lockfile.
+- Name conflicts between skills you own and skills you transitively expose: the consumer's manifest always wins over origin's manifest (tier 2 beats tier 4).
+
+**When origin's manifest doesn't apply:**
+- Origin has no `skilltree.yaml` → skilltree falls back to conventional paths (`skills/<name>/SKILL.md`, `agents/<name>.md`, `<name>/SKILL.md` at repo root). Old-school repos keep working with zero manifest authoring.
+- Origin's `skilltree.yaml` is malformed or doesn't declare the requested name → same fall-through.
+- Origin's entry uses a `local:` path that's actually an absolute path on the author's machine (via a `source:` alias expanding to a filesystem path) → skipped silently; consumer gets the conventional probe.
+
+**Quick mental model:** a repo with `skilltree.yaml` is richer than one without. The manifest acts as an internal directory: "here's every skill I own, here's where each one lives, here's any third-party dep any of them needs." Consumers inherit that directory.
+
 ## Install Targets (Multi-Agent)
 
 skilltree supports multiple coding agents. The `install_targets` field in `skilltree.yaml` controls where skills are installed:

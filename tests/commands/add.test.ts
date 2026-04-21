@@ -124,11 +124,36 @@ describe("addCommand", () => {
 		);
 	});
 
-	test("errors when remote dep missing --path", async () => {
+	test("R13: adds remote dependency without --path (path inferred at install)", async () => {
 		const dir = await setup();
-		await expect(addCommand("broken", { repo: "github.com/user/repo" }, dir)).rejects.toThrow(
-			"require --path",
+		await addCommand("task-builder", { repo: "github.com/company/skills", version: "^2.0.0" }, dir);
+
+		const manifest = await readManifest(dir);
+		const dep = manifest.dependencies?.["task-builder"];
+		expect(dep).toEqual({
+			repo: "github.com/company/skills",
+			version: "^2.0.0",
+		});
+		// Crucially, `path` is NOT written to the manifest.
+		expect(dep && "path" in dep).toBe(false);
+	});
+
+	test("R13: adds source-aliased dependency without --path", async () => {
+		const dir = await setup();
+		await writeFile(
+			join(dir, "skilltree.yaml"),
+			"name: test\nsources:\n  vibes: github.com/company/vibes\ndependencies: {}\ndev-dependencies: {}\n",
 		);
+
+		await addCommand("python-coding", { source: "vibes", version: "^2.0.0" }, dir);
+
+		const manifest = await readManifest(dir);
+		const dep = manifest.dependencies?.["python-coding"];
+		expect(dep).toEqual({
+			source: "vibes",
+			version: "^2.0.0",
+		});
+		expect(dep && "path" in dep).toBe(false);
 	});
 
 	test("errors when local path does not exist", async () => {

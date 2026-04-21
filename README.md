@@ -96,7 +96,20 @@ dependencies:
 
 skilltree resolves `code-review`, discovers it needs `testing` and `linting`, resolves those too, and installs all three.
 
-Transitive resolution works across any repo layout: if an origin repo ships its own `skilltree.yaml`, skilltree reads it to locate co-located skills (even nested under `skills/source/<name>/` or other custom paths). Repos without a manifest still resolve via the conventional `skills/<name>/` layout.
+**Origin-manifest resolution.** When the upstream repo ships its own `skilltree.yaml`, skilltree uses it as the authoritative map of what lives where. Two consequences for consumers:
+
+- **`path:` is optional.** If origin declares the name, skilltree fills in the path at install time.
+  ```yaml
+  dependencies:
+    task-builder:
+      repo: github.com/org/some-repo
+      # path: inferred from origin's skilltree.yaml
+  ```
+- **Unconventional layouts still work.** Transitive deps resolve even when the upstream repo organizes skills at non-standard paths like `skills/source/<name>/`. Cross-repo transitive deps (where origin's manifest references a third-party repo) are cloned on demand.
+
+When consumers declare a `path:` that duplicates or overrides origin's declaration, skilltree emits a warning. Set `force_path: true` to silence warnings on intentional overrides.
+
+Repos without a manifest still work via the conventional `skills/<name>/` layout — origin-manifest resolution is opt-in from the author's side.
 
 ### Local Dependencies
 

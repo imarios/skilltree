@@ -174,7 +174,22 @@ Name-only list. Resolution details (repo, version) come from the consumer's `ski
 5. Same-repo conventional probe (`skills/<name>/SKILL.md`, `agents/<name>.md`, `<name>/SKILL.md`)
 6. Error (with actionable fix message)
 
-**Origin-manifest lookup details:**
+**Origin-manifest lookup for direct deps (R9):**
+- A direct dep `{repo: X, version: Y}` (no `path:`) triggers path inference. Read origin's `skilltree.yaml` at the resolved tag; look up the entity's actual name in `dependencies` (never `dev-dependencies`).
+- If origin's entry is `local:` relative → use that path.
+- If origin's entry is `repo:` pointing at the consumer-declared repo → use origin's `path`.
+- If origin's entry points at a **different** repo → fall through to the conventional probe (do not redirect the consumer's `repo:` silently).
+- If origin doesn't declare the name, or has no manifest, or the manifest is malformed → fall through to the conventional probe (`skills/<name>/SKILL.md`, `agents/<name>.md`, `<name>/SKILL.md`).
+- If no tier resolves, error with a message listing every location checked.
+
+**Path warnings (R10):**
+- When the consumer provides an explicit `path:` and origin's manifest declares the same name:
+  - `path` matches → **redundant** warning ("you can omit `path:`").
+  - `path` differs → **override** warning naming both paths; suggests `force_path: true` to silence.
+- `force_path: true` on the consumer's entry silences both warnings.
+- No warning if origin doesn't declare the name or has no manifest.
+
+**Origin-manifest lookup for transitive deps:**
 - Only `dependencies` from origin are consulted, never `dev-dependencies`. Dev-only deps stay upstream-private.
 - If origin's entry is `local: ./path/in/repo`, it is treated as a same-repo dep pinned to the parent's tag. This lets authors organize skills at any path (e.g., `skills/source/<name>/`) while keeping auto-resolution for consumers.
 - If origin's entry is `repo:` or `source:` (cross-repo), the target repo is cloned and resolved on-demand under origin's declared constraint. Already-resolved repos are reused; a constraint conflict produces a `Cross-repo transitive constraint conflict` error.

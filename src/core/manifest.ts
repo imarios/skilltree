@@ -128,7 +128,14 @@ function expandDeps(
 
 function expandSourceDep(
 	key: string,
-	dep: { source: string; path: string; version?: string; type?: string; name?: string },
+	dep: {
+		source: string;
+		path?: string;
+		version?: string;
+		type?: string;
+		name?: string;
+		force_path?: boolean;
+	},
 	sources: Record<string, string>,
 ): Dependency {
 	const sourceValue = sources[dep.source];
@@ -141,6 +148,13 @@ function expandSourceDep(
 	const { source: _, ...rest } = dep;
 
 	if (isLocalSource(sourceValue)) {
+		// Local-source expansion still requires a path: there's no way to infer
+		// a filesystem path from origin manifests for a local-filesystem source.
+		if (!dep.path) {
+			throw new Error(
+				`Local source "${dep.source}" requires a "path" field on dependency "${key}".`,
+			);
+		}
 		const expandedSource = expandTilde(sourceValue);
 		const localPath = dep.path === "." ? expandedSource : `${expandedSource}/${dep.path}`;
 		const localDep: LocalDependency = { local: localPath, _sourceDir: expandedSource };
@@ -174,9 +188,9 @@ export function validateManifest(manifest: Manifest): string[] {
 				errors.push(`${group}.${key}: "repo"/"source" and "local" are mutually exclusive`);
 			}
 
-			if (hasRepo && !("path" in dep)) {
-				errors.push(`${group}.${key}: remote dependencies require a "path" field`);
-			}
+			// `path:` is optional for remote/source deps (R9). When missing, the
+			// resolver infers it from the origin repo's skilltree.yaml or the
+			// conventional probe. See origin_manifest_resolution.md §R9.
 		}
 	}
 

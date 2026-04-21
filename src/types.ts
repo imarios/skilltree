@@ -3,18 +3,22 @@ export type DependencyGroup = "prod" | "dev";
 
 export interface RemoteDependency {
 	repo: string;
-	path: string;
+	path?: string;
 	version?: string;
 	type?: EntityType;
 	name?: string;
+	/** Silence origin-manifest path warnings (R10). */
+	force_path?: boolean;
 }
 
 export interface SourceDependency {
 	source: string;
-	path: string;
+	path?: string;
 	version?: string;
 	type?: EntityType;
 	name?: string;
+	/** Silence origin-manifest path warnings (R10). */
+	force_path?: boolean;
 }
 
 export interface LocalDependency {

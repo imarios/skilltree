@@ -82,19 +82,26 @@ async function buildDependency(name: string, opts: AddOptions, dir: string): Pro
 		return buildLocalDep(opts, dir);
 	}
 
-	if (opts.source && opts.path) {
-		const dep: Dependency = { source: opts.source, path: opts.path, version: opts.version ?? "*" };
+	// R13: `--path` is optional when `--repo` or `--source` is given. The
+	// resolver infers the path at install time from origin's skilltree.yaml
+	// or the conventional probe. If neither works, install emits a clear R9
+	// error. We deliberately do not pre-resolve at add-time to keep `add`
+	// network-free and fast.
+	if (opts.source) {
+		const dep: Dependency = { source: opts.source, version: opts.version ?? "*" };
+		if (opts.path) dep.path = opts.path;
 		if (opts.type) dep.type = opts.type;
 		return dep;
 	}
 
-	if (opts.repo && opts.path) {
-		const dep: Dependency = { repo: opts.repo, path: opts.path, version: opts.version ?? "*" };
+	if (opts.repo) {
+		const dep: Dependency = { repo: opts.repo, version: opts.version ?? "*" };
+		if (opts.path) dep.path = opts.path;
 		if (opts.type) dep.type = opts.type;
 		return dep;
 	}
 
-	throw new Error("Remote dependencies require --path");
+	throw new Error("Remote dependencies require --repo or --source");
 }
 
 async function buildLocalDep(opts: AddOptions, dir: string): Promise<Dependency> {

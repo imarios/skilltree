@@ -85,13 +85,13 @@ describe("manifest missing fields", () => {
 		expect(errors.some((e) => e.includes("mutually exclusive"))).toBe(true);
 	});
 
-	test("rejects remote dep without path", () => {
+	test("accepts remote dep without path (R12 — resolver infers it later)", () => {
 		const manifest: Manifest = {
 			dependencies: {
-				"bad-dep": { repo: "github.com/x/y" } as unknown as Dependency,
+				"no-path": { repo: "github.com/x/y" } as unknown as Dependency,
 			},
 		};
 		const errors = validateManifest(manifest);
-		expect(errors.some((e) => e.includes('require a "path" field'))).toBe(true);
+		expect(errors).toEqual([]);
 	});
 });

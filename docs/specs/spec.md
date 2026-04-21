@@ -230,9 +230,23 @@ The user controls whether `src_install_path` is tracked in git (committed, like 
 | `skilltree install` | deps → both paths; dev-deps → `.claude/` only | Everything → `.claude/` |
 | `skilltree install --prod` | deps → `src_install_path` only | deps → `--install-path` or `.claude/` |
 
-### Transitive Resolution
+### Origin-Manifest Resolution
 
-When skill A declares `dependencies: [B]` in its SKILL.md frontmatter, skilltree resolves B using this priority:
+A repo that ships its own `skilltree.yaml` becomes **self-describing** to downstream consumers. The origin manifest provides name → location mappings that skilltree uses in two places:
+
+**Direct deps, path inference (v2 / R9):** Consumers can omit `path:` on their own `skilltree.yaml` entries when origin declares the name. Path is looked up from origin at install time.
+
+```yaml
+# Consumer's skilltree.yaml — no path: needed
+dependencies:
+  task-builder:
+    repo: github.com/org/analysi-backend
+    version: "^0.3.0"
+```
+
+When the consumer's `path:` matches origin's declaration, skilltree warns that it's redundant. When it differs, skilltree warns and suggests `force_path: true` to silence the warning if the override is intentional.
+
+**Transitive deps, full resolution:** When a skill's frontmatter declares a dep, skilltree resolves it using this priority:
 
 1. **Resolution context** -- B was already resolved by another chain
 2. **Consumer manifest** -- B is in `skilltree.yaml` (either group)
