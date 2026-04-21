@@ -143,7 +143,11 @@ export function toGitCloneUrl(repo: string): string {
 /**
  * Clone a bare repo if it doesn't exist, or fetch if it does.
  * If the directory exists but is not a valid bare repo (e.g., empty dir
- * from a failed previous clone), it is removed and re-cloned.
+ * from a failed previous clone), it is removed and re-cloned. If the
+ * cached repo's `origin` URL differs from `repoUrl` (user edited the
+ * source in skilltree.yaml or config.yaml), the cache is invalidated
+ * and re-cloned against the new URL — a plain fetch would silently
+ * pull from the stale remote.
  */
 export async function cloneOrFetchBare(repoUrl: string, targetDir: string): Promise<void> {
 	if (existsSync(targetDir)) {
@@ -157,19 +161,45 @@ export async function cloneOrFetchBare(repoUrl: string, targetDir: string): Prom
 				const configContent = await readFile(configFile, "utf-8");
 				if (configContent.includes('[remote "origin"]')) {
 					const git = simpleGit(targetDir);
-					await git.fetch(["--tags", "--prune"]);
-					return;
+					if (await isOriginUrlDrifted(git, repoUrl)) {
+						await rm(targetDir, { recursive: true, force: true });
+					} else {
+						await git.fetch(["--tags", "--prune"]);
+						return;
+					}
 				}
 			} catch {
 				// Config unreadable — fall through to re-clone
 			}
 		}
-		// Corrupt/incomplete directory — remove and re-clone
-		await rm(targetDir, { recursive: true, force: true });
+		// Corrupt/incomplete directory, or drift path that didn't `return` — ensure removed.
+		if (existsSync(targetDir)) {
+			await rm(targetDir, { recursive: true, force: true });
+		}
 	}
 	await mkdir(targetDir, { recursive: true });
 	const gitUrl = toGitCloneUrl(repoUrl);
 	await simpleGit().clone(gitUrl, targetDir, ["--bare"]);
+}
+
+/**
+ * Compare the cached repo's `origin` URL against the expected URL. Both
+ * sides are run through `toGitCloneUrl` + `normalizeGitUrl` so cosmetic
+ * differences (missing https://, trailing .git, etc.) don't cause a
+ * spurious re-clone. Returns true when the resolved URLs disagree.
+ */
+async function isOriginUrlDrifted(
+	git: ReturnType<typeof simpleGit>,
+	expectedUrl: string,
+): Promise<boolean> {
+	try {
+		const cachedOrigin = (await git.raw(["config", "--get", "remote.origin.url"])).trim();
+		if (!cachedOrigin) return false;
+		return normalizeGitUrl(cachedOrigin) !== normalizeGitUrl(toGitCloneUrl(expectedUrl));
+	} catch {
+		// Missing/unreadable origin — let the caller fall through to re-clone.
+		return true;
+	}
 }
 
 export function getCacheDir(): string {
