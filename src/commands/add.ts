@@ -6,7 +6,14 @@ import { collapseTilde, expandTilde, getGlobalDir } from "../core/paths.js";
 import { readRegistryIndex } from "../core/registry-cache.js";
 import { listRegistries } from "../core/registry-config.js";
 import { dim, success, warn } from "../core/ui.js";
-import type { Dependency, EntityType, IndexEntry } from "../types.js";
+import type {
+	Dependency,
+	EntityType,
+	IndexEntry,
+	LocalDependency,
+	RemoteDependency,
+	SourceDependency,
+} from "../types.js";
 
 export interface AddOptions {
 	repo?: string;
@@ -145,6 +152,14 @@ function checkOverwrite(
 }
 
 /**
+ * Union of all field names defined across any Dependency variant. Used to
+ * constrain PRESERVED_FIELDS at compile time so a typo (or a field that
+ * doesn't exist on any dep shape) fails TypeScript instead of silently
+ * writing a bogus property.
+ */
+type AnyDepField = keyof RemoteDependency | keyof SourceDependency | keyof LocalDependency;
+
+/**
  * Fields that belong to the user, not the CLI. When a user re-adds an
  * existing entry, these survive the overwrite unless the CLI has an
  * opinion. Mutex / identity fields (repo, source, local, path, version)
@@ -155,7 +170,7 @@ function checkOverwrite(
  * the common case (re-add to bump version or path) must not silently
  * drop their alias mapping.
  */
-const PRESERVED_FIELDS = ["force_path", "name"] as const;
+const PRESERVED_FIELDS = ["force_path", "name"] as const satisfies readonly AnyDepField[];
 
 /**
  * Copy orthogonal user-authored metadata from the existing entry into the
@@ -167,7 +182,7 @@ function preserveOrthogonalFields(newDep: Dependency, existing: Dependency | und
 	const target = newDep as unknown as Record<string, unknown>;
 	const source = existing as unknown as Record<string, unknown>;
 	for (const field of PRESERVED_FIELDS) {
-		if (!(field in target) && field in source && source[field] !== undefined) {
+		if (!(field in target) && source[field] !== undefined) {
 			target[field] = source[field];
 		}
 	}

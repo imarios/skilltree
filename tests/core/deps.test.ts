@@ -77,6 +77,17 @@ describe("canonicalSource", () => {
 		expect(canonicalSource(dirty)).toBe(canonicalSource(clean));
 	});
 
+	test("root-form local deps unify across `.`, `/`, `./` representations", () => {
+		const dot: Dependency = { local: "." };
+		const slash: Dependency = { local: "/" };
+		const dotSlash: Dependency = { local: "./" };
+		const a = canonicalSource(dot);
+		const b = canonicalSource(slash);
+		const c = canonicalSource(dotSlash);
+		expect(a).toBe(b);
+		expect(b).toBe(c);
+	});
+
 	test("source path starting with / doesn't produce a double slash", () => {
 		const dep = { source: "mine", path: "/foo" } as unknown as Dependency;
 		expect(canonicalSource(dep, { mine: "~/skills-root" })).toBe(
