@@ -138,6 +138,123 @@ describe("addCommand", () => {
 		expect(dep && "path" in dep).toBe(false);
 	});
 
+	test("R11: preserves force_path: true when re-running add on the same entry", async () => {
+		const dir = await setup();
+		// Seed manifest with an entry that has force_path: true,
+		// plus sibling state we expect to survive the overwrite.
+		await writeFile(
+			join(dir, "skilltree.yaml"),
+			[
+				"name: test",
+				"sources:",
+				"  vibes: github.com/company/vibes",
+				"dependencies:",
+				"  foo:",
+				"    repo: github.com/org/r",
+				"    path: skills/original",
+				"    version: '*'",
+				"    force_path: true",
+				"  unrelated:",
+				"    local: ./skills/unrelated",
+				"dev-dependencies:",
+				"  devonly:",
+				"    local: ./skills/devonly",
+				"",
+			].join("\n"),
+		);
+
+		await addCommand(
+			"foo",
+			{ repo: "github.com/org/r", path: "skills/original", version: "^1.0.0" },
+			dir,
+		);
+
+		const manifest = await readManifest(dir);
+		const dep = manifest.dependencies?.foo as { force_path?: boolean; version?: string };
+		expect(dep.force_path).toBe(true);
+		expect(dep.version).toBe("^1.0.0");
+
+		// Sibling manifest state must survive the overwrite.
+		expect(manifest.name).toBe("test");
+		expect(manifest.sources?.vibes).toBe("github.com/company/vibes");
+		expect(manifest.dependencies?.unrelated).toBeDefined();
+		expect(manifest["dev-dependencies"]?.devonly).toBeDefined();
+	});
+
+	test("checkOverwrite: source alias resolving to local path compares equal to direct local entry", async () => {
+		const dir = await setup();
+		const { homedir } = await import("node:os");
+		const home = homedir();
+
+		// Seed manifest with an existing entry `foo: {local: ~/skills-root/foo}`,
+		// plus a sources: map where `mine: ~/skills-root` resolves to the same place.
+		await writeFile(
+			join(dir, "skilltree.yaml"),
+			[
+				"name: test",
+				"sources:",
+				"  mine: ~/skills-root",
+				"dependencies:",
+				"  foo:",
+				"    local: ~/skills-root/foo",
+				"dev-dependencies: {}",
+				"",
+			].join("\n"),
+		);
+
+		// Create the local skill on disk so the add can validate it.
+		const { mkdir } = await import("node:fs/promises");
+		const skillPath = join(home, "skills-root", "foo");
+		await mkdir(skillPath, { recursive: true });
+		await writeFile(join(skillPath, "SKILL.md"), "---\nname: foo\n---\n");
+
+		try {
+			// Re-add as `--source mine --path foo` — should not emit a
+			// "changing source from local to ~/skills-root" warning (the
+			// resolved target is identical).
+			await addCommand("foo", { source: "mine", path: "foo" }, dir);
+
+			const manifest = await readManifest(dir);
+			const dep = manifest.dependencies?.foo as { source?: string; path?: string };
+			expect(dep.source).toBe("mine");
+			expect(dep.path).toBe("foo");
+		} finally {
+			const { rm } = await import("node:fs/promises");
+			await rm(join(home, "skills-root"), { recursive: true, force: true });
+		}
+	});
+
+	test("checkOverwrite: source alias resolving to same URL as existing repo is not a 'changing source' warning", async () => {
+		const dir = await setup();
+		// Seed manifest with a remote entry via `repo:` and a `sources:` map
+		// where the alias resolves to the same URL.
+		await writeFile(
+			join(dir, "skilltree.yaml"),
+			[
+				"name: test",
+				"sources:",
+				"  vibes: github.com/company/vibes",
+				"dependencies:",
+				"  foo:",
+				"    repo: github.com/company/vibes",
+				"    path: skills/foo",
+				"    version: '*'",
+				"dev-dependencies: {}",
+				"",
+			].join("\n"),
+		);
+
+		// Re-add with --source that resolves to the same URL.
+		// This should not throw and should succeed in overwriting.
+		await addCommand("foo", { source: "vibes", path: "skills/foo" }, dir);
+
+		// Assert the new entry was written with `source:` form.
+		const manifest = await readManifest(dir);
+		const dep = manifest.dependencies?.foo as { source?: string; repo?: string };
+		expect(dep.source).toBe("vibes");
+		expect(dep.repo).toBeUndefined();
+	});
+
 	test("R13: adds source-aliased dependency without --path", async () => {
 		const dir = await setup();
 		await writeFile(

@@ -240,6 +240,122 @@ describe("R10 origin-manifest path warnings", () => {
 		expect(warnings).not.toContain("overriding");
 	});
 
+	test("N1. path normalization: trailing slash still counts as redundant", async () => {
+		const { originRepo } = await setupOriginWithLocal();
+		const consumerManifest: Manifest = {
+			dependencies: {
+				foo: {
+					repo: `file://${originRepo}`,
+					path: "skills/source/foo/", // trailing slash
+					version: "*",
+				},
+			},
+		};
+		const result = await resolveAll(consumerManifest, tempDir);
+		expect(result.errors).toEqual([]);
+		const warnings = result.warnings.join("\n");
+		expect(warnings).toContain("same path");
+		expect(warnings).not.toContain("overriding");
+	});
+
+	test("E1. explicit empty path errors clearly instead of silently inferring", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-r10-"));
+		const originManifestYaml = [
+			"name: origin",
+			"dependencies:",
+			"  foo:",
+			"    local: ./skills/source/foo",
+			"",
+		].join("\n");
+		const repo = await createTestRepo(
+			tempDir,
+			"origin",
+			[{ path: "skills/source/foo", name: "foo" }],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				foo: { repo: `file://${repo}`, path: "", version: "*" },
+			},
+		};
+		const result = await resolveAll(consumerManifest, tempDir);
+		expect(result.errors.length).toBeGreaterThan(0);
+		expect(result.errors.join("\n")).toContain("empty `path:`");
+		// And we didn't quietly resolve the entity.
+		expect(result.entities.get("skill:foo")).toBeUndefined();
+	});
+
+	test("F1. force_path as a string (not a boolean) does NOT silence the warning", async () => {
+		const { originRepo } = await setupOriginWithLocal();
+		const consumerManifest: Manifest = {
+			dependencies: {
+				foo: {
+					repo: `file://${originRepo}`,
+					path: "skills/source/foo",
+					version: "*",
+					// Simulates a user who wrote `force_path: "true"` (quoted/stringy).
+					// Must NOT be treated as the boolean opt-out.
+					force_path: "true" as unknown as boolean,
+				},
+			},
+		};
+		const result = await resolveAll(consumerManifest, tempDir);
+		expect(result.errors).toEqual([]);
+		expect(result.warnings.join("\n")).toContain("same path");
+	});
+
+	test("N4. path normalization: repeated ./ prefix matches plain origin path", async () => {
+		const { originRepo } = await setupOriginWithLocal();
+		const consumerManifest: Manifest = {
+			dependencies: {
+				foo: {
+					repo: `file://${originRepo}`,
+					path: "././skills/source/foo", // repeated ./
+					version: "*",
+				},
+			},
+		};
+		const result = await resolveAll(consumerManifest, tempDir);
+		const warnings = result.warnings.join("\n");
+		expect(warnings).not.toContain("overriding");
+	});
+
+	test("N3. path normalization: leading / on consumer side matches plain origin path", async () => {
+		const { originRepo } = await setupOriginWithLocal();
+		const consumerManifest: Manifest = {
+			dependencies: {
+				foo: {
+					repo: `file://${originRepo}`,
+					path: "/skills/source/foo", // leading slash — treat as tree-root relative
+					version: "*",
+				},
+			},
+		};
+		const result = await resolveAll(consumerManifest, tempDir);
+		// Resolution itself may fail (git won't accept /-prefixed paths),
+		// but the warning comparison must not spuriously flag an override.
+		const warnings = result.warnings.join("\n");
+		expect(warnings).not.toContain("overriding");
+	});
+
+	test("N2. path normalization: ./ prefix on consumer side matches plain origin path", async () => {
+		const { originRepo } = await setupOriginWithLocal();
+		const consumerManifest: Manifest = {
+			dependencies: {
+				foo: {
+					repo: `file://${originRepo}`,
+					path: "./skills/source/foo",
+					version: "*",
+				},
+			},
+		};
+		const result = await resolveAll(consumerManifest, tempDir);
+		expect(result.errors).toEqual([]);
+		expect(result.warnings.join("\n")).toContain("same path");
+	});
+
 	test("8. force_path: true + origin doesn't declare → no warning, no error", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-r10-"));
 		const manifestYaml = [

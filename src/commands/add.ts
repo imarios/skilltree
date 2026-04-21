@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import semver from "semver";
 import { loadManifestOrThrow, writeGlobalManifest, writeManifest } from "../core/manifest.js";
-import { collapseTilde, expandTilde, getGlobalDir } from "../core/paths.js";
+import { collapseTilde, expandTilde, getGlobalDir, isLocalSource } from "../core/paths.js";
 import { readRegistryIndex } from "../core/registry-cache.js";
 import { listRegistries } from "../core/registry-config.js";
 import { dim, success, warn } from "../core/ui.js";
@@ -33,8 +33,21 @@ export async function addCommand(name: string, opts: AddOptions, dir: string): P
 	const group = opts.dev ? "dev-dependencies" : "dependencies";
 	const deps = manifest[group] ?? {};
 
-	checkOverwrite(name, deps, group, dep);
+	checkOverwrite(name, deps, group, dep, manifest.sources);
 	checkOtherGroup(name, manifest, opts);
+
+	// Preserve `force_path` if the previous entry had it set — it's an
+	// opt-out flag the user chose deliberately, not something CLI opts
+	// should silently reset on re-add.
+	const existing = deps[name];
+	if (
+		existing &&
+		typeof existing === "object" &&
+		"force_path" in existing &&
+		(existing as { force_path?: boolean }).force_path === true
+	) {
+		(dep as { force_path?: boolean }).force_path = true;
+	}
 
 	deps[name] = dep;
 	manifest[group] = deps;
@@ -123,16 +136,49 @@ function checkOverwrite(
 	deps: Record<string, Dependency>,
 	group: string,
 	dep: Dependency,
+	sources?: Record<string, string>,
 ): void {
 	if (!(name in deps)) return;
 	const oldDep = deps[name];
-	const oldSource = oldDep && "repo" in oldDep ? (oldDep as { repo: string }).repo : "local";
-	const newSource = "repo" in dep ? (dep as { repo: string }).repo : "local";
+	const oldSource = describeSource(oldDep, sources);
+	const newSource = describeSource(dep, sources);
 	if (oldSource !== newSource) {
 		warn(`overwriting "${name}" — changing source from ${oldSource} to ${newSource}`);
 	} else {
 		warn(`overwriting existing entry "${name}" in ${group}`);
 	}
+}
+
+/**
+ * Produce a canonical source identifier for warning-comparison purposes.
+ * `source:` aliases resolve to their target via the sources map so that
+ * `source: vibes` and `repo: github.com/.../vibes` compare equal when they
+ * point to the same place. Source aliases that resolve to a local
+ * filesystem path get canonicalized to `local:<joined-absolute-path>` so
+ * that a bare `local:` entry and a `source:`-aliased local entry pointing
+ * at the same file resolve to the same key.
+ */
+function describeSource(
+	dep: Dependency | undefined,
+	sources: Record<string, string> | undefined,
+): string {
+	if (!dep) return "local";
+	if ("repo" in dep && dep.repo) return dep.repo;
+	if ("source" in dep && dep.source) {
+		const resolved = sources?.[dep.source];
+		if (!resolved) return `source:${dep.source}`;
+		if (isLocalSource(resolved)) {
+			const base = expandTilde(resolved);
+			const path = "path" in dep && typeof dep.path === "string" ? dep.path : "";
+			const full = path && path !== "." ? `${base.replace(/\/$/, "")}/${path}` : base;
+			return `local:${full}`;
+		}
+		return resolved;
+	}
+	if ("local" in dep && dep.local) {
+		return `local:${expandTilde(dep.local)}`;
+	}
+	return "local";
 }
 
 function checkOtherGroup(

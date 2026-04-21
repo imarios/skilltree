@@ -331,6 +331,16 @@ async function resolveRemoteEntity(
 	const ref = resolution.tag ?? resolution.commit;
 	let entityPath = dep.path;
 
+	if (entityPath === "") {
+		// Reject an explicit empty-string path loudly rather than silently
+		// inferring — that would mask a malformed manifest where the user
+		// intended a real path.
+		state.errors.push(
+			`Error: "${entityName}" (from ${dep.repo}) has an empty \`path:\`. Remove it to trigger origin-manifest inference, or set it to a real path.`,
+		);
+		return;
+	}
+
 	if (!entityPath) {
 		const inferred = await inferDirectDepPath(entityName, dep.repo, resolution, state);
 		if (!inferred) {
@@ -340,10 +350,13 @@ async function resolveRemoteEntity(
 			return;
 		}
 		entityPath = inferred;
-	} else if (fromConsumerManifest && !dep.force_path) {
+	} else if (fromConsumerManifest && dep.force_path !== true) {
 		// R10: consumer-declared explicit path — check against origin's declaration.
 		// Synthesized deps (from transitive resolution tiers) inherit their path
 		// from origin and would always look "redundant"; skip them.
+		// Strict `=== true` for consistency with add.ts preservation logic —
+		// non-boolean truthy values (e.g., the string "false") don't silence
+		// warnings, which forces user to fix malformed YAML.
 		const mismatch = await detectPathMismatch(entityName, entityPath, dep.repo, resolution);
 		if (mismatch) {
 			state.warnings.push(formatPathWarning(mismatch, entityName, entityPath, dep.repo));
@@ -597,10 +610,26 @@ async function detectPathMismatch(
 
 	if (!originPath) return null;
 
-	const normalizedConsumer = stripDotSlash(consumerPath);
-	return normalizedConsumer === originPath
+	const normalizedOrigin = normalizePathForCompare(originPath);
+	const normalizedConsumer = normalizePathForCompare(consumerPath);
+	return normalizedConsumer === normalizedOrigin
 		? { kind: "redundant", originPath }
 		: { kind: "override", originPath };
+}
+
+/**
+ * Normalize a path for equality comparison: strip all leading `./`
+ * sequences, strip leading `/`, collapse repeated `/`, trim trailing `/`.
+ * Git tree paths are always relative to the repo root, so `/skills/foo`
+ * and `skills/foo` refer to the same location; `././skills/foo` and
+ * `skills/foo` are the same too.
+ */
+function normalizePathForCompare(p: string): string {
+	return p
+		.replace(/^(?:\.\/)+/, "")
+		.replace(/^\/+/, "")
+		.replace(/\/+/g, "/")
+		.replace(/\/+$/, "");
 }
 
 function formatPathWarning(
