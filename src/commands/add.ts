@@ -60,6 +60,8 @@ export async function addCommand(name: string, opts: AddOptions, dir: string): P
 		await writeManifest(dir, manifest);
 	}
 	success(`Added ${name} to ${group}${opts.global ? " (global)" : ""}`);
+	const installCmd = opts.global ? "skilltree install --global" : "skilltree install";
+	console.log(dim(`  Run \`${installCmd}\` to install.`));
 }
 
 function validateAddFlags(opts: AddOptions): void {
