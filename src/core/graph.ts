@@ -19,7 +19,7 @@ import {
 	readFileAtRef,
 } from "./git.js";
 import { expandSources, parseManifest } from "./manifest.js";
-import { expandTilde, stripDotSlash } from "./paths.js";
+import { canonicalPath, expandTilde, stripDotSlash } from "./paths.js";
 import { resolveIntersection } from "./resolver.js";
 
 export interface ResolvedEntity {
@@ -610,26 +610,9 @@ async function detectPathMismatch(
 
 	if (!originPath) return null;
 
-	const normalizedOrigin = normalizePathForCompare(originPath);
-	const normalizedConsumer = normalizePathForCompare(consumerPath);
-	return normalizedConsumer === normalizedOrigin
+	return canonicalPath(consumerPath) === canonicalPath(originPath)
 		? { kind: "redundant", originPath }
 		: { kind: "override", originPath };
-}
-
-/**
- * Normalize a path for equality comparison: strip all leading `./`
- * sequences, strip leading `/`, collapse repeated `/`, trim trailing `/`.
- * Git tree paths are always relative to the repo root, so `/skills/foo`
- * and `skills/foo` refer to the same location; `././skills/foo` and
- * `skills/foo` are the same too.
- */
-function normalizePathForCompare(p: string): string {
-	return p
-		.replace(/^(?:\.\/)+/, "")
-		.replace(/^\/+/, "")
-		.replace(/\/+/g, "/")
-		.replace(/\/+$/, "");
 }
 
 function formatPathWarning(

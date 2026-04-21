@@ -106,3 +106,38 @@ The tape script is at `demo/demo.tape`. See `demo/README.md` for details.
 ## Implementation Phases
 
 Follow phases 1-9 in docs/specs/spec.md. Use TDD.
+
+## Code Conventions — Hardening Patterns
+
+Four patterns earned their way in after a hypothesis-driven review of the Boron sub-project (see `docs/planning/boron/phase_5/REVIEW_NOTES.md`). Follow them in new code.
+
+### 1. Canonical-identity helpers for union types
+
+When two different shapes in a type union can represent the same resource, compare via a **canonical-identity function** rather than ad-hoc field equality. Examples shipped:
+
+- `canonicalPath(p)` in `src/core/paths.ts` — use wherever you ask "do these two paths refer to the same git tree location?"
+- `canonicalSource(dep, sources?)` in `src/core/deps.ts` — use wherever you ask "do these two deps point at the same source?"
+
+If you find yourself writing `a.foo === b.foo` where `a` and `b` might be different union variants, you probably need a canonical-identity function.
+
+### 2. Presence check ≠ value check
+
+Prefer explicit comparisons over coercive truthy/falsy checks at decision points:
+
+- **Presence check** → `value === undefined` (or `value == null`).
+- **Value check** → `value === true` / `value === expectedValue`.
+- `!value` only for truly binary booleans where "unset" and "false" should branch together.
+
+Rationale: `!dep.force_path` and `!entityPath` both looked reasonable and both shipped bugs. The former silenced warnings for non-boolean truthy values (e.g., a stringy `"false"`); the latter treated `""` as equivalent to `undefined` and silently inferred a skill path when the user clearly authored a blank.
+
+### 3. Preserve-mode on overwrite
+
+When a CLI (or any structured-entry writer) replaces an existing entry, **preserve orthogonal user-authored fields by default** rather than reconstructing the entry from scratch.
+
+Current implementation: `preserveOrthogonalFields` in `src/commands/add.ts` copies `force_path` and `name` from the old entry into the new one if the CLI didn't set them. Add to the `PRESERVED_FIELDS` list when introducing a new user-authorable field that the CLI doesn't manage.
+
+Do NOT preserve identity/mutex fields (repo/source/local/path/version) — the CLI should win for those.
+
+### 4. Parametrized edge-case tests for helpers
+
+Test normalization helpers with a parametrized list of equivalent inputs (`["./foo", "foo", "/foo", "foo/", "././foo", ...]`), not one-at-a-time. When a new edge case shows up, add a row to the table and the helper gets the fix in one place. See `tests/core/paths.test.ts` for the pattern.

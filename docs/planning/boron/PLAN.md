@@ -59,6 +59,19 @@ Round out docs and verify against `backendv2-y` end to end.
 - [x] False-positive discovered and fixed: R10 warnings no longer fire for synthesized (transitive) deps. `fromConsumerManifest` flag threaded through `resolveEntity` → `resolveRemoteEntity`.
 - [x] Phase retrospective written.
 
+## Phase 5: Systemic Hardening ✅ COMPLETE
+
+Drawn from a 5-round hypothesis-driven review of the Boron changes (see `phase_5/REVIEW_NOTES.md`). The review surfaced three recurring patterns across the 7 issues it found. This phase turns the patterns into guardrails so the same class of issue doesn't resurface.
+
+### Tasks
+- [x] Extract `canonicalPath(p)` into `src/core/paths.ts` with an explicit documented contract.
+- [x] Extract `canonicalSource(dep, sources?)` into new `src/core/deps.ts`.
+- [x] Generalize force_path preservation into `preserveOrthogonalFields(dep, existing)` + `PRESERVED_FIELDS` list in `src/commands/add.ts`.
+- [x] Audit path/source equality sites — zero additional semantic-equality sites outside the two hotspots already using the helpers.
+- [x] Added "Code conventions — Hardening Patterns" section to `CLAUDE.md` covering canonical-identity helpers, presence-vs-value check discipline, preserve-mode on overwrite, and parametrized edge-case tests.
+- [x] Tests: parametrized `canonicalPath` edge cases (`tests/core/paths.test.ts`); new `tests/core/deps.test.ts` for `canonicalSource`; broader preserve-mode invariant test in `tests/commands/add.test.ts`.
+- [x] Full `bun test` green (677/677).
+
 ## Boron — Sub-project Status
 
-All 4 phases ✅ COMPLETE. 645 tests passing. Ready for git commit and sub-project closure.
+All 5 phases ✅ COMPLETE. 677 tests passing. Ready for git commit and sub-project closure.

@@ -43,3 +43,29 @@ export function getGlobalInstallBase(): string {
 export function stripDotSlash(p: string): string {
 	return p.startsWith("./") ? p.slice(2) : p;
 }
+
+/**
+ * Canonical form of a path for semantic equality comparison.
+ *
+ * Git tree paths are root-relative; several surface forms refer to the same
+ * location (`./foo` vs `foo` vs `/foo`, trailing slashes, duplicate slashes,
+ * repeated `./` prefixes). `canonicalPath` produces a single comparison key.
+ *
+ * Contract:
+ * - Strip ALL leading `./` sequences.
+ * - Strip leading `/` (git tree paths are root-relative).
+ * - Collapse repeated `/` to a single `/`.
+ * - Trim trailing `/`.
+ * - Does NOT resolve `..` segments (callers that care use `hasDotDotSegment`).
+ * - Does NOT touch path separators (`\`); we target POSIX git paths.
+ *
+ * Use this wherever you need to ask "do these two paths refer to the same
+ * location?" Do NOT use for paths that will be fed back to git or the
+ * filesystem — those keep their original form.
+ */
+export function canonicalPath(p: string): string {
+	return p
+		.replace(/^(?:\.\/|\/)+/, "")
+		.replace(/\/+/g, "/")
+		.replace(/\/+$/, "");
+}

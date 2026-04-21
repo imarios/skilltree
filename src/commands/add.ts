@@ -1,7 +1,8 @@
 import { stat } from "node:fs/promises";
 import semver from "semver";
+import { canonicalSource } from "../core/deps.js";
 import { loadManifestOrThrow, writeGlobalManifest, writeManifest } from "../core/manifest.js";
-import { collapseTilde, expandTilde, getGlobalDir, isLocalSource } from "../core/paths.js";
+import { collapseTilde, expandTilde, getGlobalDir } from "../core/paths.js";
 import { readRegistryIndex } from "../core/registry-cache.js";
 import { listRegistries } from "../core/registry-config.js";
 import { dim, success, warn } from "../core/ui.js";
@@ -36,18 +37,12 @@ export async function addCommand(name: string, opts: AddOptions, dir: string): P
 	checkOverwrite(name, deps, group, dep, manifest.sources);
 	checkOtherGroup(name, manifest, opts);
 
-	// Preserve `force_path` if the previous entry had it set — it's an
-	// opt-out flag the user chose deliberately, not something CLI opts
-	// should silently reset on re-add.
-	const existing = deps[name];
-	if (
-		existing &&
-		typeof existing === "object" &&
-		"force_path" in existing &&
-		(existing as { force_path?: boolean }).force_path === true
-	) {
-		(dep as { force_path?: boolean }).force_path = true;
-	}
+	// Preserve user-authored metadata the CLI doesn't know about. These
+	// fields are orthogonal to the source/path identity — CLI opts never
+	// touch them, so re-adding the same entry shouldn't silently drop them.
+	// Mutex fields (repo/source/local) and identity fields (repo/source/local/path)
+	// are NOT in this list — CLI wins for those.
+	preserveOrthogonalFields(dep, deps[name]);
 
 	deps[name] = dep;
 	manifest[group] = deps;
@@ -140,8 +135,8 @@ function checkOverwrite(
 ): void {
 	if (!(name in deps)) return;
 	const oldDep = deps[name];
-	const oldSource = describeSource(oldDep, sources);
-	const newSource = describeSource(dep, sources);
+	const oldSource = canonicalSource(oldDep, sources);
+	const newSource = canonicalSource(dep, sources);
 	if (oldSource !== newSource) {
 		warn(`overwriting "${name}" — changing source from ${oldSource} to ${newSource}`);
 	} else {
@@ -150,35 +145,27 @@ function checkOverwrite(
 }
 
 /**
- * Produce a canonical source identifier for warning-comparison purposes.
- * `source:` aliases resolve to their target via the sources map so that
- * `source: vibes` and `repo: github.com/.../vibes` compare equal when they
- * point to the same place. Source aliases that resolve to a local
- * filesystem path get canonicalized to `local:<joined-absolute-path>` so
- * that a bare `local:` entry and a `source:`-aliased local entry pointing
- * at the same file resolve to the same key.
+ * Fields that belong to the user, not the CLI. When a user re-adds an
+ * existing entry, these survive the overwrite unless the CLI has an
+ * opinion (e.g., `--type`). Mutex / identity fields (repo, source, local,
+ * path, version) are NOT preserved — CLI intent wins for those.
  */
-function describeSource(
-	dep: Dependency | undefined,
-	sources: Record<string, string> | undefined,
-): string {
-	if (!dep) return "local";
-	if ("repo" in dep && dep.repo) return dep.repo;
-	if ("source" in dep && dep.source) {
-		const resolved = sources?.[dep.source];
-		if (!resolved) return `source:${dep.source}`;
-		if (isLocalSource(resolved)) {
-			const base = expandTilde(resolved);
-			const path = "path" in dep && typeof dep.path === "string" ? dep.path : "";
-			const full = path && path !== "." ? `${base.replace(/\/$/, "")}/${path}` : base;
-			return `local:${full}`;
+const PRESERVED_FIELDS = ["force_path", "name"] as const;
+
+/**
+ * Copy orthogonal user-authored metadata from the existing entry into the
+ * new dep, unless the new dep has already set that field. Implements the
+ * preserve-mode-on-overwrite convention (see CLAUDE.md §Code conventions).
+ */
+function preserveOrthogonalFields(newDep: Dependency, existing: Dependency | undefined): void {
+	if (!existing || typeof existing !== "object") return;
+	const target = newDep as unknown as Record<string, unknown>;
+	const source = existing as unknown as Record<string, unknown>;
+	for (const field of PRESERVED_FIELDS) {
+		if (!(field in target) && field in source && source[field] !== undefined) {
+			target[field] = source[field];
 		}
-		return resolved;
 	}
-	if ("local" in dep && dep.local) {
-		return `local:${expandTilde(dep.local)}`;
-	}
-	return "local";
 }
 
 function checkOtherGroup(

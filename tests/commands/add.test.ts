@@ -138,6 +138,48 @@ describe("addCommand", () => {
 		expect(dep && "path" in dep).toBe(false);
 	});
 
+	test("preserve-mode: overwrite keeps user-authored orthogonal fields (force_path, name)", async () => {
+		const dir = await setup();
+		// Seed with every orthogonal field the convention covers. CLI-driven
+		// fields (repo, path, version) are changed; orthogonal ones should
+		// survive the overwrite.
+		await writeFile(
+			join(dir, "skilltree.yaml"),
+			[
+				"name: test",
+				"dependencies:",
+				"  aliased-key:",
+				"    repo: github.com/org/r",
+				"    path: skills/old",
+				"    version: '*'",
+				"    force_path: true",
+				"    name: actual-name",
+				"dev-dependencies: {}",
+				"",
+			].join("\n"),
+		);
+
+		await addCommand(
+			"aliased-key",
+			{ repo: "github.com/org/r", path: "skills/new", version: "^2.0.0" },
+			dir,
+		);
+
+		const manifest = await readManifest(dir);
+		const dep = manifest.dependencies?.["aliased-key"] as {
+			path?: string;
+			version?: string;
+			force_path?: boolean;
+			name?: string;
+		};
+		// CLI-driven fields reflect the new values.
+		expect(dep.path).toBe("skills/new");
+		expect(dep.version).toBe("^2.0.0");
+		// Orthogonal fields survive.
+		expect(dep.force_path).toBe(true);
+		expect(dep.name).toBe("actual-name");
+	});
+
 	test("R11: preserves force_path: true when re-running add on the same entry", async () => {
 		const dir = await setup();
 		// Seed manifest with an entry that has force_path: true,

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { homedir } from "node:os";
 import {
+	canonicalPath,
 	collapseTilde,
 	expandTilde,
 	getGlobalDir,
@@ -90,5 +91,34 @@ describe("getGlobalDir", () => {
 describe("getGlobalInstallBase", () => {
 	test("returns expanded ~/.claude", () => {
 		expect(getGlobalInstallBase()).toBe(`${homedir()}/.claude`);
+	});
+});
+
+describe("canonicalPath", () => {
+	test.each([
+		["skills/foo", "skills/foo"],
+		["./skills/foo", "skills/foo"],
+		["/skills/foo", "skills/foo"],
+		["skills/foo/", "skills/foo"],
+		["././skills/foo", "skills/foo"],
+		["./skills/foo/", "skills/foo"],
+		["skills//foo", "skills/foo"],
+		["/./skills/foo", "skills/foo"],
+		["//skills/foo", "skills/foo"],
+		["./././skills/foo/", "skills/foo"],
+	])("canonicalPath(%j) === %j", (input, expected) => {
+		expect(canonicalPath(input)).toBe(expected);
+	});
+
+	test("empty string unchanged", () => {
+		expect(canonicalPath("")).toBe("");
+	});
+
+	test("preserves .. segments (callers guard via hasDotDotSegment)", () => {
+		expect(canonicalPath("skills/foo/..")).toBe("skills/foo/..");
+	});
+
+	test("leading dotted directory (.claude) is preserved — not confused with ./", () => {
+		expect(canonicalPath(".claude/foo")).toBe(".claude/foo");
 	});
 });
