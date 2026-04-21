@@ -12,6 +12,8 @@ Project Naming Theme: Elements
 
 - **Beryllium** (04/04/2026): Multi-agent support — `install_targets` for deploying to multiple agents, agent registry, `teach` auto-detection
 
+- **Boron** (04/21/2026): Origin-manifest resolution for direct deps — `path:` optional when origin declares the name, redundancy/override warnings, `force_path` opt-out, `skilltree add --path` optional
+
 ## Completed Projects
 
 (none)
