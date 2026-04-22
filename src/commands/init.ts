@@ -13,15 +13,18 @@ import type { Dependency, LocalDependency, Manifest } from "../types.js";
 export interface InitOptions {
 	global?: boolean;
 	homeDir?: string; // Override home directory for agent detection (testing)
+	globalDir?: string; // Override global manifest dir (testing + --global flow)
 	scan?: boolean;
 	yes?: boolean;
 	/** Test override: pick which discovered entries to include, bypassing interactive prompt. */
 	selectFn?: (entries: LocalEntry[]) => Promise<LocalEntry[]>;
+	/** Test override: canned answer for the interactive prompt — exercises the prompt pipeline without readline. */
+	askFn?: (question: string) => Promise<string>;
 }
 
 export async function initCommand(dir: string, options?: InitOptions): Promise<void> {
 	if (options?.global) {
-		return initGlobal();
+		return initGlobal(options.globalDir);
 	}
 
 	const manifestPath = `${dir}/${MANIFEST_NEW}`;
@@ -85,8 +88,8 @@ export async function initCommand(dir: string, options?: InitOptions): Promise<v
 	}
 }
 
-async function initGlobal(): Promise<void> {
-	const globalDir = getGlobalDir();
+async function initGlobal(globalDirOverride?: string): Promise<void> {
+	const globalDir = globalDirOverride ?? getGlobalDir();
 
 	if (globalManifestExists(globalDir)) {
 		warn(`${globalDir}/global.yaml already exists. No changes made.`);
@@ -103,9 +106,11 @@ async function initGlobal(): Promise<void> {
 
 /**
  * Decide which discovered entries to include. Resolution order:
- *  1. Explicit `selectFn` (tests + future scripted flows).
- *  2. `--yes`, or no entries, or non-TTY → include all (CI-safe default).
- *  3. Interactive prompt — Y/n or comma-separated index list.
+ *  1. Explicit `selectFn` (tests + future scripted flows) — bypass prompt entirely.
+ *  2. No entries → nothing to include.
+ *  3. `--yes` → include all without prompting.
+ *  4. An `askFn` (test hook) or a TTY → prompt via that asker.
+ *  5. Otherwise (non-TTY, no hooks) → include all (CI-safe default).
  */
 async function selectDiscoveredEntries(
 	entries: LocalEntry[],
@@ -113,22 +118,27 @@ async function selectDiscoveredEntries(
 ): Promise<LocalEntry[]> {
 	if (opts.selectFn) return opts.selectFn(entries);
 	if (entries.length === 0) return [];
-	if (opts.yes || !process.stdout.isTTY) return entries;
-	return promptForSelection(entries);
+	if (opts.yes) return entries;
+	const ask = opts.askFn ?? (process.stdout.isTTY ? readlineAsk : null);
+	if (!ask) return entries;
+	return promptForSelection(entries, ask);
 }
 
-async function promptForSelection(entries: LocalEntry[]): Promise<LocalEntry[]> {
-	printDiscovered(entries);
+type AskFn = (question: string) => Promise<string>;
 
+async function promptForSelection(entries: LocalEntry[], ask: AskFn): Promise<LocalEntry[]> {
+	printDiscovered(entries);
+	const answer = (await ask("Include all? [Y/n/1,3,5] ")).trim();
+	return parseSelectionAnswer(answer, entries);
+}
+
+async function readlineAsk(question: string): Promise<string> {
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
-	let answer: string;
 	try {
-		answer = (await rl.question("Include all? [Y/n/1,3,5] ")).trim();
+		return await rl.question(question);
 	} finally {
 		rl.close();
 	}
-
-	return parseSelectionAnswer(answer, entries);
 }
 
 function printDiscovered(entries: LocalEntry[]): void {

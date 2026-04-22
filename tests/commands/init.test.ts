@@ -162,6 +162,93 @@ describe("initCommand", () => {
 		}
 	});
 
+	test("--scan with askFn drives the interactive prompt and prints the listing", async () => {
+		// Exercises the prompt pipeline end-to-end (printDiscovered +
+		// promptForSelection + parseSelectionAnswer) without touching stdin.
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "empty-home");
+		await mkdir(fakeHome, { recursive: true });
+
+		await mkdir(join(dir, "skills/alpha"), { recursive: true });
+		await writeFile(join(dir, "skills/alpha/SKILL.md"), "---\nname: alpha\n---\n");
+		await mkdir(join(dir, "skills/beta"), { recursive: true });
+		await writeFile(join(dir, "skills/beta/SKILL.md"), "---\nname: beta\n---\n");
+		await mkdir(join(dir, "agents"), { recursive: true });
+		await writeFile(join(dir, "agents/inspector.md"), "---\nname: inspector\n---\n");
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (msg: string) => logs.push(msg);
+		let askedQuestion = "";
+		try {
+			await initCommand(dir, {
+				homeDir: fakeHome,
+				scan: true,
+				askFn: async (q) => {
+					askedQuestion = q;
+					return "1,3"; // pick indices 1 and 3 from the printed list
+				},
+			});
+		} finally {
+			console.log = originalLog;
+		}
+
+		expect(askedQuestion).toContain("Include all?");
+
+		// Listing output captured: header, both sections, and per-entry lines.
+		const joined = logs.join("\n");
+		expect(joined).toContain("Found 2 skills and 1 agent");
+		expect(joined).toContain("Skills:");
+		expect(joined).toContain("Agents:");
+		expect(joined).toContain("[1]");
+		expect(joined).toContain("alpha");
+		expect(joined).toContain("inspector");
+
+		// Sort order is (type, name), so the printed list is:
+		//   [1] inspector (agent)
+		//   [2] alpha (skill)
+		//   [3] beta (skill)
+		// Picking "1,3" keeps inspector + beta.
+		const manifest = await readManifest(dir);
+		expect(manifest.dependencies?.inspector).toBeDefined();
+		expect(manifest.dependencies?.beta).toBeDefined();
+		expect(manifest.dependencies?.alpha).toBeUndefined();
+	});
+
+	describe("--global", () => {
+		test("creates a new global.yaml when none exists", async () => {
+			const dir = await makeTempDir();
+			const globalDir = join(dir, "global-home");
+
+			await initCommand(dir, { global: true, globalDir });
+
+			const content = await readFile(join(globalDir, "global.yaml"), "utf-8");
+			expect(content).toContain("dependencies");
+		});
+
+		test("warns and leaves the file untouched when global.yaml already exists", async () => {
+			const dir = await makeTempDir();
+			const globalDir = join(dir, "global-home");
+			await mkdir(globalDir, { recursive: true });
+			const existing = "dependencies:\n  preexisting:\n    local: ./x\n";
+			await writeFile(join(globalDir, "global.yaml"), existing);
+
+			const warnings: string[] = [];
+			const originalWarn = console.warn;
+			console.warn = (msg: string) => warnings.push(msg);
+			try {
+				await initCommand(dir, { global: true, globalDir });
+			} finally {
+				console.warn = originalWarn;
+			}
+
+			expect(warnings.some((w) => w.includes("already exists"))).toBe(true);
+			// File must be byte-for-byte unchanged — no clobber of the user's deps.
+			const after = await readFile(join(globalDir, "global.yaml"), "utf-8");
+			expect(after).toBe(existing);
+		});
+	});
+
 	test("--scan without --yes and no tty/selectFn defaults to include-all", async () => {
 		// This mirrors the CI/non-interactive path: if stdout is not a TTY
 		// and no selector is provided, `init --scan` should not hang on

@@ -194,7 +194,10 @@ async function isOriginUrlDrifted(
 ): Promise<boolean> {
 	try {
 		const cachedOrigin = (await git.raw(["config", "--get", "remote.origin.url"])).trim();
-		if (!cachedOrigin) return false;
+		// Empty origin means a `[remote "origin"]` header with no url line — a
+		// corrupt/partial clone. Treat as drift so the caller re-clones rather
+		// than silently fetching against a nonexistent remote.
+		if (!cachedOrigin) return true;
 		return normalizeGitUrl(cachedOrigin) !== normalizeGitUrl(toGitCloneUrl(expectedUrl));
 	} catch {
 		// Missing/unreadable origin — let the caller fall through to re-clone.
