@@ -1,3 +1,14 @@
+## v0.18.0 (2026-04-22)
+
+### Feat
+
+- **init**: add --scan to discover in-tree skills and agents
+
+### Fix
+
+- **git**: invalidate cache when origin URL drifts
+- **add**: print install hint after success
+
 ## v0.17.0 (2026-04-21)
 
 ### Feat
