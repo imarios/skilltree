@@ -1,3 +1,9 @@
+## v0.18.2 (2026-04-22)
+
+### Fix
+
+- **graph**: warn when origin manifest is on main but missing at tag
+
 ## v0.18.1 (2026-04-22)
 
 ### Fix
