@@ -46,8 +46,14 @@ program
 	.command("init")
 	.description("Initialize a new skilltree project")
 	.option("-g, --global", "Initialize global dependencies")
+	.option("--scan", "Scan the repo for existing skills/agents and register them as local deps")
+	.option("-y, --yes", "With --scan, include all discovered entries without prompting")
 	.action(async (opts) => {
-		await initCommand(process.cwd(), { global: opts.global });
+		await initCommand(process.cwd(), {
+			global: opts.global,
+			scan: opts.scan,
+			yes: opts.yes,
+		});
 	});
 
 program
