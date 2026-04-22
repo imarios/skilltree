@@ -1,3 +1,9 @@
+## v0.18.1 (2026-04-22)
+
+### Fix
+
+- **init**: make non-interactive fallback test TTY-independent
+
 ## v0.18.0 (2026-04-22)
 
 ### Feat
