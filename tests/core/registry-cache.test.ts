@@ -179,6 +179,36 @@ describe("ensureRegistryRepo", () => {
 		expect(existsSync(repoDir)).toBe(true);
 	});
 
+	test('re-clones when cached config has [remote "origin"] section but no url', async () => {
+		// Defensive path: a previous clone was interrupted between the remote
+		// section being written and the url being set. cloneOrFetchBare must
+		// treat this as drift and re-clone rather than silently fetching
+		// against a nonexistent remote.
+		const dir = await setup();
+		const sourceDir = await createSourceRepo(dir);
+
+		const cacheDir = join(dir, "cache");
+		const repoDir = await ensureRegistryRepo("test-reg", sourceDir, cacheDir);
+
+		// Corrupt the cached config: keep the [remote "origin"] header so the
+		// clone-vs-fetch path is entered, but strip the actual url line.
+		const configPath = join(repoDir, "config");
+		const { readFile: rf } = await import("node:fs/promises");
+		const original = await rf(configPath, "utf-8");
+		const corrupted = original
+			.split("\n")
+			.filter((line) => !line.trim().startsWith("url ="))
+			.join("\n");
+		await writeFile(configPath, corrupted, "utf-8");
+
+		// ensureRegistryRepo must recover transparently.
+		await ensureRegistryRepo("test-reg", sourceDir, cacheDir);
+
+		const cachedGit = simpleGit(repoDir);
+		const origin = (await cachedGit.raw(["config", "--get", "remote.origin.url"])).trim();
+		expect(origin).toBe(sourceDir);
+	});
+
 	test("re-clones when the registry URL changes (URL drift)", async () => {
 		// When config.yaml is edited to point a registry at a new URL, the
 		// cached bare repo's `origin` still points at the old URL. A plain
