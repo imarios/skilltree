@@ -20,6 +20,8 @@ export interface InitOptions {
 	selectFn?: (entries: LocalEntry[]) => Promise<LocalEntry[]>;
 	/** Test override: canned answer for the interactive prompt — exercises the prompt pipeline without readline. */
 	askFn?: (question: string) => Promise<string>;
+	/** Override TTY detection. Defaults to process.stdout.isTTY. Tests should set this explicitly. */
+	isInteractive?: boolean;
 }
 
 export async function initCommand(dir: string, options?: InitOptions): Promise<void> {
@@ -119,7 +121,8 @@ async function selectDiscoveredEntries(
 	if (opts.selectFn) return opts.selectFn(entries);
 	if (entries.length === 0) return [];
 	if (opts.yes) return entries;
-	const ask = opts.askFn ?? (process.stdout.isTTY ? readlineAsk : null);
+	const interactive = opts.isInteractive ?? Boolean(process.stdout.isTTY);
+	const ask = opts.askFn ?? (interactive ? readlineAsk : null);
 	if (!ask) return entries;
 	return promptForSelection(entries, ask);
 }

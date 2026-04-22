@@ -249,11 +249,11 @@ describe("initCommand", () => {
 		});
 	});
 
-	test("--scan without --yes and no tty/selectFn defaults to include-all", async () => {
-		// This mirrors the CI/non-interactive path: if stdout is not a TTY
-		// and no selector is provided, `init --scan` should not hang on
-		// readline. Since Bun's test stdout is not a TTY, calling without
-		// selectFn / yes exercises the fallback.
+	test("--scan in non-interactive context (no --yes, no selectFn) defaults to include-all", async () => {
+		// Simulates CI: non-TTY stdout, no selector, no askFn. The command must
+		// not hang on readline. Passing isInteractive: false explicitly so the
+		// test's outcome doesn't depend on whether the test runner's stdout
+		// happens to be a TTY (it is when run via `make test` from a shell).
 		const dir = await makeTempDir();
 		const fakeHome = join(dir, "empty-home");
 		await mkdir(fakeHome, { recursive: true });
@@ -261,7 +261,7 @@ describe("initCommand", () => {
 		await mkdir(join(dir, "skills/only-one"), { recursive: true });
 		await writeFile(join(dir, "skills/only-one/SKILL.md"), "---\nname: only-one\n---\n");
 
-		await initCommand(dir, { homeDir: fakeHome, scan: true });
+		await initCommand(dir, { homeDir: fakeHome, scan: true, isInteractive: false });
 
 		const manifest = await readManifest(dir);
 		expect(manifest.dependencies?.["only-one"]).toBeDefined();
