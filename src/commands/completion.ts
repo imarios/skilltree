@@ -19,7 +19,15 @@ const COMMANDS: CmdDef[] = [
 	{
 		name: "init",
 		description: "Initialize a new skilltree project",
-		flags: [{ long: "--global", short: "-g", description: "Initialize global dependencies" }],
+		flags: [
+			{ long: "--global", short: "-g", description: "Initialize global dependencies" },
+			{ long: "--scan", description: "Scan repo for existing skills/agents" },
+			{
+				long: "--yes",
+				short: "-y",
+				description: "Include all discovered entries without prompting",
+			},
+		],
 	},
 	{
 		name: "add",
