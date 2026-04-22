@@ -90,6 +90,7 @@ export async function resolveAll(
 	};
 
 	await resolveRepoVersions(expanded, state);
+	await checkStaleTagManifests(state);
 	await processDeps(expanded.dependencies, "prod", state);
 	await processDeps(expanded["dev-dependencies"], "dev", state);
 	validateTypeConstraints(state);
@@ -633,6 +634,51 @@ function formatPathWarning(
 		`  skilltree.yaml declares this name at "${mismatch.originPath}" (${originRepo}).`,
 		`  If this override is intentional, set \`force_path: true\` to silence this warning.`,
 	].join("\n");
+}
+
+/**
+ * For every resolved remote repo, check whether origin's `skilltree.yaml` is
+ * present at the resolved tag. If absent at the tag but present on the
+ * default branch, emit a single warning — origin authored a manifest but
+ * never cut a tag that contains it, so consumers lose R9/R10 signals they
+ * would otherwise get.
+ */
+async function checkStaleTagManifests(state: ResolutionState): Promise<void> {
+	for (const [repo, resolution] of state.repoResolutions) {
+		const ref = resolution.tag ?? resolution.commit;
+
+		// If manifest is present at the resolved ref, nothing to check.
+		try {
+			await readFileAtRef(resolution.cachePath, ref, "skilltree.yaml");
+			continue;
+		} catch {
+			// Fall through — missing at tag.
+		}
+
+		let defaultBranch: string;
+		try {
+			defaultBranch = await getDefaultBranch(resolution.cachePath);
+		} catch {
+			continue;
+		}
+
+		try {
+			await readFileAtRef(resolution.cachePath, defaultBranch, "skilltree.yaml");
+		} catch {
+			// Not on default branch either — origin simply doesn't use skilltree.yaml.
+			continue;
+		}
+
+		const tagLabel = resolution.tag ?? `commit ${resolution.commit.slice(0, 8)}`;
+		state.warnings.push(
+			[
+				`Warning: origin \`${repo}\` has a skilltree.yaml on \`${defaultBranch}\` but not at the`,
+				`  resolved tag (${tagLabel}). Consumers resolve to the tag, so origin's manifest`,
+				`  is invisible to them — R9 path inference and R10 path warnings are skipped.`,
+				`  Fix: cut a new tag from \`${defaultBranch}\` that includes skilltree.yaml.`,
+			].join("\n"),
+		);
+	}
 }
 
 /**

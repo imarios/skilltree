@@ -81,6 +81,7 @@ Every entry repeats a path the origin already told the world about. If origin re
 - **R11**: A dependency entry MAY include `force_path: true` to silence R10 warnings for that entry. `force_path` has no other effect on resolution.
 - **R12**: Manifest validation (`validateManifest`) MUST NOT require `path:` on remote dependencies. The existing requirement that `repo:`/`source:` and `local:` are mutually exclusive stays.
 - **R13**: `skilltree add --repo <url>` (and `--source <alias>`) MUST accept an omitted `--path`. If the origin manifest resolves the path at add-time, it MAY be written into the consumer's manifest; otherwise the manifest is written with no `path:` and resolution happens at install-time.
+- **R14 (stale-tag manifest)**: For each resolved remote repo, the resolver MUST check whether `skilltree.yaml` exists at the resolved tag. If it is absent at the tag but present on the default branch, the resolver MUST emit a single warning per repo that names the repo, the resolved tag, the default branch, and recommends cutting a new tag. This guards the common case where an author commits a manifest to `main` without tagging a release, so consumers silently lose R9/R10 signals.
 
 ## Constraints
 
