@@ -3,10 +3,12 @@ import pc from "picocolors";
 import { getGlobalDir } from "./paths.js";
 
 export const MANIFEST_NEW = "skilltree.yaml";
+export const MANIFEST_NEW_ALT = "skilltree.yml";
 export const MANIFEST_LEGACY = "skillkit.yaml";
 export const LOCKFILE_NEW = "skilltree.lock";
 export const LOCKFILE_LEGACY = "skillkit.lock";
 export const GLOBAL_MANIFEST = "global.yaml";
+export const GLOBAL_MANIFEST_ALT = "global.yml";
 export const GLOBAL_LOCKFILE = "global.lock";
 
 const DEPRECATION_PREFIX = pc.yellow("[DEPRECATION]");
@@ -16,12 +18,25 @@ let lockfileWarned = false;
 
 /**
  * Resolve the manifest filename in a directory.
- * Prefers skilltree.yaml, falls back to skillkit.yaml with a deprecation warning.
+ * Accepts skilltree.yaml or skilltree.yml; refuses if both exist.
+ * Falls back to skillkit.yaml with a deprecation warning.
  */
 export function resolveManifestPath(dir: string): { path: string; filename: string } {
 	const newPath = `${dir}/${MANIFEST_NEW}`;
-	if (existsSync(newPath)) {
+	const altPath = `${dir}/${MANIFEST_NEW_ALT}`;
+	const newExists = existsSync(newPath);
+	const altExists = existsSync(altPath);
+
+	if (newExists && altExists) {
+		throw new Error(
+			`Both ${MANIFEST_NEW} and ${MANIFEST_NEW_ALT} exist in ${dir}. Keep only one — they're the same format under different extensions.`,
+		);
+	}
+	if (newExists) {
 		return { path: newPath, filename: MANIFEST_NEW };
+	}
+	if (altExists) {
+		return { path: altPath, filename: MANIFEST_NEW_ALT };
 	}
 
 	const legacyPath = `${dir}/${MANIFEST_LEGACY}`;
@@ -65,10 +80,14 @@ export function resolveLockfilePath(dir: string): { path: string; filename: stri
 }
 
 /**
- * Check if a manifest exists (either new or legacy name).
+ * Check if a manifest exists (skilltree.yaml, skilltree.yml, or legacy skillkit.yaml).
  */
 export function manifestExists(dir: string): boolean {
-	return existsSync(`${dir}/${MANIFEST_NEW}`) || existsSync(`${dir}/${MANIFEST_LEGACY}`);
+	return (
+		existsSync(`${dir}/${MANIFEST_NEW}`) ||
+		existsSync(`${dir}/${MANIFEST_NEW_ALT}`) ||
+		existsSync(`${dir}/${MANIFEST_LEGACY}`)
+	);
 }
 
 /**
@@ -81,14 +100,28 @@ export const LOCKFILE_DISPLAY = LOCKFILE_NEW;
 // --- Global paths ---
 
 /**
- * Resolve the global manifest path: ~/.skilltree/global.yaml
+ * Resolve the global manifest path: ~/.skilltree/global.yaml (or .yml).
+ * Refuses if both extensions are present.
  */
 export function resolveGlobalManifestPath(globalDir?: string): {
 	path: string;
 	filename: string;
 } {
 	const dir = globalDir ?? getGlobalDir();
-	return { path: `${dir}/${GLOBAL_MANIFEST}`, filename: GLOBAL_MANIFEST };
+	const yamlPath = `${dir}/${GLOBAL_MANIFEST}`;
+	const ymlPath = `${dir}/${GLOBAL_MANIFEST_ALT}`;
+	const yamlExists = existsSync(yamlPath);
+	const ymlExists = existsSync(ymlPath);
+
+	if (yamlExists && ymlExists) {
+		throw new Error(
+			`Both ${GLOBAL_MANIFEST} and ${GLOBAL_MANIFEST_ALT} exist in ${dir}. Keep only one — they're the same format under different extensions.`,
+		);
+	}
+	if (ymlExists && !yamlExists) {
+		return { path: ymlPath, filename: GLOBAL_MANIFEST_ALT };
+	}
+	return { path: yamlPath, filename: GLOBAL_MANIFEST };
 }
 
 /**
@@ -103,9 +136,9 @@ export function resolveGlobalLockfilePath(globalDir?: string): {
 }
 
 /**
- * Check if a global manifest exists.
+ * Check if a global manifest exists (.yaml or .yml).
  */
 export function globalManifestExists(globalDir?: string): boolean {
-	const { path } = resolveGlobalManifestPath(globalDir);
-	return existsSync(path);
+	const dir = globalDir ?? getGlobalDir();
+	return existsSync(`${dir}/${GLOBAL_MANIFEST}`) || existsSync(`${dir}/${GLOBAL_MANIFEST_ALT}`);
 }

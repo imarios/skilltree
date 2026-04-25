@@ -9,6 +9,7 @@ import type {
 	Manifest,
 } from "../types.js";
 import { isLocalDependency, isRemoteDependency } from "../types.js";
+import { MANIFEST_NEW, MANIFEST_NEW_ALT } from "./filenames.js";
 import { getDeclaredDeps, parseFrontmatter } from "./frontmatter.js";
 import {
 	ensureCached,
@@ -479,6 +480,20 @@ async function tryResolveFromLocalSource(
 	return resolveFromLocalSource(parentEntity.sourceDir, depName, parentGroup, state);
 }
 
+/**
+ * Read an origin manifest at a git ref, accepting either skilltree.yaml or
+ * skilltree.yml. Throws if neither exists. Prefers .yaml when both are present
+ * at the ref (the local resolver is the right place to flag the dual-extension
+ * mistake — upstreams can't see this code path).
+ */
+async function readOriginManifestAtRef(cachePath: string, ref: string): Promise<string> {
+	try {
+		return await readFileAtRef(cachePath, ref, MANIFEST_NEW);
+	} catch {
+		return await readFileAtRef(cachePath, ref, MANIFEST_NEW_ALT);
+	}
+}
+
 async function tryResolveFromOriginManifest(
 	depName: string,
 	parentGroup: DependencyGroup,
@@ -495,7 +510,7 @@ async function tryResolveFromOriginManifest(
 
 	let manifestContent: string;
 	try {
-		manifestContent = await readFileAtRef(resolution.cachePath, ref, "skilltree.yaml");
+		manifestContent = await readOriginManifestAtRef(resolution.cachePath, ref);
 	} catch {
 		return false;
 	}
@@ -580,7 +595,7 @@ async function detectPathMismatch(
 
 	let manifestContent: string;
 	try {
-		manifestContent = await readFileAtRef(resolution.cachePath, ref, "skilltree.yaml");
+		manifestContent = await readOriginManifestAtRef(resolution.cachePath, ref);
 	} catch {
 		return null;
 	}
@@ -649,7 +664,7 @@ async function checkStaleTagManifests(state: ResolutionState): Promise<void> {
 
 		// If manifest is present at the resolved ref, nothing to check.
 		try {
-			await readFileAtRef(resolution.cachePath, ref, "skilltree.yaml");
+			await readOriginManifestAtRef(resolution.cachePath, ref);
 			continue;
 		} catch {
 			// Fall through — missing at tag.
@@ -663,7 +678,7 @@ async function checkStaleTagManifests(state: ResolutionState): Promise<void> {
 		}
 
 		try {
-			await readFileAtRef(resolution.cachePath, defaultBranch, "skilltree.yaml");
+			await readOriginManifestAtRef(resolution.cachePath, defaultBranch);
 		} catch {
 			// Not on default branch either — origin simply doesn't use skilltree.yaml.
 			continue;
@@ -696,7 +711,7 @@ async function inferDirectDepPath(
 
 	// Tier 1: origin manifest lookup.
 	try {
-		const manifestContent = await readFileAtRef(resolution.cachePath, ref, "skilltree.yaml");
+		const manifestContent = await readOriginManifestAtRef(resolution.cachePath, ref);
 		const originManifest = parseManifest(manifestContent);
 		const expanded = expandSources(originManifest);
 		const entry = expanded.dependencies?.[entityName];
