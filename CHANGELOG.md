@@ -1,3 +1,9 @@
+## v0.19.0 (2026-04-25)
+
+### Feat
+
+- **manifest**: accept skilltree.yml alongside skilltree.yaml
+
 ## v0.18.2 (2026-04-22)
 
 ### Fix
