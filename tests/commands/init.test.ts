@@ -67,6 +67,25 @@ describe("initCommand", () => {
 		await expect(initCommand(dir, { homeDir: fakeHome })).rejects.toThrow("already exists");
 	});
 
+	test("error message names the actual existing file (.yaml, not .yml)", async () => {
+		// Regression: init used to hardcode MANIFEST_NEW in the "already exists"
+		// error, so a project on the legacy .yaml extension got told `.yml`
+		// already existed when in fact `.yaml` did.
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "empty-home");
+		await mkdir(fakeHome, { recursive: true });
+		await writeFile(join(dir, "skilltree.yaml"), "name: legacy\ndependencies: {}\n");
+		await expect(initCommand(dir, { homeDir: fakeHome })).rejects.toThrow(/skilltree\.yaml/);
+	});
+
+	test("error message names skillkit.yaml when only the older legacy manifest exists", async () => {
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "empty-home");
+		await mkdir(fakeHome, { recursive: true });
+		await writeFile(join(dir, "skillkit.yaml"), "name: ancient\ndependencies: {}\n");
+		await expect(initCommand(dir, { homeDir: fakeHome })).rejects.toThrow(/skillkit\.yaml/);
+	});
+
 	test("--scan with --yes registers discovered skills and agents as local deps", async () => {
 		const dir = await makeTempDir();
 		const fakeHome = join(dir, "empty-home");
@@ -224,6 +243,28 @@ describe("initCommand", () => {
 
 			const content = await readFile(join(globalDir, "global.yml"), "utf-8");
 			expect(content).toContain("dependencies");
+		});
+
+		test("warning names the actual existing global file (.yaml, not .yml)", async () => {
+			// Same regression as project init: --global used to hardcode
+			// GLOBAL_MANIFEST in the message regardless of which file existed.
+			const dir = await makeTempDir();
+			const globalDir = join(dir, "global-home");
+			await mkdir(globalDir, { recursive: true });
+			await writeFile(join(globalDir, "global.yaml"), "dependencies: {}\n");
+
+			const warnings: string[] = [];
+			const originalWarn = console.warn;
+			console.warn = (msg: string) => warnings.push(msg);
+			try {
+				await initCommand(dir, { global: true, globalDir });
+			} finally {
+				console.warn = originalWarn;
+			}
+
+			expect(warnings.some((w) => w.includes("global.yaml") && w.includes("already exists"))).toBe(
+				true,
+			);
 		});
 
 		test("warns and leaves the file untouched when global.yml already exists", async () => {

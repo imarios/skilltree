@@ -97,14 +97,24 @@ export function resolveLockfilePath(dir: string): { path: string; filename: stri
 }
 
 /**
- * Check if a manifest exists (skilltree.yaml, skilltree.yml, or legacy skillkit.yaml).
+ * Return the filename of whichever manifest actually exists in `dir`, or
+ * null if none do. Unlike `resolveManifestPath`, this never emits a
+ * deprecation warning — use it from code paths that just need to report
+ * the on-disk name (e.g. the init "already exists" guard) without
+ * arming the warn-once gate.
+ */
+export function findExistingManifest(dir: string): string | null {
+	if (existsSync(`${dir}/${MANIFEST_NEW}`)) return MANIFEST_NEW;
+	if (existsSync(`${dir}/${MANIFEST_NEW_ALT}`)) return MANIFEST_NEW_ALT;
+	if (existsSync(`${dir}/${MANIFEST_LEGACY}`)) return MANIFEST_LEGACY;
+	return null;
+}
+
+/**
+ * Check if a manifest exists (skilltree.yml, skilltree.yaml, or legacy skillkit.yaml).
  */
 export function manifestExists(dir: string): boolean {
-	return (
-		existsSync(`${dir}/${MANIFEST_NEW}`) ||
-		existsSync(`${dir}/${MANIFEST_NEW_ALT}`) ||
-		existsSync(`${dir}/${MANIFEST_LEGACY}`)
-	);
+	return findExistingManifest(dir) !== null;
 }
 
 /**
@@ -157,9 +167,20 @@ export function resolveGlobalLockfilePath(globalDir?: string): {
 }
 
 /**
- * Check if a global manifest exists (.yaml or .yml).
+ * Return the filename of whichever global manifest actually exists in
+ * `globalDir`, or null if none do. Same warning-free semantics as
+ * `findExistingManifest`.
+ */
+export function findExistingGlobalManifest(globalDir?: string): string | null {
+	const dir = globalDir ?? getGlobalDir();
+	if (existsSync(`${dir}/${GLOBAL_MANIFEST}`)) return GLOBAL_MANIFEST;
+	if (existsSync(`${dir}/${GLOBAL_MANIFEST_ALT}`)) return GLOBAL_MANIFEST_ALT;
+	return null;
+}
+
+/**
+ * Check if a global manifest exists (.yml or legacy .yaml).
  */
 export function globalManifestExists(globalDir?: string): boolean {
-	const dir = globalDir ?? getGlobalDir();
-	return existsSync(`${dir}/${GLOBAL_MANIFEST}`) || existsSync(`${dir}/${GLOBAL_MANIFEST_ALT}`);
+	return findExistingGlobalManifest(globalDir) !== null;
 }

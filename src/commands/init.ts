@@ -3,10 +3,10 @@ import { basename } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { detectInstalledAgents } from "../core/agents.js";
 import {
+	findExistingGlobalManifest,
+	findExistingManifest,
 	GLOBAL_MANIFEST,
-	globalManifestExists,
 	MANIFEST_NEW,
-	manifestExists,
 } from "../core/filenames.js";
 import { addGitignoreEntries, getSkillAgentIgnoreEntries } from "../core/gitignore.js";
 import { serializeManifest, writeGlobalManifest } from "../core/manifest.js";
@@ -36,9 +36,12 @@ export async function initCommand(dir: string, options?: InitOptions): Promise<v
 
 	const manifestPath = `${dir}/${MANIFEST_NEW}`;
 
-	// Guard: refuse to overwrite existing manifest
-	if (manifestExists(dir)) {
-		throw new Error(`${MANIFEST_NEW} already exists. Remove it first or edit it directly.`);
+	// Guard: refuse to overwrite existing manifest. Report the actual on-disk
+	// name so a project on the legacy .yaml extension doesn't get a misleading
+	// "skilltree.yml already exists" — they don't have one.
+	const existing = findExistingManifest(dir);
+	if (existing) {
+		throw new Error(`${existing} already exists. Remove it first or edit it directly.`);
 	}
 
 	// Auto-detect installed agents
@@ -98,8 +101,9 @@ export async function initCommand(dir: string, options?: InitOptions): Promise<v
 async function initGlobal(globalDirOverride?: string): Promise<void> {
 	const globalDir = globalDirOverride ?? getGlobalDir();
 
-	if (globalManifestExists(globalDir)) {
-		warn(`${globalDir}/${GLOBAL_MANIFEST} already exists. No changes made.`);
+	const existing = findExistingGlobalManifest(globalDir);
+	if (existing) {
+		warn(`${globalDir}/${existing} already exists. No changes made.`);
 		return;
 	}
 
