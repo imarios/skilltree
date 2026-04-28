@@ -1,3 +1,9 @@
+## v0.19.1 (2026-04-28)
+
+### Fix
+
+- **teach,completion**: make skilltree usable when installed globally (#10)
+
 ## v0.19.0 (2026-04-25)
 
 ### Feat
