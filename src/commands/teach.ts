@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { detectInstalledAgents } from "../core/agents.js";
+import { materializeBundledSkill } from "../core/bundled-skill.js";
 import { writeGlobalManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
 import { dim, pc } from "../core/ui.js";
@@ -12,6 +13,11 @@ export interface TeachOptions {
 	homeDir?: string; // Override home directory for testing
 	agent?: string; // Restrict to specific agent
 	globalDir?: string; // Override global config directory for testing
+	// Test override: directory to probe for the in-repo skill source. Pass a
+	// non-existent path to force the embedded-bundle fallback (simulating a
+	// compiled-binary install where `skills/skilltree/` isn't on disk).
+	// Default: resolved from `import.meta.url` to find the repo's `skills/`.
+	_devSourceDir?: string;
 }
 
 /**
@@ -21,8 +27,6 @@ export interface TeachOptions {
  * Auto-detects installed agents and installs to all by default.
  */
 export async function teachCommand(opts?: TeachOptions): Promise<void> {
-	const sourceDir = await findSkillSource();
-
 	const detected = await detectInstalledAgents(opts?.homeDir);
 
 	if (detected.length === 0) {
@@ -31,6 +35,7 @@ export async function teachCommand(opts?: TeachOptions): Promise<void> {
 
 	const agentsToInstall = opts?.agent ? [opts.agent] : detected;
 	const globalDir = opts?.globalDir ?? getGlobalDir();
+	const sourceDir = await findSkillSource(globalDir, opts?._devSourceDir);
 
 	// Ensure global manifest exists with install_targets
 	let manifest: Manifest;
@@ -56,40 +61,29 @@ export async function teachCommand(opts?: TeachOptions): Promise<void> {
 	}
 
 	console.log("");
-	console.log(dim("For shell tab completion, add to your ~/.zshrc:"));
-	console.log(pc.cyan('  eval "$(skilltree completion zsh)"'));
+	console.log(dim("For shell tab completion (zsh / bash):"));
+	console.log(pc.cyan("  skilltree completion --install"));
 }
 
 /**
- * Locate the bundled skill source.
- * Tries: relative to this file (dev), then relative to the binary (compiled).
+ * Locate the skilltree skill source. Tries the in-repo `skills/skilltree/`
+ * next to this file first (`bun run dev`, tests, checkout-local invocation);
+ * falls back to materializing the binary-embedded copy under
+ * `globalDir/bundled/skilltree/`. We use a stable path rather than a temp
+ * dir because it gets recorded as a `local:` dep in the global manifest and
+ * is re-read on subsequent `skilltree install --global` runs.
  */
-async function findSkillSource(): Promise<string> {
-	// Dev mode: relative to src/commands/teach.ts → ../../skills/skilltree/
-	const devPath = join(
-		dirname(new URL(import.meta.url).pathname),
-		"..",
-		"..",
-		"skills",
-		"skilltree",
-	);
+async function findSkillSource(globalDir: string, devSourceDir?: string): Promise<string> {
+	const devPath =
+		devSourceDir ??
+		join(dirname(new URL(import.meta.url).pathname), "..", "..", "skills", "skilltree");
 	try {
 		await stat(join(devPath, "SKILL.md"));
 		return devPath;
 	} catch {
-		// Not found at dev path
+		// Fall through to the embedded bundle.
 	}
-
-	// Compiled mode: try CWD/skills/skilltree
-	const cwdPath = join(process.cwd(), "skills", "skilltree");
-	try {
-		await stat(join(cwdPath, "SKILL.md"));
-		return cwdPath;
-	} catch {
-		// Not found
-	}
-
-	throw new Error(
-		"Could not find the skilltree skill source files. Ensure skills/skilltree/ exists in the project.",
-	);
+	const bundledPath = join(globalDir, "bundled", "skilltree");
+	await materializeBundledSkill(bundledPath);
+	return bundledPath;
 }

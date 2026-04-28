@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { Command } from "commander";
 import pkg from "../package.json";
+import { completeCommand } from "./commands/_complete.js";
 import { addCommand } from "./commands/add.js";
 import { cacheCleanCommand } from "./commands/cache.js";
 import { completionCommand } from "./commands/completion.js";
@@ -265,8 +266,20 @@ program
 program
 	.command("completion [shell]")
 	.description("Output shell completion script (zsh or bash)")
-	.action(async (shell?: string) => {
-		await completionCommand(shell);
+	.option("--install", "Write the script to the conventional location instead of stdout")
+	.action(async (shell?: string, opts?: { install?: boolean }) => {
+		await completionCommand(shell, { install: opts?.install });
+	});
+
+// Hidden subcommand backing dynamic shell completion. Emits one suggestion
+// per line on stdout. See `src/commands/_complete.ts` for the rules: never
+// throws, never prints diagnostics — must be safe to call on every <TAB>.
+program
+	.command("_complete <kind>", { hidden: true })
+	.description("(internal) Emit dynamic completion suggestions")
+	.option("-g, --global", "Read from the global manifest")
+	.action(async (kind: string, opts) => {
+		await completeCommand(kind, { global: opts.global });
 	});
 
 const targets = program.command("targets").description("Manage install targets (coding agents)");

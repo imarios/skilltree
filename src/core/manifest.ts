@@ -101,6 +101,21 @@ export function getInstallTargets(manifest: Manifest, opts?: { global?: boolean 
 }
 
 /**
+ * Names of every declared dependency, prod + dev, sorted and de-duped.
+ *
+ * Centralized so callers don't keep open-coding `Object.keys(deps ?? {})`
+ * spreads and getting subtly inconsistent results (some sort, some don't,
+ * some Set-dedupe, some don't). A name shouldn't legally appear in both
+ * groups, but we de-dupe anyway so callers can treat the result as a
+ * stable set.
+ */
+export function getAllDependencyNames(manifest: Manifest): string[] {
+	const prod = Object.keys(manifest.dependencies ?? {});
+	const dev = Object.keys(manifest["dev-dependencies"] ?? {});
+	return Array.from(new Set([...prod, ...dev])).sort();
+}
+
+/**
  * Expand source shorthands in dependencies.
  * Replaces `source: alias` with `repo: url` using the sources map.
  */

@@ -1,18 +1,41 @@
 /**
  * Shell completion generators for skilltree.
  *
- * These build completion scripts from the command/flag definitions below.
- * The freshness test in tests/commands/completion.test.ts verifies that
- * every command and flag from cli.ts appears in the generated output.
- * If you add a command or flag to cli.ts, add it here too — the test will
- * catch it if you forget.
+ * Two halves:
+ *  - Static structure (top-level commands, subcommands, flag names) is built
+ *    from the `COMMANDS` table below. Drift between this table and `cli.ts`
+ *    is caught by the freshness test in `tests/commands/completion.test.ts`.
+ *  - Dynamic value completion (installed dep names, targets, agents) is
+ *    delegated at <TAB>-time to the hidden `skilltree _complete <kind>`
+ *    subcommand. The shell scripts emitted here include small helper
+ *    functions that shell out to it. See `src/commands/_complete.ts`.
+ *
+ * If you add a command, subcommand, or flag to cli.ts, mirror it in
+ * `COMMANDS` here. If you add a positional argument that should
+ * tab-complete from runtime state, set `positionalComplete` on the entry.
  */
+
+import { mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import pkg from "../../package.json" with { type: "json" };
+import { dim, pc, success } from "../core/ui.js";
+import type { CompleteKind } from "./_complete.js";
+
+interface FlagDef {
+	long: string;
+	short?: string;
+	description: string;
+	takesArg?: boolean;
+}
 
 interface CmdDef {
 	name: string;
 	description: string;
-	flags?: Array<{ long: string; short?: string; description: string; takesArg?: boolean }>;
+	flags?: FlagDef[];
 	subcommands?: CmdDef[];
+	/** What the first positional argument should tab-complete to, if anything. */
+	positionalComplete?: CompleteKind;
 }
 
 const COMMANDS: CmdDef[] = [
@@ -59,6 +82,7 @@ const COMMANDS: CmdDef[] = [
 	{
 		name: "update",
 		description: "Update dependencies to latest versions",
+		positionalComplete: "deps",
 		flags: [
 			{ long: "--dry-run", short: "-n", description: "Preview version bumps" },
 			{ long: "--global", short: "-g", description: "Update global dependencies" },
@@ -67,6 +91,7 @@ const COMMANDS: CmdDef[] = [
 	{
 		name: "remove",
 		description: "Remove a dependency",
+		positionalComplete: "deps",
 		flags: [
 			{ long: "--force", short: "-f", description: "Skip confirmation" },
 			{ long: "--keep-files", description: "Leave installed files in place" },
@@ -113,6 +138,7 @@ const COMMANDS: CmdDef[] = [
 	{
 		name: "info",
 		description: "Show detailed information about a skill or agent",
+		positionalComplete: "deps",
 		flags: [{ long: "--json", description: "Output results as JSON" }],
 	},
 	{
@@ -179,11 +205,13 @@ const COMMANDS: CmdDef[] = [
 			{
 				name: "add",
 				description: "Add an agent or path to install_targets",
+				positionalComplete: "agents",
 				flags: [{ long: "--global", short: "-g", description: "Add to global manifest" }],
 			},
 			{
 				name: "remove",
 				description: "Remove an agent or path from install_targets",
+				positionalComplete: "targets",
 				flags: [{ long: "--global", short: "-g", description: "Remove from global manifest" }],
 			},
 			{
@@ -203,8 +231,213 @@ const COMMANDS: CmdDef[] = [
 		description: "Cache management commands",
 		subcommands: [{ name: "clean", description: "Remove cached repositories" }],
 	},
-	{ name: "completion", description: "Output shell completion script" },
+	{
+		name: "completion",
+		description: "Output shell completion script",
+		flags: [{ long: "--install", description: "Write to the conventional path instead of stdout" }],
+	},
 ];
+
+// --- Shared helpers used by both shell generators ---------------------------
+
+/**
+ * Identity string for a (sub)command, used in the generated `--global`-aware
+ * lists. Top-level: `"remove"`. Subcommand: `"targets:remove"`. The colon
+ * separator is chosen because zsh's `case` patterns and bash's substring
+ * match both treat it as an opaque character — no escaping needed.
+ */
+function commandPath(cmd: CmdDef, parent?: CmdDef): string {
+	return parent ? `${parent.name}:${cmd.name}` : cmd.name;
+}
+
+/** True iff this command declares `--global` as one of its flags. */
+function commandSupportsGlobal(cmd: CmdDef): boolean {
+	return (cmd.flags ?? []).some((f) => f.long === "--global");
+}
+
+/**
+ * Walk the COMMANDS table and collect identity strings for every command
+ * that (a) has a `positionalComplete` and (b) accepts `--global`. Used by
+ * the dynamic-completion helpers in both shells to decide whether to honor
+ * a `--global` token they see on the line.
+ *
+ * Why this matters: `skilltree info <name>` has dynamic completion (deps)
+ * but does NOT accept `--global`. If a user accidentally types
+ * `skilltree info xxx --global`, we don't want completion to silently
+ * switch to the global manifest — that would suggest names that have no
+ * meaning in the local context. Scoping `--global` detection to only the
+ * commands that declare it preserves user intent.
+ */
+function globalAwareCommandPaths(): string[] {
+	const paths: string[] = [];
+	for (const cmd of COMMANDS) {
+		if (cmd.positionalComplete && commandSupportsGlobal(cmd)) {
+			paths.push(commandPath(cmd));
+		}
+		for (const sub of cmd.subcommands ?? []) {
+			if (sub.positionalComplete && commandSupportsGlobal(sub)) {
+				paths.push(commandPath(sub, cmd));
+			}
+		}
+	}
+	return paths;
+}
+
+/**
+ * Names of every top-level command that has subcommands. Used to teach the
+ * `_skilltree_cmd_path` shell helper to *only* treat `$words[2]` as a
+ * subcommand when `$words[1]` is one of these — otherwise a positional or
+ * a flag in slot 2 (`skilltree remove --global …`) gets wrongly stitched
+ * into a `parent:flag` identity that matches nothing.
+ */
+function parentCommandNames(): string[] {
+	return COMMANDS.filter((c) => (c.subcommands?.length ?? 0) > 0).map((c) => c.name);
+}
+
+// --- Zsh ---------------------------------------------------------------------
+
+/**
+ * Per-flag arg spec. Always emits both forms when a short alias exists, so
+ * `skilltree install -<TAB>` lists `-f -n -g` alongside `--force --dry-run
+ * --global`. Mutex via `(a b)` prevents both forms appearing as further
+ * suggestions once one has been typed.
+ */
+function zshFlagSpecs(flags: FlagDef[]): string[] {
+	const specs: string[] = [];
+	for (const f of flags) {
+		const desc = escapeZsh(f.description);
+		const argSuffix = f.takesArg ? ":arg:" : "";
+		if (f.short) {
+			specs.push(`'(${f.long} ${f.short})'{${f.long},${f.short}}'[${desc}]${argSuffix}'`);
+		} else {
+			specs.push(`'${f.long}[${desc}]${argSuffix}'`);
+		}
+	}
+	return specs;
+}
+
+/**
+ * Map a `positionalComplete` value to the zsh helper-function name we emit.
+ * Single source of truth so the case-branch generator and the helper-emitter
+ * can't drift.
+ */
+function zshHelperName(kind: CompleteKind): string {
+	return `_skilltree_complete_${kind}`;
+}
+
+/**
+ * Build the `_arguments` spec for a single positional value slot. We use
+ * `:value:func` (single positional) rather than `*::value:func` (any number)
+ * because every command with `positionalComplete` takes exactly one
+ * argument; the multi-positional form caused completion to keep firing
+ * after the first arg was already typed (cosmetic noise).
+ */
+function zshValueSpec(kind: CompleteKind): string {
+	return `':value:${zshHelperName(kind)}'`;
+}
+
+function generateZshFlagCase(cmd: CmdDef): string {
+	const args: string[] = cmd.flags ? zshFlagSpecs(cmd.flags) : [];
+	if (cmd.positionalComplete) {
+		args.push(zshValueSpec(cmd.positionalComplete));
+	}
+	if (args.length === 0) return "";
+	return `                ${cmd.name}) _arguments ${args.join(" ")} ;;`;
+}
+
+function generateZshSubcommandCase(cmd: CmdDef): string {
+	const subs = (cmd.subcommands ?? [])
+		.map((s) => `'${s.name}:${escapeZsh(s.description)}'`)
+		.join(" ");
+
+	const subCases = (cmd.subcommands ?? [])
+		.filter((s) => (s.flags?.length ?? 0) > 0 || s.positionalComplete)
+		.map((s) => {
+			const args: string[] = s.flags ? zshFlagSpecs(s.flags) : [];
+			if (s.positionalComplete) {
+				args.push(zshValueSpec(s.positionalComplete));
+			}
+			return `                        ${s.name}) _arguments ${args.join(" ")} ;;`;
+		})
+		.join("\n");
+
+	let body = `                    local -a subcmds\n                    subcmds=(${subs})\n                    _describe '${cmd.name} command' subcmds`;
+
+	if (subCases) {
+		body = `                    case $words[2] in
+${subCases}
+                        *)
+                            local -a subcmds
+                            subcmds=(${subs})
+                            _describe '${cmd.name} command' subcmds
+                            ;;
+                    esac`;
+	}
+
+	return `                ${cmd.name})
+${body}
+                    ;;`;
+}
+
+/** Emit the shared zsh helper functions that call back into `skilltree _complete`. */
+function generateZshHelpers(): string {
+	// `_skilltree_cmd_path` derives the same identity string used by
+	// `globalAwareCommandPaths()` from the live $words array, so the
+	// subsequent case-pattern match stays in sync with the generator.
+	//
+	// `_skilltree_global_flag` only honors `--global` for commands that
+	// actually declare the flag — see `globalAwareCommandPaths()` for the
+	// reasoning. The list is interpolated below at gen time.
+	const awarePaths = globalAwareCommandPaths().join(" ");
+	const parents = parentCommandNames().join("|");
+	return `# Build a "parent:sub" identity if $words[1] is a known parent command,
+# otherwise just $words[1]. Without the parent gate, "skilltree remove --global"
+# would synthesize "remove:--global" — matching nothing, but worse than that
+# it bypasses the awarePaths check below.
+_skilltree_cmd_path() {
+    local first="${"$"}{words[1]:-}" second="${"$"}{words[2]:-}"
+    case "$first" in
+        ${parents})
+            if [[ -n "$second" && "$second" != -* ]]; then
+                echo "$first:$second"
+                return
+            fi
+            ;;
+    esac
+    echo "$first"
+}
+
+_skilltree_global_flag() {
+    local cmd_path
+    cmd_path=$(_skilltree_cmd_path)
+    # Only commands that declare --global should switch scope.
+    case " ${awarePaths} " in
+        *" $cmd_path "*) ;;
+        *) return ;;
+    esac
+    if (( ${"$"}{words[(I)--global]} > 0 || ${"$"}{words[(I)-g]} > 0 )); then
+        echo "--global"
+    fi
+}
+
+_skilltree_complete_deps() {
+    local -a items
+    items=(${"$"}{(f)"$(skilltree _complete deps $(_skilltree_global_flag) 2>/dev/null)"})
+    _describe 'dep' items
+}
+
+_skilltree_complete_targets() {
+    local -a items
+    items=(${"$"}{(f)"$(skilltree _complete targets $(_skilltree_global_flag) 2>/dev/null)"})
+    _describe 'target' items
+}
+
+_skilltree_complete_agents() {
+    local -a items
+    items=(${"$"}{(f)"$(skilltree _complete agents 2>/dev/null)"})
+    _describe 'agent' items
+}`;
+}
 
 export function generateZshCompletion(): string {
 	const topLevelCmds = COMMANDS.map((c) => `'${c.name}:${escapeZsh(c.description)}'`).join(
@@ -215,17 +448,17 @@ export function generateZshCompletion(): string {
 		if (cmd.subcommands) {
 			return generateZshSubcommandCase(cmd);
 		}
-		if (cmd.flags?.length) {
-			return generateZshFlagCase(cmd.name, cmd.flags);
-		}
-		return "";
+		return generateZshFlagCase(cmd);
 	})
 		.filter(Boolean)
 		.join("\n");
 
 	return `#compdef skilltree
-# Zsh completion for skilltree v0.4.0
-# Install: eval "$(skilltree completion zsh)"
+# Zsh completion for skilltree v${pkg.version}
+# Install: skilltree completion --install
+#     or:  eval "$(skilltree completion zsh)"
+
+${generateZshHelpers()}
 
 _skilltree() {
     local -a commands
@@ -259,46 +492,49 @@ compdef _skilltree skilltree
 `;
 }
 
-function generateZshSubcommandCase(cmd: CmdDef): string {
-	const subs = (cmd.subcommands ?? [])
-		.map((s) => `'${s.name}:${escapeZsh(s.description)}'`)
-		.join(" ");
-
-	const subCases = (cmd.subcommands ?? [])
-		.filter((s) => s.flags?.length)
-		.map((s) => {
-			const flags = (s.flags ?? [])
-				.map((f) => `'${f.long}[${escapeZsh(f.description)}]'`)
-				.join(" ");
-			return `                        ${s.name}) _arguments ${flags} ;;`;
-		})
-		.join("\n");
-
-	let body = `                    local -a subcmds\n                    subcmds=(${subs})\n                    _describe '${cmd.name} command' subcmds`;
-
-	if (subCases) {
-		body = `                    case $words[2] in
-${subCases}
-                        *)
-                            local -a subcmds
-                            subcmds=(${subs})
-                            _describe '${cmd.name} command' subcmds
-                            ;;
-                    esac`;
-	}
-
-	return `                ${cmd.name})
-${body}
-                    ;;`;
-}
-
-function generateZshFlagCase(name: string, flags: NonNullable<CmdDef["flags"]>): string {
-	const flagArgs = flags.map((f) => `'${f.long}[${escapeZsh(f.description)}]'`).join(" ");
-	return `                ${name}) _arguments ${flagArgs} ;;`;
-}
-
 function escapeZsh(s: string): string {
 	return s.replace(/'/g, "'\\''").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+}
+
+// --- Bash --------------------------------------------------------------------
+
+/**
+ * Build the space-separated list of all flag tokens (long + short) we want
+ * `compgen` to suggest after a command. The helper is included verbatim in
+ * the generated script.
+ */
+function bashFlagWords(flags: FlagDef[]): string {
+	const words: string[] = [];
+	for (const f of flags) {
+		words.push(f.long);
+		if (f.short) words.push(f.short);
+	}
+	return words.join(" ");
+}
+
+function bashCmdBranch(cmd: CmdDef): string {
+	const flagWords = cmd.flags?.length ? bashFlagWords(cmd.flags) : "";
+	const completeKind = cmd.positionalComplete;
+
+	if (!flagWords && !completeKind) return "";
+
+	if (completeKind && flagWords) {
+		// Mix of flags and a value-completing positional. If the current
+		// word starts with `-`, suggest flags; otherwise suggest values.
+		return `        ${cmd.name})
+            if [[ "$cur" == -* ]]; then
+                COMPREPLY=($(compgen -W "${flagWords}" -- "$cur"))
+            else
+                COMPREPLY=($(compgen -W "$(_skilltree_dyn ${completeKind})" -- "$cur"))
+            fi
+            ;;`;
+	}
+
+	if (completeKind) {
+		return `        ${cmd.name}) COMPREPLY=($(compgen -W "$(_skilltree_dyn ${completeKind})" -- "$cur")) ;;`;
+	}
+
+	return `        ${cmd.name}) COMPREPLY=($(compgen -W "${flagWords}" -- "$cur")) ;;`;
 }
 
 export function generateBashCompletion(): string {
@@ -308,10 +544,22 @@ export function generateBashCompletion(): string {
 		if (cmd.subcommands) {
 			const subNames = cmd.subcommands.map((s) => s.name).join(" ");
 			const subCases = cmd.subcommands
-				.filter((s) => s.flags?.length)
+				.filter((s) => (s.flags?.length ?? 0) > 0 || s.positionalComplete)
 				.map((s) => {
-					const flagNames = (s.flags ?? []).map((f) => f.long).join(" ");
-					return `            ${s.name}) COMPREPLY=($(compgen -W "${flagNames}" -- "$cur")) ;;`;
+					const flagWords = s.flags?.length ? bashFlagWords(s.flags) : "";
+					if (s.positionalComplete && flagWords) {
+						return `            ${s.name})
+                if [[ "$cur" == -* ]]; then
+                    COMPREPLY=($(compgen -W "${flagWords}" -- "$cur"))
+                else
+                    COMPREPLY=($(compgen -W "$(_skilltree_dyn ${s.positionalComplete})" -- "$cur"))
+                fi
+                ;;`;
+					}
+					if (s.positionalComplete) {
+						return `            ${s.name}) COMPREPLY=($(compgen -W "$(_skilltree_dyn ${s.positionalComplete})" -- "$cur")) ;;`;
+					}
+					return `            ${s.name}) COMPREPLY=($(compgen -W "${flagWords}" -- "$cur")) ;;`;
 				})
 				.join("\n");
 
@@ -326,17 +574,61 @@ ${subCases}
             fi
             ;;`;
 		}
-		if (cmd.flags?.length) {
-			const flagNames = cmd.flags.map((f) => f.long).join(" ");
-			return `        ${cmd.name}) COMPREPLY=($(compgen -W "${flagNames}" -- "$cur")) ;;`;
-		}
-		return "";
+		return bashCmdBranch(cmd);
 	})
 		.filter(Boolean)
 		.join("\n");
 
-	return `# Bash completion for skilltree v0.4.0
-# Install: eval "$(skilltree completion bash)"
+	const awarePaths = globalAwareCommandPaths().join(" ");
+	const parents = parentCommandNames().join("|");
+	return `# Bash completion for skilltree v${pkg.version}
+# Install: skilltree completion --install
+#     or:  eval "$(skilltree completion bash)"
+
+# Derive the same identity string used by the gen-time globalAwareCommandPaths()
+# from the live COMP_WORDS array, so the case-pattern below can match. Only
+# stitch "parent:sub" when COMP_WORDS[1] is a known parent command — otherwise
+# "skilltree remove --global" would build "remove:--global" and bypass scope.
+_skilltree_cmd_path() {
+    local first="\${COMP_WORDS[1]:-}" second="\${COMP_WORDS[2]:-}"
+    case "$first" in
+        ${parents})
+            if [[ -n "$second" && "$second" != -* ]]; then
+                echo "$first:$second"
+                return
+            fi
+            ;;
+    esac
+    echo "$first"
+}
+
+# Detect --global / -g on the line — but ONLY for commands that actually
+# accept the flag. Without this scope check, "skilltree info xxx --global"
+# would (wrongly) flip dynamic completion into global-manifest mode even
+# though "info" does not declare --global. The list is generated at build
+# time from the COMMANDS table; see globalAwareCommandPaths() in
+# completion.ts.
+_skilltree_global_flag() {
+    local cmd_path
+    cmd_path=$(_skilltree_cmd_path)
+    case " ${awarePaths} " in
+        *" $cmd_path "*) ;;
+        *) return ;;
+    esac
+    local w
+    for w in "\${COMP_WORDS[@]}"; do
+        if [[ "$w" == "--global" || "$w" == "-g" ]]; then
+            echo "--global"
+            return
+        fi
+    done
+}
+
+# Shell out to \`skilltree _complete <kind>\` with the right scope. Errors
+# are silenced so a broken manifest can't pollute the shell.
+_skilltree_dyn() {
+    skilltree _complete "$1" $(_skilltree_global_flag) 2>/dev/null
+}
 
 _skilltree() {
     local cur prev cmd
@@ -358,10 +650,105 @@ complete -F _skilltree skilltree
 `;
 }
 
+// --- Install -----------------------------------------------------------------
+
 /**
- * CLI handler for `skilltree completion <shell>`
+ * Where to write the completion script for each shell. Picked to be picked
+ * up automatically by the shell's standard completion-loading mechanism.
+ *
+ * - zsh: a writable dir we put on `$fpath`. We use `~/.zfunc` because it's
+ *   the de-facto convention; the user adds it to fpath in their `.zshrc`.
+ * - bash: the XDG bash-completion lookup path (`~/.local/share/bash-completion/completions/<name>`).
+ *   System bash-completion picks this up automatically without any rc edit.
  */
-export async function completionCommand(shell?: string): Promise<void> {
+function getInstallPath(shell: "zsh" | "bash", home: string): string {
+	if (shell === "zsh") return join(home, ".zfunc", "_skilltree");
+	return join(home, ".local", "share", "bash-completion", "completions", "skilltree");
+}
+
+/**
+ * Detect the user's shell from the SHELL env var. Returns null if it can't
+ * confidently match; callers should fall back to asking the user.
+ */
+function detectShell(env: NodeJS.ProcessEnv = process.env): "zsh" | "bash" | null {
+	const shell = env.SHELL ?? "";
+	if (shell.endsWith("/zsh") || shell === "zsh") return "zsh";
+	if (shell.endsWith("/bash") || shell === "bash") return "bash";
+	return null;
+}
+
+export interface InstallCompletionOptions {
+	homeDir?: string; // override $HOME (testing)
+	env?: NodeJS.ProcessEnv; // override process.env (testing)
+}
+
+export interface InstallCompletionResult {
+	shell: "zsh" | "bash";
+	path: string;
+}
+
+/**
+ * Write the completion script to the right place for `shell`. Returns the
+ * detected shell and the absolute path written so callers don't have to
+ * sniff the path to figure out which shell-specific instructions to print.
+ * If `shell` is omitted, infer from `$SHELL`.
+ *
+ * `homeDir` resolution: we prefer the explicit caller override, then fall
+ * back to `os.homedir()` (which goes through the OS, robust to empty
+ * `$HOME`). `env.HOME` is only consulted when the caller passes a custom
+ * `env` (testing) AND that `env.HOME` is non-empty — an empty-string `HOME`
+ * is treated as "unset" per the project's presence-check doctrine, so we
+ * don't accidentally write to `/.zfunc/_skilltree`.
+ */
+export async function installCompletion(
+	shell: string | undefined,
+	opts: InstallCompletionOptions = {},
+): Promise<InstallCompletionResult> {
+	const env = opts.env ?? process.env;
+	const envHome = env.HOME && env.HOME.length > 0 ? env.HOME : undefined;
+	const home = opts.homeDir ?? envHome ?? homedir();
+
+	const target = shell ?? detectShell(env);
+	if (target !== "zsh" && target !== "bash") {
+		throw new Error(
+			"Could not detect shell — pass one explicitly: `skilltree completion zsh --install` or `... bash --install`.",
+		);
+	}
+
+	const script = target === "zsh" ? generateZshCompletion() : generateBashCompletion();
+	const path = getInstallPath(target, home);
+	await mkdir(dirname(path), { recursive: true });
+	await writeFile(path, script, "utf-8");
+	return { shell: target, path };
+}
+
+/**
+ * CLI handler for `skilltree completion [shell] [--install]`.
+ *
+ * - No `--install`: print the script to stdout (existing behavior — keeps
+ *   `skilltree completion zsh > somewhere` scripts working).
+ * - With `--install`: write to the conventional path for the shell and
+ *   print follow-up instructions.
+ */
+export async function completionCommand(
+	shell?: string,
+	opts: { install?: boolean } & InstallCompletionOptions = {},
+): Promise<void> {
+	if (opts.install) {
+		const { shell: target, path } = await installCompletion(shell, opts);
+		success(`Installed ${target} completion to ${pc.cyan(path)}`);
+		if (target === "zsh") {
+			console.log("");
+			console.log(dim("If completion isn't picked up, add to your ~/.zshrc:"));
+			console.log(pc.cyan("  fpath=(~/.zfunc $fpath)"));
+			console.log(pc.cyan("  autoload -Uz compinit && compinit"));
+		} else {
+			console.log("");
+			console.log(dim("Open a new shell to activate (bash-completion picks it up automatically)."));
+		}
+		return;
+	}
+
 	const target = shell ?? "zsh";
 	switch (target) {
 		case "zsh":
