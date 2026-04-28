@@ -268,7 +268,20 @@ describe("completion generator", () => {
 });
 
 describe("generated completion scripts pass shell syntax checks", () => {
-	test("zsh -n accepts the generated zsh script", async () => {
+	// Probe whether each shell is on PATH. Ubuntu runners don't ship zsh by
+	// default, so the zsh test is skipped on environments without it; the
+	// bash test always runs because bash is universal on POSIX CI.
+	const hasShell = (shell: string): boolean => {
+		try {
+			return spawnSync(shell, ["--version"], { encoding: "utf-8" }).status === 0;
+		} catch {
+			return false;
+		}
+	};
+	const zshAvailable = hasShell("zsh");
+	const bashAvailable = hasShell("bash");
+
+	test.skipIf(!zshAvailable)("zsh -n accepts the generated zsh script", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "skilltree-zsh-syntax-"));
 		try {
 			const path = join(dir, "_skilltree");
@@ -283,7 +296,7 @@ describe("generated completion scripts pass shell syntax checks", () => {
 		}
 	});
 
-	test("bash -n accepts the generated bash script", async () => {
+	test.skipIf(!bashAvailable)("bash -n accepts the generated bash script", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "skilltree-bash-syntax-"));
 		try {
 			const path = join(dir, "skilltree.bash");
@@ -305,81 +318,84 @@ describe("generated completion scripts pass shell syntax checks", () => {
  * helpers, and assert their outputs. These would have caught the
  * `remove:--global` regression that the static-string tests missed.
  */
-describe("bash completion behavior (end-to-end)", () => {
-	function runBashWithScript(snippet: string): { stdout: string; status: number | null } {
-		const script = `${generateBashCompletion()}\n${snippet}`;
-		const result = spawnSync("bash", ["-c", script], { encoding: "utf-8" });
-		return { stdout: result.stdout, status: result.status };
-	}
+describe.skipIf(spawnSync("bash", ["--version"], { encoding: "utf-8" }).status !== 0)(
+	"bash completion behavior (end-to-end)",
+	() => {
+		function runBashWithScript(snippet: string): { stdout: string; status: number | null } {
+			const script = `${generateBashCompletion()}\n${snippet}`;
+			const result = spawnSync("bash", ["-c", script], { encoding: "utf-8" });
+			return { stdout: result.stdout, status: result.status };
+		}
 
-	test("_skilltree_cmd_path returns 'remove' for 'skilltree remove --global'", () => {
-		const { stdout } = runBashWithScript(`
+		test("_skilltree_cmd_path returns 'remove' for 'skilltree remove --global'", () => {
+			const { stdout } = runBashWithScript(`
 			COMP_WORDS=(skilltree remove --global)
 			COMP_CWORD=3
 			_skilltree_cmd_path
 		`);
-		expect(stdout.trim()).toBe("remove");
-	});
+			expect(stdout.trim()).toBe("remove");
+		});
 
-	test("_skilltree_cmd_path returns 'targets:remove' for 'skilltree targets remove'", () => {
-		const { stdout } = runBashWithScript(`
+		test("_skilltree_cmd_path returns 'targets:remove' for 'skilltree targets remove'", () => {
+			const { stdout } = runBashWithScript(`
 			COMP_WORDS=(skilltree targets remove)
 			COMP_CWORD=3
 			_skilltree_cmd_path
 		`);
-		expect(stdout.trim()).toBe("targets:remove");
-	});
+			expect(stdout.trim()).toBe("targets:remove");
+		});
 
-	test("_skilltree_cmd_path does NOT stitch 'parent:flag' for non-parent commands", () => {
-		// Regression: 'remove' is not in the parent list, so even though
-		// COMP_WORDS[2] is non-empty (--global), we must not produce
-		// "remove:--global".
-		const { stdout } = runBashWithScript(`
+		test("_skilltree_cmd_path does NOT stitch 'parent:flag' for non-parent commands", () => {
+			// Regression: 'remove' is not in the parent list, so even though
+			// COMP_WORDS[2] is non-empty (--global), we must not produce
+			// "remove:--global".
+			const { stdout } = runBashWithScript(`
 			COMP_WORDS=(skilltree remove --global skill)
 			COMP_CWORD=4
 			_skilltree_cmd_path
 		`);
-		expect(stdout.trim()).toBe("remove");
-	});
+			expect(stdout.trim()).toBe("remove");
+		});
 
-	test("_skilltree_global_flag honors --global for `remove`", () => {
-		const { stdout } = runBashWithScript(`
+		test("_skilltree_global_flag honors --global for `remove`", () => {
+			const { stdout } = runBashWithScript(`
 			COMP_WORDS=(skilltree remove --global)
 			COMP_CWORD=3
 			_skilltree_global_flag
 		`);
-		expect(stdout.trim()).toBe("--global");
-	});
+			expect(stdout.trim()).toBe("--global");
+		});
 
-	test("_skilltree_global_flag IGNORES --global for `info` (which doesn't accept it)", () => {
-		// The whole point of the rework: bogus --global on `info` must
-		// not flip dynamic completion into global-manifest mode.
-		const { stdout } = runBashWithScript(`
+		test("_skilltree_global_flag IGNORES --global for `info` (which doesn't accept it)", () => {
+			// The whole point of the rework: bogus --global on `info` must
+			// not flip dynamic completion into global-manifest mode.
+			const { stdout } = runBashWithScript(`
 			COMP_WORDS=(skilltree info skilltree --global)
 			COMP_CWORD=4
 			_skilltree_global_flag
 		`);
-		expect(stdout.trim()).toBe("");
-	});
+			expect(stdout.trim()).toBe("");
+		});
 
-	test("_skilltree_global_flag honors --global for `targets remove`", () => {
-		const { stdout } = runBashWithScript(`
+		test("_skilltree_global_flag honors --global for `targets remove`", () => {
+			const { stdout } = runBashWithScript(`
 			COMP_WORDS=(skilltree targets remove --global)
 			COMP_CWORD=4
 			_skilltree_global_flag
 		`);
-		expect(stdout.trim()).toBe("--global");
-	});
+			expect(stdout.trim()).toBe("--global");
+		});
 
-	test("_skilltree_global_flag yields nothing when --global is absent", () => {
-		const { stdout } = runBashWithScript(`
+		test("_skilltree_global_flag yields nothing when --global is absent", () => {
+			const { stdout } = runBashWithScript(`
 			COMP_WORDS=(skilltree remove)
 			COMP_CWORD=2
 			_skilltree_global_flag
 		`);
-		expect(stdout.trim()).toBe("");
-	});
-});
+			expect(stdout.trim()).toBe("");
+		});
+	},
+);
 
 describe("installCompletion", () => {
 	let tempHome: string | undefined;
