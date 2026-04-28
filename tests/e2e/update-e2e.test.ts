@@ -22,7 +22,7 @@ afterEach(async () => {
 });
 
 async function writeManifest(dir: string, content: string): Promise<void> {
-	await writeFile(join(dir, "skilltree.yaml"), content, "utf-8");
+	await writeFile(join(dir, "skilltree.yml"), content, "utf-8");
 }
 
 async function makeBareClone(repoDir: string, baseDir: string, name: string): Promise<string> {
@@ -211,7 +211,7 @@ describe("e2e update: non-existent dep", () => {
 		await installCommand(dir, {});
 
 		await expect(updateCommand(dir, "nonexistent")).rejects.toThrow(
-			'"nonexistent" is not in skilltree.yaml',
+			'"nonexistent" is not in skilltree.yml',
 		);
 	});
 });

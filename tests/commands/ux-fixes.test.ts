@@ -31,13 +31,13 @@ afterEach(async () => {
 	}
 });
 
-// --- Fix #1: init should not overwrite existing skilltree.yaml ---
+// --- Fix #1: init should not overwrite existing skilltree.yml ---
 describe("Fix #1: init overwrite guard", () => {
-	test("init refuses to overwrite existing skilltree.yaml", async () => {
+	test("init refuses to overwrite existing skilltree.yml", async () => {
 		const dir = await setup();
 		await initCommand(dir);
 		// Add a dependency manually
-		const manifestPath = join(dir, "skilltree.yaml");
+		const manifestPath = join(dir, "skilltree.yml");
 		const content = await readFile(manifestPath, "utf-8");
 		await writeFile(
 			manifestPath,

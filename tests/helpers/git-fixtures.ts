@@ -55,7 +55,7 @@ export async function createTestRepo(
 	}
 
 	if (manifestYaml !== undefined) {
-		await writeFile(join(repoDir, "skilltree.yaml"), manifestYaml);
+		await writeFile(join(repoDir, "skilltree.yml"), manifestYaml);
 	}
 
 	await git.add(".");

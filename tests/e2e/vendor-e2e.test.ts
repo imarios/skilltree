@@ -22,9 +22,9 @@ afterEach(async () => {
 });
 
 async function setupProject(dir: string): Promise<void> {
-	// Create skilltree.yaml
+	// Create skilltree.yml
 	await writeFile(
-		join(dir, "skilltree.yaml"),
+		join(dir, "skilltree.yml"),
 		`name: test-project
 dev_install_path: .claude
 dependencies:
@@ -268,7 +268,7 @@ describe("vendor e2e", () => {
 		await writeFile(join(agentDir, "my-agent.md"), "---\nname: my-agent\n---\n\n# My Agent\n");
 
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			`name: test-project
 dev_install_path: .claude
 dependencies:
@@ -309,7 +309,7 @@ dependencies:
 		);
 
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			`name: test-project
 dev_install_path: .claude
 dependencies:
@@ -352,7 +352,7 @@ dependencies:
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "my-skill");
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"install_targets:\n  - claude\n  - codex\ndependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
 		);
 		await writeFile(join(dir, ".gitignore"), ".claude/skills/\n.claude/agents/\n");
@@ -364,7 +364,7 @@ dependencies:
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "my-skill");
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"install_targets:\n  - claude\ndependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
 		);
 		await writeFile(join(dir, ".gitignore"), ".claude/skills/\n.claude/agents/\n");

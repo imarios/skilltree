@@ -2,7 +2,12 @@ import { writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { detectInstalledAgents } from "../core/agents.js";
-import { globalManifestExists, MANIFEST_NEW, manifestExists } from "../core/filenames.js";
+import {
+	GLOBAL_MANIFEST,
+	globalManifestExists,
+	MANIFEST_NEW,
+	manifestExists,
+} from "../core/filenames.js";
 import { addGitignoreEntries, getSkillAgentIgnoreEntries } from "../core/gitignore.js";
 import { serializeManifest, writeGlobalManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
@@ -94,7 +99,7 @@ async function initGlobal(globalDirOverride?: string): Promise<void> {
 	const globalDir = globalDirOverride ?? getGlobalDir();
 
 	if (globalManifestExists(globalDir)) {
-		warn(`${globalDir}/global.yaml already exists. No changes made.`);
+		warn(`${globalDir}/${GLOBAL_MANIFEST} already exists. No changes made.`);
 		return;
 	}
 
@@ -103,7 +108,7 @@ async function initGlobal(globalDirOverride?: string): Promise<void> {
 	};
 
 	await writeGlobalManifest(manifest, globalDir);
-	success(`Created ${globalDir}/global.yaml`);
+	success(`Created ${globalDir}/${GLOBAL_MANIFEST}`);
 }
 
 /**

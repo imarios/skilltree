@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { GLOBAL_MANIFEST, MANIFEST_NEW } from "../core/filenames.js";
 import { resolveAll } from "../core/graph.js";
 import type { VerifyStatus } from "../core/installer.js";
 import { verifyInstalled } from "../core/installer.js";
@@ -89,7 +90,7 @@ function printVerifyDiagnostics(
 	}
 	if (broken.length > 0) {
 		warn(
-			`${broken.length} symlink is broken. Check source paths in ${isGlobal ? "global.yaml" : "skilltree.yaml"}.`,
+			`${broken.length} symlink is broken. Check source paths in ${isGlobal ? GLOBAL_MANIFEST : MANIFEST_NEW}.`,
 		);
 	}
 	if (stale.length > 0) {

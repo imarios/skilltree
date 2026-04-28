@@ -38,8 +38,8 @@ describe("e2e lifecycle: init → add → install → verify → update → remo
 		// ── STEP 1: init ──
 		await initCommand(dir);
 
-		// Verify skilltree.yaml created
-		const manifest = await readFile(join(dir, "skilltree.yaml"), "utf-8");
+		// Verify skilltree.yml created
+		const manifest = await readFile(join(dir, "skilltree.yml"), "utf-8");
 		expect(manifest).toContain("dependencies:");
 		expect(manifest).toContain("dev-dependencies:");
 
@@ -85,7 +85,7 @@ describe("e2e lifecycle: init → add → install → verify → update → remo
 		);
 
 		// Verify manifest has entries
-		const manifestAfterAdd = await readFile(join(dir, "skilltree.yaml"), "utf-8");
+		const manifestAfterAdd = await readFile(join(dir, "skilltree.yml"), "utf-8");
 		expect(manifestAfterAdd).toContain("top-skill");
 		expect(manifestAfterAdd).toContain("local-skill");
 
@@ -139,7 +139,7 @@ describe("e2e lifecycle: init → add → install → verify → update → remo
 		await removeCommand("local-skill", dir, { force: true });
 
 		// Verify removed from manifest
-		const manifestAfterRemove = await readFile(join(dir, "skilltree.yaml"), "utf-8");
+		const manifestAfterRemove = await readFile(join(dir, "skilltree.yml"), "utf-8");
 		expect(manifestAfterRemove).not.toContain("local-skill");
 
 		// Verify removed from lockfile

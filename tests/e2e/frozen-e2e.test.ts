@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 async function writeManifest(dir: string, content: string): Promise<void> {
-	await writeFile(join(dir, "skilltree.yaml"), content, "utf-8");
+	await writeFile(join(dir, "skilltree.yml"), content, "utf-8");
 }
 
 describe("frozen mode edge cases", () => {

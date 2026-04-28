@@ -13,14 +13,14 @@ afterEach(async () => {
 });
 
 describe("listCommand", () => {
-	test("throws when no skilltree.yaml exists", async () => {
+	test("throws when no skilltree.yml exists", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-"));
-		await expect(listCommand(tempDir)).rejects.toThrow("No skilltree.yaml");
+		await expect(listCommand(tempDir)).rejects.toThrow("No skilltree.yml");
 	});
 
 	test("shows empty message when manifest exists but no lockfile", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-"));
-		await writeFile(join(tempDir, "skilltree.yaml"), "name: test\n");
+		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
 
 		const logs: string[] = [];
 		const originalLog = console.log;
@@ -35,7 +35,7 @@ describe("listCommand", () => {
 
 	test("lists installed dependencies from lockfile", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-"));
-		await writeFile(join(tempDir, "skilltree.yaml"), "name: test\n");
+		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
 		await writeFile(
 			join(tempDir, "skilltree.lock"),
 			"lockfile_version: 1\npackages:\n  my-skill:\n    type: skill\n    group: prod\n    source: local\n    path: ./skills/my-skill\n    commit: HEAD\n    dependencies: []\n",

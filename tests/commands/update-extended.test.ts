@@ -25,7 +25,7 @@ describe("updateCommand extended", () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "my-skill");
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
 		);
 		await installCommand(dir, {});
@@ -43,19 +43,19 @@ describe("updateCommand extended", () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "my-skill");
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
 		);
 		await installCommand(dir, {});
 
-		await expect(updateCommand(dir, "nonexistent", {})).rejects.toThrow("not in skilltree.yaml");
+		await expect(updateCommand(dir, "nonexistent", {})).rejects.toThrow("not in skilltree.yml");
 	});
 
 	test("selective update on local dep re-reads from filesystem", async () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "my-skill");
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
 		);
 		await installCommand(dir, {});
@@ -78,7 +78,7 @@ describe("updateCommand extended", () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "my-skill");
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
 		);
 

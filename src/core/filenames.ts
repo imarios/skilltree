@@ -2,24 +2,41 @@ import { existsSync } from "node:fs";
 import pc from "picocolors";
 import { getGlobalDir } from "./paths.js";
 
-export const MANIFEST_NEW = "skilltree.yaml";
-export const MANIFEST_NEW_ALT = "skilltree.yml";
+// .yml is the canonical extension; .yaml is still accepted on read with a
+// deprecation warning so existing projects keep working without changes.
+export const MANIFEST_NEW = "skilltree.yml";
+export const MANIFEST_NEW_ALT = "skilltree.yaml";
 export const MANIFEST_LEGACY = "skillkit.yaml";
 export const LOCKFILE_NEW = "skilltree.lock";
 export const LOCKFILE_LEGACY = "skillkit.lock";
-export const GLOBAL_MANIFEST = "global.yaml";
-export const GLOBAL_MANIFEST_ALT = "global.yml";
+export const GLOBAL_MANIFEST = "global.yml";
+export const GLOBAL_MANIFEST_ALT = "global.yaml";
 export const GLOBAL_LOCKFILE = "global.lock";
 
 const DEPRECATION_PREFIX = pc.yellow("[DEPRECATION]");
 
-let manifestWarned = false;
-let lockfileWarned = false;
+// Once-per-process gate for deprecation warnings, keyed by a stable string
+// so callers don't accumulate sibling boolean flags as new deprecations land.
+const warnedOnce = new Set<string>();
+
+function warnOnce(key: string, message: string): void {
+	if (warnedOnce.has(key)) return;
+	warnedOnce.add(key);
+	console.warn(message);
+}
+
+/**
+ * Test-only helper: reset the warn-once gate so each test that wants to
+ * assert on a deprecation warning sees it fire. Not part of the public CLI API.
+ */
+export function _resetDeprecationWarningsForTests(): void {
+	warnedOnce.clear();
+}
 
 /**
  * Resolve the manifest filename in a directory.
- * Accepts skilltree.yaml or skilltree.yml; refuses if both exist.
- * Falls back to skillkit.yaml with a deprecation warning.
+ * Accepts skilltree.yml (canonical) or skilltree.yaml (deprecated default);
+ * refuses if both exist. Falls back to skillkit.yaml with a deprecation warning.
  */
 export function resolveManifestPath(dir: string): { path: string; filename: string } {
 	const newPath = `${dir}/${MANIFEST_NEW}`;
@@ -36,17 +53,19 @@ export function resolveManifestPath(dir: string): { path: string; filename: stri
 		return { path: newPath, filename: MANIFEST_NEW };
 	}
 	if (altExists) {
+		warnOnce(
+			"manifest-yaml-ext",
+			`${DEPRECATION_PREFIX} Found ${MANIFEST_NEW_ALT} — \`.yml\` is now the default extension. Rename to ${MANIFEST_NEW} when convenient; ${MANIFEST_NEW_ALT} is still accepted.`,
+		);
 		return { path: altPath, filename: MANIFEST_NEW_ALT };
 	}
 
 	const legacyPath = `${dir}/${MANIFEST_LEGACY}`;
 	if (existsSync(legacyPath)) {
-		if (!manifestWarned) {
-			console.warn(
-				`${DEPRECATION_PREFIX} Found ${MANIFEST_LEGACY} — please rename to ${MANIFEST_NEW}. Support for ${MANIFEST_LEGACY} will be removed in a future version.`,
-			);
-			manifestWarned = true;
-		}
+		warnOnce(
+			"manifest-legacy",
+			`${DEPRECATION_PREFIX} Found ${MANIFEST_LEGACY} — please rename to ${MANIFEST_NEW}. Support for ${MANIFEST_LEGACY} will be removed in a future version.`,
+		);
 		return { path: legacyPath, filename: MANIFEST_LEGACY };
 	}
 
@@ -66,12 +85,10 @@ export function resolveLockfilePath(dir: string): { path: string; filename: stri
 
 	const legacyPath = `${dir}/${LOCKFILE_LEGACY}`;
 	if (existsSync(legacyPath)) {
-		if (!lockfileWarned) {
-			console.warn(
-				`${DEPRECATION_PREFIX} Found ${LOCKFILE_LEGACY} — please rename to ${LOCKFILE_NEW}. Support for ${LOCKFILE_LEGACY} will be removed in a future version.`,
-			);
-			lockfileWarned = true;
-		}
+		warnOnce(
+			"lockfile-legacy",
+			`${DEPRECATION_PREFIX} Found ${LOCKFILE_LEGACY} — please rename to ${LOCKFILE_NEW}. Support for ${LOCKFILE_LEGACY} will be removed in a future version.`,
+		);
 		return { path: legacyPath, filename: LOCKFILE_LEGACY };
 	}
 
@@ -100,7 +117,7 @@ export const LOCKFILE_DISPLAY = LOCKFILE_NEW;
 // --- Global paths ---
 
 /**
- * Resolve the global manifest path: ~/.skilltree/global.yaml (or .yml).
+ * Resolve the global manifest path: ~/.skilltree/global.yml (or legacy .yaml).
  * Refuses if both extensions are present.
  */
 export function resolveGlobalManifestPath(globalDir?: string): {
@@ -108,20 +125,24 @@ export function resolveGlobalManifestPath(globalDir?: string): {
 	filename: string;
 } {
 	const dir = globalDir ?? getGlobalDir();
-	const yamlPath = `${dir}/${GLOBAL_MANIFEST}`;
-	const ymlPath = `${dir}/${GLOBAL_MANIFEST_ALT}`;
-	const yamlExists = existsSync(yamlPath);
+	const ymlPath = `${dir}/${GLOBAL_MANIFEST}`;
+	const yamlPath = `${dir}/${GLOBAL_MANIFEST_ALT}`;
 	const ymlExists = existsSync(ymlPath);
+	const yamlExists = existsSync(yamlPath);
 
-	if (yamlExists && ymlExists) {
+	if (ymlExists && yamlExists) {
 		throw new Error(
 			`Both ${GLOBAL_MANIFEST} and ${GLOBAL_MANIFEST_ALT} exist in ${dir}. Keep only one — they're the same format under different extensions.`,
 		);
 	}
-	if (ymlExists && !yamlExists) {
-		return { path: ymlPath, filename: GLOBAL_MANIFEST_ALT };
+	if (yamlExists && !ymlExists) {
+		warnOnce(
+			"global-manifest-yaml-ext",
+			`${DEPRECATION_PREFIX} Found ${GLOBAL_MANIFEST_ALT} in ${dir} — \`.yml\` is now the default extension. Rename to ${GLOBAL_MANIFEST} when convenient; ${GLOBAL_MANIFEST_ALT} is still accepted.`,
+		);
+		return { path: yamlPath, filename: GLOBAL_MANIFEST_ALT };
 	}
-	return { path: yamlPath, filename: GLOBAL_MANIFEST };
+	return { path: ymlPath, filename: GLOBAL_MANIFEST };
 }
 
 /**

@@ -37,7 +37,7 @@ describe("removeCommand", () => {
 		const dir = await setup();
 
 		await expect(removeCommand("nonexistent", dir, { force: true })).rejects.toThrow(
-			"not in skilltree.yaml",
+			"not in skilltree.yml",
 		);
 	});
 

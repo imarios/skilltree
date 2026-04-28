@@ -20,14 +20,14 @@ afterEach(async () => {
 });
 
 describe("initCommand", () => {
-	test("creates skilltree.yaml with project name from directory", async () => {
+	test("creates skilltree.yml with project name from directory", async () => {
 		const dir = await makeTempDir();
 		// Create a fake home with no agents — should default to claude
 		const fakeHome = join(dir, "empty-home");
 		await mkdir(fakeHome, { recursive: true });
 		await initCommand(dir, { homeDir: fakeHome });
 
-		const content = await readFile(join(dir, "skilltree.yaml"), "utf-8");
+		const content = await readFile(join(dir, "skilltree.yml"), "utf-8");
 		expect(content).toContain("name:");
 		expect(content).toContain("install_targets");
 		expect(content).toContain("claude");
@@ -59,7 +59,7 @@ describe("initCommand", () => {
 		expect(content).toContain(".claude/agents/");
 	});
 
-	test("refuses to overwrite existing skilltree.yaml", async () => {
+	test("refuses to overwrite existing skilltree.yml", async () => {
 		const dir = await makeTempDir();
 		const fakeHome = join(dir, "empty-home");
 		await mkdir(fakeHome, { recursive: true });
@@ -216,22 +216,22 @@ describe("initCommand", () => {
 	});
 
 	describe("--global", () => {
-		test("creates a new global.yaml when none exists", async () => {
+		test("creates a new global.yml when none exists", async () => {
 			const dir = await makeTempDir();
 			const globalDir = join(dir, "global-home");
 
 			await initCommand(dir, { global: true, globalDir });
 
-			const content = await readFile(join(globalDir, "global.yaml"), "utf-8");
+			const content = await readFile(join(globalDir, "global.yml"), "utf-8");
 			expect(content).toContain("dependencies");
 		});
 
-		test("warns and leaves the file untouched when global.yaml already exists", async () => {
+		test("warns and leaves the file untouched when global.yml already exists", async () => {
 			const dir = await makeTempDir();
 			const globalDir = join(dir, "global-home");
 			await mkdir(globalDir, { recursive: true });
 			const existing = "dependencies:\n  preexisting:\n    local: ./x\n";
-			await writeFile(join(globalDir, "global.yaml"), existing);
+			await writeFile(join(globalDir, "global.yml"), existing);
 
 			const warnings: string[] = [];
 			const originalWarn = console.warn;
@@ -244,7 +244,7 @@ describe("initCommand", () => {
 
 			expect(warnings.some((w) => w.includes("already exists"))).toBe(true);
 			// File must be byte-for-byte unchanged — no clobber of the user's deps.
-			const after = await readFile(join(globalDir, "global.yaml"), "utf-8");
+			const after = await readFile(join(globalDir, "global.yml"), "utf-8");
 			expect(after).toBe(existing);
 		});
 	});

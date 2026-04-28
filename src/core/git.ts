@@ -145,7 +145,7 @@ export function toGitCloneUrl(repo: string): string {
  * If the directory exists but is not a valid bare repo (e.g., empty dir
  * from a failed previous clone), it is removed and re-cloned. If the
  * cached repo's `origin` URL differs from `repoUrl` (user edited the
- * source in skilltree.yaml or config.yaml), the cache is invalidated
+ * source in skilltree.yml or config.yaml), the cache is invalidated
  * and re-cloned against the new URL — a plain fetch would silently
  * pull from the stale remote.
  */

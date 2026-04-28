@@ -8,7 +8,7 @@ import { SKIP_MD_FILES } from "./registry-scanner.js";
 /**
  * A discovered skill or agent in the local filesystem.
  * Mirrors IndexEntry's shape but `path` is always POSIX-style relative
- * to the scan root (so it can be written into skilltree.yaml as-is).
+ * to the scan root (so it can be written into skilltree.yml as-is).
  */
 export interface LocalEntry {
 	name: string;

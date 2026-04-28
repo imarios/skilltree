@@ -40,7 +40,7 @@ packages:
 describe("listCommand extended", () => {
 	test("--json outputs JSON array", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-"));
-		await writeFile(join(tempDir, "skilltree.yaml"), "name: test\n");
+		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
 		await writeFile(join(tempDir, "skilltree.lock"), LOCKFILE_WITH_DEPS);
 
 		const { logs, restore } = captureConsole();
@@ -58,7 +58,7 @@ describe("listCommand extended", () => {
 
 	test("--json with empty lockfile outputs empty array", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-"));
-		await writeFile(join(tempDir, "skilltree.yaml"), "name: test\n");
+		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
 
 		const { logs, restore } = captureConsole();
 		try {
@@ -105,7 +105,7 @@ describe("listCommand extended", () => {
 
 	test("project list shows Group column", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-"));
-		await writeFile(join(tempDir, "skilltree.yaml"), "name: test\n");
+		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
 		await writeFile(join(tempDir, "skilltree.lock"), LOCKFILE_WITH_DEPS);
 
 		const { logs, restore } = captureConsole();
@@ -119,7 +119,7 @@ describe("listCommand extended", () => {
 
 	test("shows remote dep version and source", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-"));
-		await writeFile(join(tempDir, "skilltree.yaml"), "name: test\n");
+		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
 		await writeFile(
 			join(tempDir, "skilltree.lock"),
 			"lockfile_version: 1\npackages:\n  remote-skill:\n    type: skill\n    group: prod\n    repo: github.com/org/skills\n    path: skills/remote-skill\n    version: 2.1.3\n    commit: abc123\n    integrity: sha256-xyz\n    dependencies: []\n",
