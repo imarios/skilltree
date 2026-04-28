@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	escapeZsh,
 	generateBashCompletion,
 	generateZshCompletion,
 	installCompletion,
@@ -177,6 +178,33 @@ describe("completion generator", () => {
 		// Must start with the compdef function
 		expect(zsh).toContain("_skilltree");
 		expect(zsh).toContain("compdef");
+	});
+
+	// Regression: escapeZsh used to escape `'`, `[`, `]` but not `\`. A
+	// description containing `\[` would emit `\\[` to the script, which zsh
+	// reads as literal-backslash + description-group-start — breaking the
+	// surrounding `_arguments` spec. Backslash must be escaped FIRST so the
+	// subsequent replacements don't double-interpret.
+	describe("escapeZsh", () => {
+		test("escapes single quotes via the standard '\\'' break-out", () => {
+			expect(escapeZsh("it's fine")).toBe("it'\\''s fine");
+		});
+
+		test("escapes square brackets so they don't terminate the description group", () => {
+			expect(escapeZsh("[wat]")).toBe("\\[wat\\]");
+		});
+
+		test("escapes backslashes so they don't combine with later bracket escapes", () => {
+			// Input `\[` must NOT become `\\[` (which zsh parses wrong); it
+			// must become `\\\[` (literal backslash + escaped bracket).
+			expect(escapeZsh("\\[")).toBe("\\\\\\[");
+			expect(escapeZsh("\\]")).toBe("\\\\\\]");
+			expect(escapeZsh("a\\b")).toBe("a\\\\b");
+		});
+
+		test("idempotent for plain ASCII text", () => {
+			expect(escapeZsh("plain description")).toBe("plain description");
+		});
 	});
 
 	test("bash completion is valid shell script", () => {

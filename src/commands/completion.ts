@@ -492,8 +492,24 @@ compdef _skilltree skilltree
 `;
 }
 
-function escapeZsh(s: string): string {
-	return s.replace(/'/g, "'\\''").replace(/\[/g, "\\[").replace(/\]/g, "\\]");
+/**
+ * Escape a description string for safe interpolation into a zsh
+ * `_arguments` spec wrapped in single quotes (e.g. `'flag[desc]'`).
+ *
+ * Backslash MUST be escaped first so the subsequent `\[` / `\]` injections
+ * don't combine with a pre-existing `\` from the input to form `\\[` (which
+ * zsh reads as literal-backslash + description-group-start, breaking the
+ * spec). Same logic for `'` — the `'\''` sequence must not double-interpret
+ * an upstream backslash.
+ *
+ * Exported for unit testing.
+ */
+export function escapeZsh(s: string): string {
+	return s
+		.replace(/\\/g, "\\\\")
+		.replace(/'/g, "'\\''")
+		.replace(/\[/g, "\\[")
+		.replace(/\]/g, "\\]");
 }
 
 // --- Bash --------------------------------------------------------------------
