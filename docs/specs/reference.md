@@ -2,7 +2,7 @@
 
 ## File Formats
 
-### skilltree.yaml (Manifest)
+### skilltree.yml (Manifest)
 
 ```yaml
 name: my-project                  # Project name (informational)
@@ -37,6 +37,12 @@ dependencies:
   my-style:
     local: ./skills/my-style
 
+  # Slash command (Claude Code) -- single .md file under commands/
+  review:
+    repo: github.com/org/cmds
+    path: commands/review.md
+    type: command                 # Required if path doesn't sit under a `commands/` segment
+
   # Name aliasing (when skill and agent share a name)
   workflow-builder:
     local: ./skills/workflow-builder
@@ -66,10 +72,10 @@ dev-dependencies:
 | `local:` | Yes (local) | Filesystem path. Relative (`./`) for project manifests, `~/` or absolute for global manifests. Mutually exclusive with `repo:`. |
 | `path:` | Yes (remote and local-source) | Path within the repo or local source directory. Use `.` for root. Required when using `source:` (both remote and local). Not used with standalone `local:`. |
 | `version:` | No | Semver constraint (`^2.0.0`, `>=1.0`, `*`). Default `"*"`. Not used for local deps during install. |
-| `type:` | No | `skill` or `agent`. Inferred from content if omitted. |
+| `type:` | No | `skill`, `agent`, or `command`. Inferred from content if omitted (see "Type inference" below). |
 | `name:` | No | Actual entity name when YAML key is an alias. Default: YAML key. |
 
-**Type inference:** `SKILL.md` present at path = skill. Single `.md` file at path = agent.
+**Type inference:** Directory containing `SKILL.md` = skill. A single `.md` file under any `commands/` segment = command (Claude Code slash command). Any other `.md` file = agent. Override with explicit `type:` when the path doesn't reflect the intended layout.
 
 **Versioning:** Git tags (`v1.0.0` or `1.0.0`). One repo = one version -- all entities from the same repo share a tag. Multiple constraints on the same repo are intersected.
 
@@ -153,13 +159,13 @@ dependencies:
 ---
 ```
 
-Name-only list. Resolution details (repo, version) come from the consumer's `skilltree.yaml`. Keeps skills portable.
+Name-only list. Resolution details (repo, version) come from the consumer's `skilltree.yml`. Keeps skills portable.
 
 ## Resolution Algorithm
 
 ### Phase 1: Graph Construction
 
-1. Read `skilltree.yaml` to get direct dependencies (remote and local)
+1. Read `skilltree.yml` to get direct dependencies (remote and local)
 2. For each remote dep, fetch content from git (or local cache). For local deps, read from filesystem.
 3. Parse SKILL.md frontmatter to discover transitive dependencies
 4. Add resolved entities to the **resolution context** (available to all subsequent lookups)
@@ -168,18 +174,18 @@ Name-only list. Resolution details (repo, version) come from the consumer's `ski
 
 **Transitive resolution priority:**
 1. Resolution context (already resolved by another chain)
-2. Manifest lookup (consumer's `skilltree.yaml`, either group)
+2. Manifest lookup (consumer's `skilltree.yml`, either group)
 3. Local-source probe (when the parent is a local dep, look inside its source dir)
-4. Origin-manifest lookup (when the parent is a remote dep, read the origin repo's `skilltree.yaml` at the pinned ref and look up `dependencies[name]`; `dev-dependencies` are NOT exposed to downstream consumers)
-5. Same-repo conventional probe (`skills/<name>/SKILL.md`, `agents/<name>.md`, `<name>/SKILL.md`)
+4. Origin-manifest lookup (when the parent is a remote dep, read the origin repo's `skilltree.yml` at the pinned ref and look up `dependencies[name]`; `dev-dependencies` are NOT exposed to downstream consumers)
+5. Same-repo conventional probe (`skills/<name>/SKILL.md`, `agents/<name>.md`, `commands/<name>.md`, `<name>/SKILL.md`)
 6. Error (with actionable fix message)
 
 **Origin-manifest lookup for direct deps (R9):**
-- A direct dep `{repo: X, version: Y}` (no `path:`) triggers path inference. Read origin's `skilltree.yaml` at the resolved tag; look up the entity's actual name in `dependencies` (never `dev-dependencies`).
+- A direct dep `{repo: X, version: Y}` (no `path:`) triggers path inference. Read origin's `skilltree.yml` at the resolved tag; look up the entity's actual name in `dependencies` (never `dev-dependencies`).
 - If origin's entry is `local:` relative → use that path.
 - If origin's entry is `repo:` pointing at the consumer-declared repo → use origin's `path`.
 - If origin's entry points at a **different** repo → fall through to the conventional probe (do not redirect the consumer's `repo:` silently).
-- If origin doesn't declare the name, or has no manifest, or the manifest is malformed → fall through to the conventional probe (`skills/<name>/SKILL.md`, `agents/<name>.md`, `<name>/SKILL.md`).
+- If origin doesn't declare the name, or has no manifest, or the manifest is malformed → fall through to the conventional probe (`skills/<name>/SKILL.md`, `agents/<name>.md`, `commands/<name>.md`, `<name>/SKILL.md`).
 - If no tier resolves, error with a message listing every location checked.
 
 **Path warnings (R10):**
@@ -194,7 +200,7 @@ Name-only list. Resolution details (repo, version) come from the consumer's `ski
 - If origin's entry is `local: ./path/in/repo`, it is treated as a same-repo dep pinned to the parent's tag. This lets authors organize skills at any path (e.g., `skills/source/<name>/`) while keeping auto-resolution for consumers.
 - If origin's entry is `repo:` or `source:` (cross-repo), the target repo is cloned and resolved on-demand under origin's declared constraint. Already-resolved repos are reused; a constraint conflict produces a `Cross-repo transitive constraint conflict` error.
 - If origin's `local:` path is absolute (e.g., from a `source:` alias expanding to a filesystem path on origin's author's machine), the entry is skipped silently since consumers cannot use such paths.
-- If origin's `skilltree.yaml` is missing, malformed, or doesn't declare the name, resolution falls through silently to the conventional probe.
+- If origin's `skilltree.yml` is missing, malformed, or doesn't declare the name, resolution falls through silently to the conventional probe.
 - If origin declared the name only under `dev-dependencies`, the error message includes a specific hint pointing at the upstream author.
 
 **Declaration order:** Manifest entries processed top to bottom, `dependencies` before `dev-dependencies`. First resolution of a name wins for same-name entities in different repos.
@@ -233,7 +239,7 @@ If any errors were collected, block install and report all of them together.
 ### Phase 5: Installation
 
 1. **Remote deps already installed**: Check integrity hash against lockfile. If modified, warn + require `--force`.
-2. **Local deps**: Symlink from `{install_path}/skills/{name}` or `{install_path}/agents/{name}.md` to local path. No chmod, no integrity hash.
+2. **Local deps**: Symlink from `{install_path}/skills/{name}`, `{install_path}/agents/{name}.md`, or `{install_path}/commands/{name}.md` to local path. No chmod, no integrity hash.
 3. **Remote deps**: Copy from git cache. Set `chmod 444` for files (directories keep default permissions for manageability).
 4. **`--prod --install-path`**: Local deps **copied** (not symlinked). Copies get `chmod 444` for files and integrity hash (they're production artifacts).
 5. Compute SHA-256 integrity hash (remote + prod copies).
@@ -330,7 +336,7 @@ Error: Broken dependency chain
   api-development depends on testing, but testing has a broken dependency:
     testing declares dependency "python-coding" which is not resolvable.
 
-Fix: Ensure python-coding is in skilltree.yaml and its repo is accessible.
+Fix: Ensure python-coding is in skilltree.yml and its repo is accessible.
 ```
 
 ```
@@ -366,15 +372,15 @@ Error: Git operation failed
   Failed to fetch github.com/company/private-skills
   Underlying error: repository not found (or permission denied)
 
-Fix: Check the repo URL in skilltree.yaml and your git access (SSH keys, GITHUB_TOKEN).
+Fix: Check the repo URL in skilltree.yml and your git access (SSH keys, GITHUB_TOKEN).
 ```
 
 ```
 Error: Invalid manifest
 
-  skilltree.yaml: line 12: mapping values are not allowed here
+  skilltree.yml: line 12: mapping values are not allowed here
 
-Fix: Check YAML syntax in skilltree.yaml.
+Fix: Check YAML syntax in skilltree.yml.
 ```
 
 ```
@@ -383,7 +389,7 @@ Error: Local dependency path not found
   my-style: ./skills/my-stlye
   Path does not exist.
 
-Fix: Check the `local:` path in skilltree.yaml.
+Fix: Check the `local:` path in skilltree.yml.
 ```
 
 ```
@@ -431,7 +437,7 @@ Malformed frontmatter errors are collected in the batch error pattern (not fail-
 - **`--prod` filtering is at install time, not resolution time.** All deps (both groups) are resolved from the full manifest. `--prod` only controls which `group: dev` entries are skipped during the installation step. This ensures Decision #11 works correctly: a dev-dep that is also a transitive prod dep gets `group: prod` and IS installed by `--prod`.
 - **`--frozen` does not write the lockfile.** It is read-only (like `npm ci`). Integrity hashes for prod-copied local deps are computed for in-memory verification but not persisted to the lockfile.
 - **Failed install leaves lockfile unchanged.** A failed install (cycle, missing deps, etc.) does NOT write a partial lockfile. The previous lockfile is preserved. The next `skilltree install` uses the preserved lockfile according to normal lockfile behavior rules (not "full resolution from scratch").
-- **`skilltree remove` on a transitive-only dep:** If `<name>` is not a direct manifest entry, `remove` errors: "`<name>` is not in skilltree.yaml. It is a transitive dependency of `<parent>`. To stop installing it, remove or modify `<parent>` instead."
+- **`skilltree remove` on a transitive-only dep:** If `<name>` is not a direct manifest entry, `remove` errors: "`<name>` is not in skilltree.yml. It is a transitive dependency of `<parent>`. To stop installing it, remove or modify `<parent>` instead."
 - **Aliased entries in `deps tree`:** Shown as `actual-name@version (type, source)`. The alias is not displayed in the tree -- the tree uses installed names. The lockfile and `skilltree list` show the alias-to-name mapping.
 - **Integrity hash and line endings:** The hash is computed on content as retrieved from git's internal storage (remote deps) or as-is from the filesystem (local dep copies). For cross-platform determinism, skill repos should use `.gitattributes` with `* text=auto` to ensure consistent line endings. skilltree does not normalize line endings before hashing.
 - **`scan --check` pass/fail criteria:** Exit 1 if regex detects body references to skills not declared in frontmatter `dependencies`. Exit 0 if all body references are declared (or no body references found). Files with frontmatter but no `dependencies` field are treated as having an empty list. Declared-but-not-referenced deps are OK (exit 0).
@@ -443,7 +449,7 @@ Malformed frontmatter errors are collected in the batch error pattern (not fail-
 - **Failed install (cycle, missing deps, etc.):** Does NOT write a partial lockfile. The next `skilltree install` runs full resolution from scratch. If a lockfile existed before the failed run, it is left unchanged.
 - **`remove --keep-files` then `install`:** Leftover files from `--keep-files` are ignored by `install` (they have no lockfile entry). If the same dep is re-added later, `install` overwrites the leftover files.
 - **`skilltree scan --check` on a non-skill file:** Skips files that have no YAML frontmatter (exit 0). Only validates files that look like skills or agents (contain `---` frontmatter).
-- **Install path creation:** `skilltree install` creates the install path and its `skills/`/`agents/` subdirectories if they don't exist (`mkdir -p` behavior). Applies to both the default `.claude/` path and `--install-path` overrides.
+- **Install path creation:** `skilltree install` creates the install path and its `skills/`, `agents/`, and `commands/` subdirectories if they don't exist (`mkdir -p` behavior). Applies to both the default `.claude/` path and `--install-path` overrides.
 
 ### Warnings
 
@@ -463,7 +469,7 @@ Run `skilltree install --force` to overwrite, or `skilltree verify` for details.
 ### Lockfile Merge Conflicts
 
 Resolution strategy:
-1. Resolve conflicts in `skilltree.yaml` first
+1. Resolve conflicts in `skilltree.yml` first
 2. Delete the conflicted `skilltree.lock`
 3. Run `skilltree install` to regenerate
 4. Commit both files

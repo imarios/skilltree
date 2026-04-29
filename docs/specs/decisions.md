@@ -12,20 +12,20 @@ Remote deps: if lockfile exists and is consistent with manifest, install from lo
 `local:` deps are symlinked for instant feedback during development. Copied (not symlinked) during `--prod --install-path` for Docker builds. Optional `version:` field serves consumers who reference the same entity via `repo:`. Local agents (single `.md` files) are file-symlinked; local skills (directories) are directory-symlinked. Local deps bypass the lockfile for resolution -- the working tree is the source of truth.
 
 ### 4. Transitive resolution uses a growing context
-Once an entity is resolved (by any method), it becomes available to all subsequent resolution lookups. Priority: resolution context -> consumer manifest -> local-source probe -> origin-manifest lookup -> same-repo conventional probe -> error. Prevents order-dependent resolution failures. Entities registered under actual name + type (not YAML alias). Declaration order (top to bottom, `dependencies` before `dev-dependencies`) is the tiebreaker for same-name entities in different repos. See `origin_manifest_resolution.md` for the origin-manifest lookup tier (reads the parent repo's `skilltree.yaml` at the pinned ref; only `dependencies` are exposed to downstream consumers).
+Once an entity is resolved (by any method), it becomes available to all subsequent resolution lookups. Priority: resolution context -> consumer manifest -> local-source probe -> origin-manifest lookup -> same-repo conventional probe -> error. Prevents order-dependent resolution failures. Entities registered under actual name + type (not YAML alias). Declaration order (top to bottom, `dependencies` before `dev-dependencies`) is the tiebreaker for same-name entities in different repos. See `origin_manifest_resolution.md` for the origin-manifest lookup tier (reads the parent repo's `skilltree.yml` at the pinned ref; only `dependencies` are exposed to downstream consumers).
 
 ### 5. Modification safety
 `skilltree install` checks integrity of existing installed files before overwriting. Modified files trigger a warning; `--force` required to overwrite. Prevents accidental loss of local experiments.
 
 ### 6. Type inference
-Presence of `SKILL.md` in the path = skill. Single `.md` file = agent. Can be overridden with explicit `type:` in manifest. Path is always required for remote deps (no guessing).
+Directory containing `SKILL.md` = skill. A single `.md` file under any `commands/` segment = command (Claude Code slash command). Any other `.md` file = agent. Can be overridden with explicit `type:` in manifest. Path is always required for remote deps (no guessing).
 
 ### 7. Name aliasing (follows Cargo `package` rename)
 **Marked as hard -- needs thorough testing during implementation.**
 
 YAML keys must be unique, but a skill and agent can share a name (e.g., `workflow-builder`). The YAML key serves as a local alias; the `name:` field specifies the actual entity name for installation. If `name:` is omitted, the key IS the name.
 
-- No filesystem collision: skills install to `skills/`, agents to `agents/`
+- No filesystem collision: skills install to `skills/`, agents to `agents/`, commands to `commands/`
 - Frontmatter `dependencies` use actual names, not aliases
 - Disambiguation in frontmatter: `dependencies: [workflow-builder]` **always resolves to the skill** when both skill and agent share the name. Skills can only depend on skills (type constraint forces it). Agents default to skill (common pattern).
 - **Known limitation:** There is no frontmatter syntax to target a same-name agent. If an agent needs to depend on another agent that shares a name with a skill, the agent must be renamed to have a unique name. This is an acceptable constraint -- the collision is rare (1 in 42 entities in the real codebase), and renaming is a one-time fix.
@@ -48,7 +48,7 @@ The `sources:` map defines repo URL aliases. `source: vibes` expands to `repo:` 
 `.claude/skills/` is gitignored -- pre-commit file patterns never match installed files. The `skilltree-scan` hook is for skill authoring repos with tracked `skills/` directories. Consumer repos use only `skilltree-validate`.
 
 ### 10. Installed files are never checked in
-Only `skilltree.yaml` and `skilltree.lock` go into git. `.claude/skills/` and `.claude/agents/` are gitignored. `skilltree init` sets this up.
+Only `skilltree.yml` and `skilltree.lock` go into git. `.claude/skills/` and `.claude/agents/` are gitignored. `skilltree init` sets this up.
 
 ### 11. Group assignment
 If a transitive dependency is reachable from both `dependencies` and `dev-dependencies`, it is `group: prod`. `--prod` must include it.
@@ -57,7 +57,7 @@ If a transitive dependency is reachable from both `dependencies` and `dev-depend
 Resolution does NOT halt on the first error. It continues through the entire graph, collecting all unresolvable dependencies, incompatible constraints, type violations, and cycle paths, then reports them all at once. This lets users fix all issues in one pass instead of iterating through install-fail-fix cycles. Follows the same pattern as TypeScript compiler errors (collect all, report all).
 
 ### 13. Lockfile merge conflicts
-Resolution strategy (follows npm/yarn convention): resolve `skilltree.yaml` conflicts first, delete conflicted `skilltree.lock`, run `skilltree install` to regenerate. Lockfile uses sorted YAML keys to minimize conflicts.
+Resolution strategy (follows npm/yarn convention): resolve `skilltree.yml` conflicts first, delete conflicted `skilltree.lock`, run `skilltree install` to regenerate. Lockfile uses sorted YAML keys to minimize conflicts.
 
 ## Deferred Decisions
 
@@ -88,12 +88,12 @@ Decisions that came up during spec review but were explicitly deferred.
 | Breaking transitive dep additions | Accepted as-is | New cross-repo dep in frontmatter breaks consumers on update. Error is clear. Could warn in `outdated` later. |
 
 ### 14. Registries are discovery-only
-Registries help find and add skills but are never in the install or resolution path. `skilltree add <name>` (without `--repo`) consults registries to resolve the full coordinates, then writes the **full explicit form** (`repo:` + `path:`) to `skilltree.yaml`. The manifest stays self-contained and auditable. See [registries.md](registries.md).
+Registries help find and add skills but are never in the install or resolution path. `skilltree add <name>` (without `--repo`) consults registries to resolve the full coordinates, then writes the **full explicit form** (`repo:` + `path:`) to `skilltree.yml`. The manifest stays self-contained and auditable. See [registries.md](registries.md).
 
 **Rejected alternative:** npm-style shorthand (`python-coding: "^2.0.0"`) where the manifest depends on a global registry for resolution. Rejected because it makes the manifest non-self-contained, creates "works on my machine" from registry ordering when names collide across registries, and breaks `skilltree update` for teammates without the same registries configured. The UX win (shorter YAML) was not worth the implicit external state.
 
 ### 15. `sources:` and registries are separate concepts
-`sources:` in `skilltree.yaml` are project-scoped URL aliases used during resolution. Registries in `~/.skilltree/config.yaml` are user-scoped discovery tools. They can point to the same git repo. They don't interact. Rationale: merging them creates a conceptual mess — "is this a source or a registry? is it searchable? does it affect install?" Keeping them separate means each concept has one purpose.
+`sources:` in `skilltree.yml` are project-scoped URL aliases used during resolution. Registries in `~/.skilltree/config.yaml` are user-scoped discovery tools. They can point to the same git repo. They don't interact. Rationale: merging them creates a conceptual mess — "is this a source or a registry? is it searchable? does it affect install?" Keeping them separate means each concept has one purpose.
 
 ### 16. Dual install paths: `dev_install_path` + `src_install_path`
 Skills serve two purposes: helping developers write code (dev) and powering the product's AI features at runtime (source). Most users only need the first. The `src_install_path` field is optional — when absent, behavior is exactly like before (everything goes to `.claude/`). When set, `dependencies` install to both paths and `dev-dependencies` install to `dev_install_path` only.

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import YAML from "yaml";
+import { mdFileType } from "../core/entity-type.js";
 import { parseFrontmatter } from "../core/frontmatter.js";
 import { SKIP_MD_FILES } from "../core/registry-scanner.js";
 import type { IndexEntry } from "../types.js";
@@ -33,7 +34,10 @@ export async function indexCommand(opts: { check?: boolean }, dir?: string): Pro
 	await writeFile(join(baseDir, "skillkit-index.yaml"), yamlContent, "utf-8");
 	const skills = entries.filter((e) => e.type === "skill").length;
 	const agents = entries.filter((e) => e.type === "agent").length;
-	console.log(`Scanned ${entries.length} entities (${skills} skills, ${agents} agents)`);
+	const commands = entries.filter((e) => e.type === "command").length;
+	console.log(
+		`Scanned ${entries.length} entities (${skills} skills, ${agents} agents, ${commands} commands)`,
+	);
 	console.log("Wrote skillkit-index.yaml");
 }
 
@@ -103,7 +107,7 @@ async function tryAddAgent(
 		if (!fm || (!fm.name && !fm.skills)) return;
 		const relPath = relative(baseDir, fullPath);
 		const name = fm.name ?? basename(item, ".md");
-		const entry: IndexEntry = { name, type: "agent", path: relPath };
+		const entry: IndexEntry = { name, type: mdFileType(relPath), path: relPath };
 		if (fm.description) entry.description = fm.description;
 		entries.push(entry);
 	} catch {

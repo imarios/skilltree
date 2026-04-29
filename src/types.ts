@@ -1,4 +1,4 @@
-export type EntityType = "skill" | "agent";
+export type EntityType = "skill" | "agent" | "command";
 export type DependencyGroup = "prod" | "dev";
 
 export interface RemoteDependency {

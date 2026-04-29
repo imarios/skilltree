@@ -2,6 +2,7 @@ import type { Dirent } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 import type { EntityType } from "../types.js";
+import { mdFileType } from "./entity-type.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { SKIP_MD_FILES } from "./registry-scanner.js";
 
@@ -118,13 +119,13 @@ async function classifyMdFile(
 		return entry;
 	}
 
-	// Agent candidate — require a name in frontmatter. Without one we have
-	// no stable identifier and the file is probably not an agent anyway.
+	// Agent or command candidate — require a name in frontmatter. Without one
+	// we have no stable identifier and the file is probably neither.
 	if (!fm?.name) return null;
 
 	const entry: LocalEntry = {
 		name: fm.name,
-		type: "agent",
+		type: mdFileType(relPath),
 		path: relPath,
 	};
 	if (fm.description) entry.description = fm.description;

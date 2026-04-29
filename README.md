@@ -6,7 +6,7 @@
 [![license](https://img.shields.io/npm/l/skilltree-pm)](https://github.com/imarios/skilltree/blob/main/LICENSE)
 [![node](https://img.shields.io/node/v/skilltree-pm)](https://nodejs.org)
 
-Dependency manager for AI agent skills and agents. Uses git repos as the registry, resolves transitive dependencies, supports semver version pinning via git tags, and produces lockfiles for reproducible installs.
+Dependency manager for AI agent skills, agents, and slash commands. Uses git repos as the registry, resolves transitive dependencies, supports semver version pinning via git tags, and produces lockfiles for reproducible installs.
 
 [![demo](https://imarios.github.io/skilltree/demo.gif)](https://imarios.github.io/skilltree/demo.mp4)
 
@@ -14,7 +14,7 @@ Dependency manager for AI agent skills and agents. Uses git repos as the registr
 
 AI agent skills ([SKILL.md](https://agentskills.io/specification)) are the open standard for giving coding agents reusable instructions. Existing tools treat skills as independent files — copy to a directory, done. But real-world skill ecosystems develop dependency graphs: a `code-review` skill depends on `testing`, `linting`, and `language-support`. An agent depends on 5 skills spread across 3 repos.
 
-skilltree is `npm` for skills: declare what you need in `skilltree.yaml`, run `skilltree install`, and get a resolved, version-pinned, reproducible dependency tree in `skilltree.lock`.
+skilltree is `npm` for skills: declare what you need in `skilltree.yml`, run `skilltree install`, and get a resolved, version-pinned, reproducible dependency tree in `skilltree.lock`.
 
 ### How it compares
 
@@ -60,6 +60,9 @@ skilltree add python-coding
 skilltree add code-review --repo github.com/org/skills --path skills/code-review --version "^2.0.0"
 skilltree add my-style --local ./skills/my-style
 
+# Slash commands (Claude Code) — installed to .claude/commands/
+skilltree add review --repo github.com/org/cmds --path commands/review.md --type command
+
 # Resolve and install
 skilltree install
 ```
@@ -70,13 +73,13 @@ skilltree install
 
 Two files manage all state:
 
-- **`skilltree.yaml`** — what you want (repo URLs, version constraints, local paths)
+- **`skilltree.yml`** — what you want (repo URLs, version constraints, local paths)
 - **`skilltree.lock`** — what you got (resolved versions, exact commits, integrity hashes)
 
 Skills declare their own dependencies in SKILL.md frontmatter. skilltree resolves the full transitive graph, pins versions via git tags, and installs in topological order. Teammates get identical versions from the lockfile.
 
 ```yaml
-# skilltree.yaml
+# skilltree.yml
 dependencies:
   code-review:
     repo: github.com/org/skills
@@ -96,14 +99,14 @@ dependencies:
 
 skilltree resolves `code-review`, discovers it needs `testing` and `linting`, resolves those too, and installs all three.
 
-**Origin-manifest resolution.** When the upstream repo ships its own `skilltree.yaml`, skilltree uses it as the authoritative map of what lives where. Two consequences for consumers:
+**Origin-manifest resolution.** When the upstream repo ships its own `skilltree.yml`, skilltree uses it as the authoritative map of what lives where. Two consequences for consumers:
 
 - **`path:` is optional.** If origin declares the name, skilltree fills in the path at install time.
   ```yaml
   dependencies:
     task-builder:
       repo: github.com/org/some-repo
-      # path: inferred from origin's skilltree.yaml
+      # path: inferred from origin's skilltree.yml
   ```
 - **Unconventional layouts still work.** Transitive deps resolve even when the upstream repo organizes skills at non-standard paths like `skills/source/<name>/`. Cross-repo transitive deps (where origin's manifest references a third-party repo) are cloned on demand.
 
@@ -122,7 +125,7 @@ skilltree install    # symlinks .claude/skills/my-style → ./skills/my-style
 
 ### Global Dependencies
 
-Skills you want available in every project without adding them to each `skilltree.yaml`.
+Skills you want available in every project without adding them to each `skilltree.yml`.
 
 ```bash
 skilltree init --global
@@ -152,7 +155,7 @@ Bulk-add everything from a source directory:
 skilltree add --global --source mine --discover
 ```
 
-**When to use global:** Personal productivity skills you want everywhere — `python-coding`, `general-coding`, `my-style`. If the *project* needs a skill, put it in the project's `skilltree.yaml` — that's the contract teammates and CI rely on.
+**When to use global:** Personal productivity skills you want everywhere — `python-coding`, `general-coding`, `my-style`. If the *project* needs a skill, put it in the project's `skilltree.yml` — that's the contract teammates and CI rely on.
 
 ### Vendor Mode
 
@@ -161,7 +164,7 @@ Ship skills to consumers who don't have access to your upstream repos. Vendor co
 ```bash
 # Maintainer: enter vendor mode
 skilltree vendor                # copies all deps to .claude/, removes from .gitignore
-git add .claude/ skilltree.yaml
+git add .claude/ skilltree.yml
 git commit -m "vendor skills"
 
 # Consumer: just clone
@@ -193,7 +196,7 @@ skilltree info python-coding                   # detailed info
 skilltree add python-coding                    # resolves repo + path from registry
 ```
 
-Registries are authoring-time tools — they help you find and add skills. They are never in the install path. `skilltree.yaml` always records explicit `repo:` + `path:`, so teammates don't need the same registries configured.
+Registries are authoring-time tools — they help you find and add skills. They are never in the install path. `skilltree.yml` always records explicit `repo:` + `path:`, so teammates don't need the same registries configured.
 
 ### Dev/Prod Separation
 
@@ -267,7 +270,7 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 
 | Need | Mechanism | Who benefits |
 |------|-----------|--------------|
-| Project needs a skill | `skilltree.yaml` dependency | Everyone on the team |
+| Project needs a skill | `skilltree.yml` dependency | Everyone on the team |
 | You want a skill everywhere | `skilltree add --global` | Just you |
 | Ship skills without upstream access | `skilltree vendor` | Consumers of your repo |
 | Find skills by name | `skilltree search` via registries | Skill discovery |
@@ -276,7 +279,7 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 
 | Command | Description |
 |---------|-------------|
-| `skilltree init` | Create `skilltree.yaml` and update `.gitignore` |
+| `skilltree init` | Create `skilltree.yml` and update `.gitignore` |
 | `skilltree add <name>` | Add a dependency (remote, local, or dev) |
 | `skilltree install` | Resolve dependencies and install |
 | `skilltree update [name]` | Update to latest versions |

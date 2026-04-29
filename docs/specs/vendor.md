@@ -19,7 +19,7 @@ The maintainer needs to ship the resolved skills inside the repo so `git clone` 
 
 **Vendor mode is a distribution mechanism, not a replacement for skilltree.**
 
-`skilltree.yaml` + `skilltree.lock` remain the source of truth. The vendored files are a derived snapshot — like a build output that happens to be committed. The maintainer can update deps, re-vendor, and push. The consumer never needs to know skilltree exists.
+`skilltree.yml` + `skilltree.lock` remain the source of truth. The vendored files are a derived snapshot — like a build output that happens to be committed. The maintainer can update deps, re-vendor, and push. The consumer never needs to know skilltree exists.
 
 ## How It Works
 
@@ -37,7 +37,7 @@ Copying 5 entities to .claude/
   linting@2.1.3          copied (transitive)
   code-review@2.1.3      copied (transitive)
 
-Updated skilltree.yaml (vendor: true)
+Updated skilltree.yml (vendor: true)
 Updated .gitignore (removed .claude/skills/, .claude/agents/)
 
 Vendor complete. Run `git add .claude/` to commit vendored files.
@@ -46,7 +46,7 @@ Vendor complete. Run `git add .claude/` to commit vendored files.
 What happens:
 1. Resolves deps (runs full resolution if no lockfile, lockfile-first otherwise — same as `install`)
 2. Copies **all** deps to `dev_install_path` (`.claude/` by default) as real files — no symlinks
-3. Sets `vendor: true` in `skilltree.yaml`
+3. Sets `vendor: true` in `skilltree.yml`
 4. Removes `.claude/skills/` and `.claude/agents/` from `.gitignore` so they can be committed
 5. Sets copied files read-only (`chmod 444`/`555`) — same as remote deps in normal mode
 
@@ -56,7 +56,7 @@ What happens:
 $ skilltree unvendor
 
 Deleted vendored files from .claude/skills/ and .claude/agents/
-Updated skilltree.yaml (vendor: false)
+Updated skilltree.yml (vendor: false)
 Updated .gitignore (added .claude/skills/, .claude/agents/)
 
 Run `skilltree install` to restore normal mode.
@@ -64,7 +64,7 @@ Run `skilltree install` to restore normal mode.
 
 What happens:
 1. Deletes all skilltree-managed files from `.claude/skills/` and `.claude/agents/` (tracked in lockfile)
-2. Sets `vendor: false` (or removes the field) in `skilltree.yaml`
+2. Sets `vendor: false` (or removes the field) in `skilltree.yml`
 3. Re-adds `.claude/skills/` and `.claude/agents/` to `.gitignore`
 4. Does NOT run `skilltree install` automatically — the user decides when
 
@@ -92,7 +92,7 @@ skilltree install                      # symlinks in .claude/, gitignored
 
 # Maintainer switches to vendor mode
 skilltree vendor                       # copies to .claude/, now committable
-git add .claude/ skilltree.yaml
+git add .claude/ skilltree.yml
 git commit -m "vendor skills"
 git push
 
@@ -117,7 +117,7 @@ git commit -m "bump python-coding to 2.2.0"
 ## Manifest Field
 
 ```yaml
-# skilltree.yaml
+# skilltree.yml
 name: my-bootstrap-project
 vendor: true                          # set by skilltree vendor/unvendor
 

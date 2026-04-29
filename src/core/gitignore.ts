@@ -56,8 +56,13 @@ export async function removeGitignoreEntries(dir: string, entries: string[]): Pr
 
 /**
  * Get the gitignore entries for a given install path.
+ *
+ * Returns one entry per managed resource directory (`skills/`, `agents/`,
+ * `commands/`) so installed artifacts stay out of git. The function name
+ * is kept for backwards compatibility — it covers all three resource
+ * types, not just skills+agents.
  */
 export function getSkillAgentIgnoreEntries(installPath: string): string[] {
 	const base = installPath.replace(/\/$/, "");
-	return [`${base}/skills/`, `${base}/agents/`];
+	return [`${base}/skills/`, `${base}/agents/`, `${base}/commands/`];
 }

@@ -8,7 +8,7 @@ Global deps install once, available in every project. Project-scoped deps remain
 ## The Problem
 
 A developer has skills they want everywhere — `python-coding`, `general-coding`, `my-style`. Today they either:
-1. Add them to every project's `skilltree.yaml` (duplication)
+1. Add them to every project's `skilltree.yml` (duplication)
 2. Manually copy/symlink into `~/.claude/skills/` (unmanaged)
 
 Both break down. Option 1 means 15+ identical entries across 20 projects. Option 2 means no version tracking, no transitive resolution, no lockfile.
@@ -17,7 +17,7 @@ Both break down. Option 1 means 15+ identical entries across 20 projects. Option
 
 **Global deps are a personal convenience, never a project dependency.**
 
-If a project needs a skill, it goes in `skilltree.yaml`. Global is "I always want this available." Teammates don't need your global deps — the project's `skilltree.yaml` is self-contained.
+If a project needs a skill, it goes in `skilltree.yml`. Global is "I always want this available." Teammates don't need your global deps — the project's `skilltree.yml` is self-contained.
 
 This follows the npm model: `npm install -g` is for CLI tools you use personally. Project deps go in `package.json`.
 
@@ -27,7 +27,7 @@ This follows the npm model: `npm install -g` is for CLI tools you use personally
 
 | | Project | Global |
 |---|---|---|
-| Manifest | `./skilltree.yaml` | `~/.skilltree/global.yaml` |
+| Manifest | `./skilltree.yml` | `~/.skilltree/global.yaml` |
 | Lockfile | `./skilltree.lock` | `~/.skilltree/global.lock` |
 | Install path | `.claude/` (or `src_install_path`) | `~/.claude/` |
 | Checked into git | Yes | No (personal) |
@@ -151,7 +151,7 @@ If `~/Projects/my-skills/` moves to `~/Skills/my-skills/`, update one line in `s
 
 ### Local sources in project manifests: reproducibility warning
 
-Local sources also work in project manifests. However, entries with `~/` or absolute paths in a committed `skilltree.yaml` create a "works on my machine" problem — teammates with different directory structures will get errors.
+Local sources also work in project manifests. However, entries with `~/` or absolute paths in a committed `skilltree.yml` create a "works on my machine" problem — teammates with different directory structures will get errors.
 
 **Safe:** `./` relative paths (resolve within the project tree, portable):
 ```yaml
@@ -521,7 +521,7 @@ Fix: Check the source path in ~/.skilltree/global.yaml, or clone the source repo
 
 ### No cross-resolution
 
-Global and project manifests are resolved independently. If project `skilltree.yaml` has `python-coding` and `~/.skilltree/global.yaml` also has `python-coding`, they resolve separately with potentially different versions.
+Global and project manifests are resolved independently. If project `skilltree.yml` has `python-coding` and `~/.skilltree/global.yaml` also has `python-coding`, they resolve separately with potentially different versions.
 
 At runtime, Claude Code loads project's `.claude/skills/python-coding` and ignores global's `~/.claude/skills/python-coding` (project shadows global).
 
@@ -529,13 +529,13 @@ At runtime, Claude Code loads project's `.claude/skills/python-coding` and ignor
 
 ```
 ~/Projects/my-skills/          ← you're here, authoring skills
-├── skilltree.yaml             ← this repo's project-level deps
+├── skilltree.yml             ← this repo's project-level deps
 ├── skills/
 │   ├── python-coding/SKILL.md ← source skill
 │   └── general-coding/SKILL.md
 ```
 
-This repo has its OWN `skilltree.yaml` (project-level deps it needs for development). Those same skills are ALSO referenced in `~/.skilltree/global.yaml`.
+This repo has its OWN `skilltree.yml` (project-level deps it needs for development). Those same skills are ALSO referenced in `~/.skilltree/global.yaml`.
 
 Both work independently:
 - `skilltree install` → installs this project's deps to `.claude/`
@@ -568,7 +568,7 @@ When Claude Code runs here, project `.claude/` takes precedence. The global syml
 
 **Decided:** Global and project manifests never cross-resolve. A global skill cannot satisfy a project's transitive dep.
 
-**Why:** Cross-resolution makes project builds depend on the developer's personal setup. Teammate clones the repo → transitive dep missing → "works on my machine." The whole point of `skilltree.yaml` + `skilltree.lock` is reproducibility. Global deps must not compromise that.
+**Why:** Cross-resolution makes project builds depend on the developer's personal setup. Teammate clones the repo → transitive dep missing → "works on my machine." The whole point of `skilltree.yml` + `skilltree.lock` is reproducibility. Global deps must not compromise that.
 
 **Alternative rejected:** "Fall through to global" — if a project transitive dep can't be resolved from the project manifest, check global. Rejected because it makes project installs non-deterministic across machines.
 

@@ -22,7 +22,7 @@ There is no way to search for a skill by name, browse what's available in a repo
 A registry helps you at `skilltree add` time. After that, the manifest is self-contained. This follows `go get` — it resolves module paths at add time, but `go.mod` records the full path. It does NOT follow npm's model where the manifest says `"lodash": "^4.0.0"` and a global registry is needed to resolve it.
 
 This means:
-- `skilltree.yaml` always contains explicit `repo:` + `path:` for remote deps
+- `skilltree.yml` always contains explicit `repo:` + `path:` for remote deps
 - `skilltree install` never consults registries
 - `skilltree update` never consults registries
 - A teammate without registries configured can still install, update, and develop
@@ -314,7 +314,7 @@ $ skilltree add python-coding
   Resolved from registry 'shared-skills': github.com/org/shared-skills/skills/python-coding
   Added python-coding to dependencies (version: "*")
 
-# What gets written to skilltree.yaml:
+# What gets written to skilltree.yml:
 # python-coding:
 #   repo: github.com/org/shared-skills
 #   path: skills/python-coding
@@ -339,7 +339,7 @@ $ skilltree add nonexistent-skill
   Or specify --repo and --path explicitly
 ```
 
-**Important:** The enhanced `add` always writes the **full explicit form** to `skilltree.yaml`. The registry is consulted once, at add time, and then forgotten. The manifest never depends on registry state.
+**Important:** The enhanced `add` always writes the **full explicit form** to `skilltree.yml`. The registry is consulted once, at add time, and then forgotten. The manifest never depends on registry state.
 
 **Flag interaction:**
 - `--repo` or `--source` or `--local` → existing behavior, registries not consulted
@@ -375,7 +375,7 @@ $ skilltree index --check
 
 ## What This Does NOT Change
 
-- **`skilltree.yaml` format** — no new fields, no shorthand syntax. Remote deps still require `repo:` + `path:`.
+- **`skilltree.yml` format** — no new fields, no shorthand syntax. Remote deps still require `repo:` + `path:`.
 - **`skilltree.lock` format** — unchanged.
 - **`skilltree install`** — never consults registries. Lockfile-first behavior unchanged.
 - **`skilltree update`** — resolves from manifest `repo:` URLs, not registries.
@@ -388,7 +388,7 @@ $ skilltree index --check
 
 | | `sources:` | Registries |
 |---|---|---|
-| **Scope** | Project (`skilltree.yaml`) | User (`~/.skilltree/config.yaml`) |
+| **Scope** | Project (`skilltree.yml`) | User (`~/.skilltree/config.yaml`) |
 | **Purpose** | URL alias (avoid repeating `repo:` URLs) | Discovery (find skills you don't know about) |
 | **Used by** | `skilltree install`, `skilltree update` | `skilltree search`, `skilltree add` (without `--repo`) |
 | **Required for install?** | Yes (expanded during resolution) | No (never consulted) |
