@@ -37,12 +37,12 @@ function captureConsole(): { logs: string[]; restore: () => void } {
 describe("verifyCommand", () => {
 	test("throws when no manifest exists", async () => {
 		const dir = await makeTempDir();
-		await expect(verifyCommand(dir)).rejects.toThrow("No skilltree.yaml");
+		await expect(verifyCommand(dir)).rejects.toThrow("No skilltree.yml");
 	});
 
 	test("throws when no lockfile exists", async () => {
 		const dir = await makeTempDir();
-		await writeFile(join(dir, "skilltree.yaml"), "dependencies: {}\n");
+		await writeFile(join(dir, "skilltree.yml"), "dependencies: {}\n");
 		await expect(verifyCommand(dir)).rejects.toThrow("No lockfile");
 	});
 
@@ -50,7 +50,7 @@ describe("verifyCommand", () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "my-skill");
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
 		);
 		await installCommand(dir, {});
@@ -68,7 +68,7 @@ describe("verifyCommand", () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "my-skill");
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
 		);
 
@@ -86,7 +86,7 @@ describe("verifyCommand", () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "my-skill");
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
 		);
 		await installCommand(dir, {});
@@ -109,7 +109,7 @@ describe("verifyCommand", () => {
 		await createLocalSkill(join(dir, "skills"), "skill-a");
 		await createLocalSkill(join(dir, "skills"), "skill-b");
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"dependencies:\n  skill-a:\n    local: ./skills/skill-a\n  skill-b:\n    local: ./skills/skill-b\n",
 		);
 		await installCommand(dir, {});

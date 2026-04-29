@@ -160,7 +160,7 @@ async function resolveOneRepo(
 			await addTaglessRepoResolution(repo, cachePath, state);
 		} catch {
 			state.errors.push(
-				`Error: Git operation failed\n\n  Failed to fetch ${repo}\n  Underlying error: ${errMsg}\n\nFix: Check the repo URL in skilltree.yaml and your git access (SSH keys, GITHUB_TOKEN).`,
+				`Error: Git operation failed\n\n  Failed to fetch ${repo}\n  Underlying error: ${errMsg}\n\nFix: Check the repo URL in ${MANIFEST_NEW} and your git access (SSH keys, GITHUB_TOKEN).`,
 			);
 		}
 	}
@@ -347,7 +347,7 @@ async function resolveRemoteEntity(
 		const inferred = await inferDirectDepPath(entityName, dep.repo, resolution, state);
 		if (!inferred) {
 			state.errors.push(
-				`Error: "${entityName}" (from ${dep.repo}) has no path, and the resolver could not infer one from:\n       - origin's skilltree.yaml dependencies (${dep.repo})\n       - conventional paths in ${dep.repo}\n\n     Fix: add \`path:\` to your skilltree.yaml entry, or have origin declare "${entityName}" under \`dependencies:\` in its skilltree.yaml.`,
+				`Error: "${entityName}" (from ${dep.repo}) has no path, and the resolver could not infer one from:\n       - origin's ${MANIFEST_NEW} dependencies (${dep.repo})\n       - conventional paths in ${dep.repo}\n\n     Fix: add \`path:\` to your ${MANIFEST_NEW} entry, or have origin declare "${entityName}" under \`dependencies:\` in its ${MANIFEST_NEW}.`,
 			);
 			return;
 		}
@@ -481,10 +481,11 @@ async function tryResolveFromLocalSource(
 }
 
 /**
- * Read an origin manifest at a git ref, accepting either skilltree.yaml or
- * skilltree.yml. Throws if neither exists. Prefers .yaml when both are present
- * at the ref (the local resolver is the right place to flag the dual-extension
- * mistake — upstreams can't see this code path).
+ * Read an origin manifest at a git ref, accepting either skilltree.yml or
+ * skilltree.yaml. Throws if neither exists. Prefers .yml (the canonical
+ * extension) when both are present at the ref (the local resolver is the
+ * right place to flag the dual-extension mistake — upstreams can't see
+ * this code path).
  */
 async function readOriginManifestAtRef(cachePath: string, ref: string): Promise<string> {
 	try {
@@ -640,19 +641,19 @@ function formatPathWarning(
 	if (mismatch.kind === "redundant") {
 		return [
 			`Warning: \`${entityName}\` declares path "${consumerPath}", which is the`,
-			`  same path origin's skilltree.yaml declares for this name (${originRepo}).`,
+			`  same path origin's ${MANIFEST_NEW} declares for this name (${originRepo}).`,
 			`  You can omit \`path:\` — it will be inferred.`,
 		].join("\n");
 	}
 	return [
 		`Warning: \`${entityName}\` declares path "${consumerPath}", but origin's`,
-		`  skilltree.yaml declares this name at "${mismatch.originPath}" (${originRepo}).`,
+		`  ${MANIFEST_NEW} declares this name at "${mismatch.originPath}" (${originRepo}).`,
 		`  If this override is intentional, set \`force_path: true\` to silence this warning.`,
 	].join("\n");
 }
 
 /**
- * For every resolved remote repo, check whether origin's `skilltree.yaml` is
+ * For every resolved remote repo, check whether origin's `skilltree.yml` is
  * present at the resolved tag. If absent at the tag but present on the
  * default branch, emit a single warning — origin authored a manifest but
  * never cut a tag that contains it, so consumers lose R9/R10 signals they
@@ -680,24 +681,24 @@ async function checkStaleTagManifests(state: ResolutionState): Promise<void> {
 		try {
 			await readOriginManifestAtRef(resolution.cachePath, defaultBranch);
 		} catch {
-			// Not on default branch either — origin simply doesn't use skilltree.yaml.
+			// Not on default branch either — origin simply doesn't use skilltree.yml.
 			continue;
 		}
 
 		const tagLabel = resolution.tag ?? `commit ${resolution.commit.slice(0, 8)}`;
 		state.warnings.push(
 			[
-				`Warning: origin \`${repo}\` has a skilltree.yaml on \`${defaultBranch}\` but not at the`,
+				`Warning: origin \`${repo}\` has a ${MANIFEST_NEW} on \`${defaultBranch}\` but not at the`,
 				`  resolved tag (${tagLabel}). Consumers resolve to the tag, so origin's manifest`,
 				`  is invisible to them — R9 path inference and R10 path warnings are skipped.`,
-				`  Fix: cut a new tag from \`${defaultBranch}\` that includes skilltree.yaml.`,
+				`  Fix: cut a new tag from \`${defaultBranch}\` that includes ${MANIFEST_NEW}.`,
 			].join("\n"),
 		);
 	}
 }
 
 /**
- * Infer a direct dep's missing `path:` by consulting origin's skilltree.yaml,
+ * Infer a direct dep's missing `path:` by consulting origin's skilltree.yml,
  * then falling back to conventional paths. Returns the inferred entity path
  * (suitable for inferTypeFromGit), or null if nothing works. See R9.
  */
@@ -763,7 +764,7 @@ async function ensureRepoResolvedLazy(
 		if (!existing.version) return true;
 		if (semver.satisfies(existing.version, constraint)) return true;
 		state.errors.push(
-			`Error: Cross-repo transitive constraint conflict\n\n  Origin ${originRepo} declares ${repo} with constraint "${constraint}",\n  but ${repo} is already resolved to ${existing.version}${existing.tag ? ` (tag ${existing.tag})` : ""} from another chain.\n\nFix: Align constraints by declaring ${repo} explicitly in your skilltree.yaml.`,
+			`Error: Cross-repo transitive constraint conflict\n\n  Origin ${originRepo} declares ${repo} with constraint "${constraint}",\n  but ${repo} is already resolved to ${existing.version}${existing.tag ? ` (tag ${existing.tag})` : ""} from another chain.\n\nFix: Align constraints by declaring ${repo} explicitly in your ${MANIFEST_NEW}.`,
 		);
 		return false;
 	}
@@ -822,12 +823,12 @@ function addUnresolvedError(
 	const lines = [
 		`${parentName} (${parentSource}) declares dependency "${depName}",`,
 		`     not found in:`,
-		`       - your skilltree.yaml`,
+		`       - your ${MANIFEST_NEW}`,
 		`       - already-resolved dependencies`,
 	];
 
 	if (parentEntity?.repo) {
-		lines.push(`       - origin's skilltree.yaml dependencies (${parentEntity.repo})`);
+		lines.push(`       - origin's ${MANIFEST_NEW} dependencies (${parentEntity.repo})`);
 		lines.push(`       - conventional paths in ${parentEntity.repo}`);
 	} else {
 		lines.push(`       - local filesystem`);
@@ -840,7 +841,7 @@ function addUnresolvedError(
 		);
 		lines.push(`     dev-dependencies are not exposed to downstream consumers.`);
 		lines.push(
-			`     Fix: upstream should move it to \`dependencies\`, or declare ${depName} explicitly in your own skilltree.yaml.`,
+			`     Fix: upstream should move it to \`dependencies\`, or declare ${depName} explicitly in your own ${MANIFEST_NEW}.`,
 		);
 	} else {
 		lines.push("");

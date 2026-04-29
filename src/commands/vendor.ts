@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { MANIFEST_NEW } from "../core/filenames.js";
 import {
 	addGitignoreEntries,
 	getSkillAgentIgnoreEntries,
@@ -105,7 +106,7 @@ export async function vendorCommand(dir: string, options: VendorOptions): Promis
 	// Set vendor: true in manifest
 	manifest.vendor = true;
 	await writeManifest(dir, manifest);
-	console.log(dim("Updated skilltree.yaml (vendor: true)"));
+	console.log(dim(`Updated ${MANIFEST_NEW} (vendor: true)`));
 
 	// Update .gitignore: remove skill/agent ignore entries so they can be committed
 	const ignoreEntries = getSkillAgentIgnoreEntries(devInstallPath);
@@ -141,7 +142,7 @@ export async function unvendorCommand(dir: string, options?: { force?: boolean }
 
 	delete manifest.vendor;
 	await writeManifest(dir, manifest);
-	console.log(dim("Updated skilltree.yaml (vendor: false)"));
+	console.log(dim(`Updated ${MANIFEST_NEW} (vendor: false)`));
 
 	const ignoreEntries = getSkillAgentIgnoreEntries(devInstallPath);
 	const added = await addGitignoreEntries(dir, ignoreEntries);

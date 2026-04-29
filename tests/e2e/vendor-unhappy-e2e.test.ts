@@ -25,7 +25,7 @@ afterEach(async () => {
 
 async function setupProject(dir: string): Promise<void> {
 	await writeFile(
-		join(dir, "skilltree.yaml"),
+		join(dir, "skilltree.yml"),
 		`name: test-project
 dev_install_path: .claude
 dependencies:
@@ -111,7 +111,7 @@ describe("vendor with dev-dependencies includes them", () => {
 		await createLocalSkill(join(dir, "skills"), "dev-skill");
 
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"name: test\ndependencies:\n  prod-skill:\n    local: ./skills/prod-skill\ndev-dependencies:\n  dev-skill:\n    local: ./skills/dev-skill\n",
 		);
 		await writeFile(join(dir, ".gitignore"), ".claude/skills/\n.claude/agents/\n");

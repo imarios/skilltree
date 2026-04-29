@@ -1,5 +1,5 @@
 import { rm } from "node:fs/promises";
-import { resolveGlobalLockfilePath } from "../core/filenames.js";
+import { GLOBAL_MANIFEST, MANIFEST_NEW, resolveGlobalLockfilePath } from "../core/filenames.js";
 import {
 	readGlobalLockfile,
 	readLockfile,
@@ -86,7 +86,7 @@ async function selectiveUpdate(
 	const allDeps = { ...expanded.dependencies, ...expanded["dev-dependencies"] };
 	const dep = allDeps[name];
 	if (!dep) {
-		throw new Error(`"${name}" is not in ${isGlobal ? "global.yaml" : "skilltree.yaml"}.`);
+		throw new Error(`"${name}" is not in ${isGlobal ? GLOBAL_MANIFEST : MANIFEST_NEW}.`);
 	}
 
 	// Clear lockfile entries for this dep (and same-repo siblings)

@@ -53,9 +53,9 @@ async function setupRegistry(
 	};
 	await writeRegistryIndex(index, cacheDir);
 
-	// Create a minimal skilltree.yaml in the project dir
+	// Create a minimal skilltree.yml in the project dir
 	const { writeFile } = await import("node:fs/promises");
-	await writeFile(join(projectDir, "skilltree.yaml"), "dependencies: {}\n");
+	await writeFile(join(projectDir, "skilltree.yml"), "dependencies: {}\n");
 
 	return { configPath, cacheDir, projectDir };
 }
@@ -128,7 +128,7 @@ async function executeAndVerify(
 		projectDir,
 	);
 
-	const manifest = parse(await readFile(join(projectDir, "skilltree.yaml"), "utf-8"));
+	const manifest = parse(await readFile(join(projectDir, "skilltree.yml"), "utf-8"));
 	const dep = manifest.dependencies[cmd.name];
 	expect(dep).toBeDefined();
 	expect(dep.repo).toBe(cmd.repo);
@@ -254,7 +254,7 @@ describe("info suggestion roundtrip", () => {
 		await mkdir(projectDir, { recursive: true });
 
 		const { writeFile } = await import("node:fs/promises");
-		await writeFile(join(projectDir, "skilltree.yaml"), "dependencies: {}\n");
+		await writeFile(join(projectDir, "skilltree.yml"), "dependencies: {}\n");
 
 		await writeConfig(
 			{
@@ -300,7 +300,7 @@ describe("info suggestion roundtrip", () => {
 		for (let i = 0; i < cmds.length; i++) {
 			const subProject = join(dir, `project-${i}`);
 			await mkdir(subProject, { recursive: true });
-			await writeFile(join(subProject, "skilltree.yaml"), "dependencies: {}\n");
+			await writeFile(join(subProject, "skilltree.yml"), "dependencies: {}\n");
 			await executeAndVerify(cmds[i] as AddCmd, subProject, configPath, cacheDir);
 		}
 	});

@@ -1,4 +1,4 @@
-import { manifestExists } from "../core/filenames.js";
+import { MANIFEST_NEW, manifestExists } from "../core/filenames.js";
 import { readGlobalLockfile, readLockfile } from "../core/lockfile.js";
 import { readManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
@@ -18,7 +18,7 @@ export async function listCommand(dir: string, opts?: ListOptions): Promise<void
 	const lockfile = isGlobal ? await readGlobalLockfile(globalDir) : await readLockfile(dir);
 
 	if (!isGlobal && !manifestExists(dir)) {
-		throw new Error("No skilltree.yaml found. Run `skilltree init` first.");
+		throw new Error(`No ${MANIFEST_NEW} found. Run \`skilltree init\` first.`);
 	}
 
 	if (!lockfile || Object.keys(lockfile.packages).length === 0) {

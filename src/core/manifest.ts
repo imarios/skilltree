@@ -4,7 +4,7 @@ import YAML from "yaml";
 import type { Dependency, EntityType, LocalDependency, Manifest } from "../types.js";
 import { isSourceDependency } from "../types.js";
 import { resolveGlobalTarget, resolveTarget } from "./agents.js";
-import { resolveGlobalManifestPath, resolveManifestPath } from "./filenames.js";
+import { MANIFEST_NEW, resolveGlobalManifestPath, resolveManifestPath } from "./filenames.js";
 import { expandTilde, isLocalSource } from "./paths.js";
 import { error, warn } from "./ui.js";
 
@@ -204,7 +204,7 @@ export function validateManifest(manifest: Manifest): string[] {
 			}
 
 			// `path:` is optional for remote/source deps (R9). When missing, the
-			// resolver infers it from the origin repo's skilltree.yaml or the
+			// resolver infers it from the origin repo's skilltree.yml or the
 			// conventional probe. See origin_manifest_resolution.md §R9.
 		}
 	}
@@ -266,7 +266,7 @@ export async function loadManifestOrThrow(
 		throw new Error(
 			isGlobal
 				? "No global manifest found. Run `skilltree init --global` first."
-				: "No skilltree.yaml found. Run `skilltree init` first.",
+				: `No ${MANIFEST_NEW} found. Run \`skilltree init\` first.`,
 		);
 	}
 }

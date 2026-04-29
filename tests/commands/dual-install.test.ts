@@ -31,7 +31,7 @@ async function createLocalSkill(dir: string, name: string): Promise<void> {
 }
 
 async function writeManifestRaw(dir: string, manifest: Manifest): Promise<void> {
-	await writeFile(join(dir, "skilltree.yaml"), serializeManifest(manifest), "utf-8");
+	await writeFile(join(dir, "skilltree.yml"), serializeManifest(manifest), "utf-8");
 }
 
 // --- Backward compatibility ---
@@ -56,7 +56,7 @@ describe("install_path backward compat", () => {
 		await createLocalSkill(dir, "my-skill");
 
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"name: test\ndev_install_path: .custom-dev\ndependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
 		);
 
@@ -74,7 +74,7 @@ describe("src_install_path dual install", () => {
 		await createLocalSkill(dir, "prod-skill");
 
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"name: test\ndev_install_path: .claude\nsrc_install_path: src\ndependencies:\n  prod-skill:\n    local: ./skills/prod-skill\n",
 		);
 
@@ -91,7 +91,7 @@ describe("src_install_path dual install", () => {
 		await createLocalSkill(dir, "prod-skill");
 
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"name: test\ndev_install_path: .claude\nsrc_install_path: src\ndependencies:\n  prod-skill:\n    local: ./skills/prod-skill\ndev-dependencies:\n  dev-skill:\n    local: ./skills/dev-skill\n",
 		);
 
@@ -112,7 +112,7 @@ describe("src_install_path dual install", () => {
 		await createLocalSkill(dir, "dev-skill");
 
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"name: test\ndev_install_path: .claude\nsrc_install_path: src\ndependencies:\n  prod-skill:\n    local: ./skills/prod-skill\ndev-dependencies:\n  dev-skill:\n    local: ./skills/dev-skill\n",
 		);
 
@@ -132,7 +132,7 @@ describe("src_install_path dual install", () => {
 		await createLocalSkill(dir, "my-skill");
 
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"name: test\ndependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
 		);
 
@@ -148,7 +148,7 @@ describe("src_install_path dual install", () => {
 		await createLocalSkill(dir, "my-skill");
 
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"name: test\ndev_install_path: .claude\nsrc_install_path: src\ndependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
 		);
 

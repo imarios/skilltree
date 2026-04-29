@@ -18,7 +18,7 @@ async function makeTempDir(): Promise<string> {
 }
 
 async function writeManifestFile(dir: string, content: string): Promise<void> {
-	await writeFile(join(dir, "skilltree.yaml"), content, "utf-8");
+	await writeFile(join(dir, "skilltree.yml"), content, "utf-8");
 }
 
 afterEach(async () => {

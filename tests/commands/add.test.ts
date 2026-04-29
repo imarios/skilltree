@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addCommand } from "../../src/commands/add.js";
 import { initCommand } from "../../src/commands/init.js";
+import { _resetDeprecationWarningsForTests } from "../../src/core/filenames.js";
 import { readManifest } from "../../src/core/manifest.js";
 
 let tempDir: string;
@@ -41,7 +43,7 @@ describe("addCommand", () => {
 		const dir = await setup();
 		// Write a manifest with sources
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"name: test\nsources:\n  vibes: github.com/company/vibes\ndependencies: {}\ndev-dependencies: {}\n",
 		);
 
@@ -144,7 +146,7 @@ describe("addCommand", () => {
 		// change on re-add; orthogonal metadata survives because the CLI has
 		// no way to explicitly set them.
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			[
 				"name: test",
 				"dependencies:",
@@ -185,7 +187,7 @@ describe("addCommand", () => {
 		// Seed manifest with an entry that has force_path: true,
 		// plus sibling state we expect to survive the overwrite.
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			[
 				"name: test",
 				"sources:",
@@ -231,7 +233,7 @@ describe("addCommand", () => {
 		// Seed manifest with an existing entry `foo: {local: ~/skills-root/foo}`,
 		// plus a sources: map where `mine: ~/skills-root` resolves to the same place.
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			[
 				"name: test",
 				"sources:",
@@ -271,7 +273,7 @@ describe("addCommand", () => {
 		// Seed manifest with a remote entry via `repo:` and a `sources:` map
 		// where the alias resolves to the same URL.
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			[
 				"name: test",
 				"sources:",
@@ -300,7 +302,7 @@ describe("addCommand", () => {
 	test("R13: adds source-aliased dependency without --path", async () => {
 		const dir = await setup();
 		await writeFile(
-			join(dir, "skilltree.yaml"),
+			join(dir, "skilltree.yml"),
 			"name: test\nsources:\n  vibes: github.com/company/vibes\ndependencies: {}\ndev-dependencies: {}\n",
 		);
 
@@ -473,5 +475,57 @@ describe("addCommand", () => {
 
 		const joined = logs.join("\n");
 		expect(joined).toContain("skilltree install --global");
+	});
+});
+
+// Backward-compat: existing projects still on .yaml continue to work without
+// the migration silently splitting their state across two files.
+describe("addCommand on a legacy .yaml manifest", () => {
+	let yamlDir: string;
+
+	beforeEach(async () => {
+		_resetDeprecationWarningsForTests();
+		yamlDir = await mkdtemp(join(tmpdir(), "skilltree-add-yaml-"));
+		await writeFile(
+			join(yamlDir, "skilltree.yaml"),
+			"name: legacy\ninstall_targets: [claude]\ndependencies: {}\ndev-dependencies: {}\n",
+		);
+	});
+
+	afterEach(async () => {
+		if (yamlDir) await rm(yamlDir, { recursive: true, force: true });
+	});
+
+	test("writes back to skilltree.yaml without creating a sibling skilltree.yml", async () => {
+		const warnings: string[] = [];
+		const originalWarn = console.warn;
+		console.warn = (msg: string) => warnings.push(msg);
+		try {
+			await addCommand(
+				"task-builder",
+				{ repo: "github.com/company/skills", path: "skills/task-builder", version: "^2.0.0" },
+				yamlDir,
+			);
+		} finally {
+			console.warn = originalWarn;
+		}
+
+		expect(existsSync(join(yamlDir, "skilltree.yaml"))).toBe(true);
+		expect(existsSync(join(yamlDir, "skilltree.yml"))).toBe(false);
+
+		const content = await readFile(join(yamlDir, "skilltree.yaml"), "utf-8");
+		expect(content).toContain("task-builder");
+
+		const manifest = await readManifest(yamlDir);
+		expect(manifest.dependencies?.["task-builder"]).toEqual({
+			repo: "github.com/company/skills",
+			path: "skills/task-builder",
+			version: "^2.0.0",
+		});
+
+		// Deprecation warning surfaces so the user knows they're on the old extension.
+		expect(warnings.some((w) => /skilltree\.yml/i.test(w) && /default extension/i.test(w))).toBe(
+			true,
+		);
 	});
 });

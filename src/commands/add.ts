@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import semver from "semver";
 import { canonicalSource } from "../core/deps.js";
+import { MANIFEST_NEW } from "../core/filenames.js";
 import { loadManifestOrThrow, writeGlobalManifest, writeManifest } from "../core/manifest.js";
 import { collapseTilde, expandTilde, getGlobalDir } from "../core/paths.js";
 import { readRegistryIndex } from "../core/registry-cache.js";
@@ -100,7 +101,7 @@ async function buildDependency(name: string, opts: AddOptions, dir: string): Pro
 	}
 
 	// R13: `--path` is optional when `--repo` or `--source` is given. The
-	// resolver infers the path at install time from origin's skilltree.yaml
+	// resolver infers the path at install time from origin's skilltree.yml
 	// or the conventional probe. If neither works, install emits a clear R9
 	// error. We deliberately do not pre-resolve at add-time to keep `add`
 	// network-free and fast.
@@ -203,7 +204,7 @@ function checkOtherGroup(
 	const otherDeps = manifest[otherGroup] ?? {};
 	if (name in otherDeps) {
 		throw new Error(
-			`"${name}" already exists in ${otherGroup}. Remove it first, or edit skilltree.yaml directly.`,
+			`"${name}" already exists in ${otherGroup}. Remove it first, or edit ${MANIFEST_NEW} directly.`,
 		);
 	}
 }

@@ -1,6 +1,7 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
+import { GLOBAL_MANIFEST, MANIFEST_NEW } from "../core/filenames.js";
 import { getTargetPath } from "../core/installer.js";
 import {
 	readGlobalLockfile,
@@ -47,7 +48,7 @@ export async function removeCommand(
 	} else {
 		await writeManifest(dir, manifest);
 	}
-	success(`Removed ${name} from ${isGlobal ? "global.yaml" : "skilltree.yaml"}`);
+	success(`Removed ${name} from ${isGlobal ? GLOBAL_MANIFEST : MANIFEST_NEW}`);
 
 	const installBase = isGlobal ? getGlobalInstallBase() : join(dir, getDevInstallPath(manifest));
 
@@ -78,7 +79,7 @@ function validateRemoveTarget(
 		!isGlobal && manifest["dev-dependencies"] && name in manifest["dev-dependencies"];
 
 	if (!inDeps && !inDevDeps) {
-		const manifestName = isGlobal ? "global.yaml" : "skilltree.yaml";
+		const manifestName = isGlobal ? GLOBAL_MANIFEST : MANIFEST_NEW;
 		if (lockfile?.packages[name]) {
 			throw new Error(
 				`"${name}" is not in ${manifestName}. It is a transitive dependency. To stop installing it, remove or modify the parent dependency instead.`,

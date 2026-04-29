@@ -2,7 +2,12 @@ import { writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { detectInstalledAgents } from "../core/agents.js";
-import { globalManifestExists, MANIFEST_NEW, manifestExists } from "../core/filenames.js";
+import {
+	findExistingGlobalManifest,
+	findExistingManifest,
+	GLOBAL_MANIFEST,
+	MANIFEST_NEW,
+} from "../core/filenames.js";
 import { addGitignoreEntries, getSkillAgentIgnoreEntries } from "../core/gitignore.js";
 import { serializeManifest, writeGlobalManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
@@ -31,9 +36,12 @@ export async function initCommand(dir: string, options?: InitOptions): Promise<v
 
 	const manifestPath = `${dir}/${MANIFEST_NEW}`;
 
-	// Guard: refuse to overwrite existing manifest
-	if (manifestExists(dir)) {
-		throw new Error(`${MANIFEST_NEW} already exists. Remove it first or edit it directly.`);
+	// Guard: refuse to overwrite existing manifest. Report the actual on-disk
+	// name so a project on the legacy .yaml extension doesn't get a misleading
+	// "skilltree.yml already exists" — they don't have one.
+	const existing = findExistingManifest(dir);
+	if (existing) {
+		throw new Error(`${existing} already exists. Remove it first or edit it directly.`);
 	}
 
 	// Auto-detect installed agents
@@ -93,8 +101,9 @@ export async function initCommand(dir: string, options?: InitOptions): Promise<v
 async function initGlobal(globalDirOverride?: string): Promise<void> {
 	const globalDir = globalDirOverride ?? getGlobalDir();
 
-	if (globalManifestExists(globalDir)) {
-		warn(`${globalDir}/global.yaml already exists. No changes made.`);
+	const existing = findExistingGlobalManifest(globalDir);
+	if (existing) {
+		warn(`${globalDir}/${existing} already exists. No changes made.`);
 		return;
 	}
 
@@ -103,7 +112,7 @@ async function initGlobal(globalDirOverride?: string): Promise<void> {
 	};
 
 	await writeGlobalManifest(manifest, globalDir);
-	success(`Created ${globalDir}/global.yaml`);
+	success(`Created ${globalDir}/${GLOBAL_MANIFEST}`);
 }
 
 /**

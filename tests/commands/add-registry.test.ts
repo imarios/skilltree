@@ -63,7 +63,7 @@ async function setupWithRegistry(dir: string): Promise<{ configPath: string; cac
 }
 
 async function readManifestRaw(dir: string): Promise<Manifest> {
-	const content = await readFile(join(dir, "skilltree.yaml"), "utf-8");
+	const content = await readFile(join(dir, "skilltree.yml"), "utf-8");
 	return YAML.parse(content) as Manifest;
 }
 
