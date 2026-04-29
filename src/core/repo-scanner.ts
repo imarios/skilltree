@@ -63,6 +63,18 @@ async function walk(rootDir: string, currentDir: string, out: LocalEntry[]): Pro
 		return;
 	}
 
+	// If this directory IS a skill (has a SKILL.md), register it once and
+	// stop descending. Internal `.md` files belong to the skill, not as
+	// independent agents/commands — without this stop, a helper file at
+	// `skills/foo/commands/helper.md` would be mis-classified as a
+	// top-level command (mdFileType matches the segment anywhere in the
+	// path). Mirrors the behavior of `tryAddSkill` in `commands/index-cmd.ts`.
+	if (dirents.some((d) => d.isFile() && d.name === "SKILL.md")) {
+		const entry = await classifyMdFile(rootDir, join(currentDir, "SKILL.md"), "SKILL.md");
+		if (entry) out.push(entry);
+		return;
+	}
+
 	for (const dirent of dirents) {
 		const fullPath = join(currentDir, dirent.name);
 
