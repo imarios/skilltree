@@ -272,3 +272,142 @@ describe("graph type-constraint extends to commands", () => {
 		expect(errorText).toContain("Skills can only depend on other skills");
 	});
 });
+
+/**
+ * Pin down the *positive* side of the type-constraint world: a slash
+ * command is allowed to declare its own `dependencies:` in frontmatter,
+ * and the resolver follows them like it does for skills and agents.
+ *
+ * `dependencies:` in a command `.md` is a skilltree extension — Claude
+ * Code's native slash-command frontmatter spec doesn't define it. The
+ * field is consumed at install time by the resolver and ignored at
+ * runtime by Claude Code, the same way `dependencies:` works for
+ * `SKILL.md`. These tests guard against a future refactor that
+ * accidentally branches on type when reading frontmatter and silently
+ * drops command deps.
+ */
+describe("command frontmatter dependencies are honored", () => {
+	test("local command declaring `dependencies:` pulls in the transitive skill", async () => {
+		const dir = await makeTempDir("skilltree-cmd-frontdeps-");
+
+		await mkdir(join(dir, "skills", "code-review"), { recursive: true });
+		await writeFile(
+			join(dir, "skills", "code-review", "SKILL.md"),
+			"---\nname: code-review\ndescription: Reviews code\n---\nBody\n",
+		);
+		await mkdir(join(dir, "commands"), { recursive: true });
+		await writeFile(
+			join(dir, "commands", "review.md"),
+			"---\nname: review\ndescription: Slash command\ndependencies:\n  - code-review\n---\nBody\n",
+		);
+
+		const result = await resolveAll(
+			{
+				dependencies: {
+					review: { local: "./commands/review.md", type: "command" },
+					"code-review": { local: "./skills/code-review", type: "skill" },
+				},
+			},
+			dir,
+		);
+
+		expect(result.errors).toEqual([]);
+
+		// The command's frontmatter dep was registered on the entity.
+		const cmd = result.entities.get("command:review");
+		expect(cmd?.dependencies).toContain("code-review");
+
+		// And the topo sort puts the skill before the command — proof the
+		// edge made it into the graph, not just the entity record.
+		const order = result.installOrder;
+		expect(order.indexOf("skill:code-review")).toBeLessThan(order.indexOf("command:review"));
+	});
+
+	test("remote command's frontmatter `dependencies:` resolves transitively from the same repo", async () => {
+		// End-to-end via a real git repo so we exercise readRemoteFrontmatter +
+		// the same-repo conventional probe in one shot. This was the path my
+		// manual UAT covered; pinning it as a test means a future regression
+		// in remote frontmatter parsing won't slip through.
+		const dir = await makeTempDir("skilltree-cmd-remote-frontdeps-");
+		const repoDir = await createTestRepo(
+			dir,
+			"upstream",
+			[
+				{
+					path: "commands/review.md",
+					name: "review",
+					isAgent: true,
+					dependencies: ["code-review"],
+				},
+				{ path: "skills/code-review", name: "code-review" },
+			],
+			"v1.0.0",
+		);
+		const bareDir = join(dir, "bare.git");
+		await simpleGit().clone(repoDir, bareDir, ["--bare"]);
+
+		const result = await resolveAll(
+			{
+				dependencies: {
+					review: {
+						repo: `file://${bareDir}`,
+						path: "commands/review.md",
+						type: "command",
+						version: "*",
+					},
+				},
+			},
+			dir,
+		);
+
+		expect(result.errors).toEqual([]);
+
+		// `code-review` was never mentioned in the manifest; it must have come
+		// from the command's frontmatter via the same-repo probe.
+		const cmd = result.entities.get("command:review");
+		expect(cmd?.type).toBe("command");
+		expect(cmd?.dependencies).toContain("code-review");
+
+		const transitive = result.entities.get("skill:code-review");
+		expect(transitive?.type).toBe("skill");
+		expect(transitive?.repo).toContain("bare.git");
+
+		const order = result.installOrder;
+		expect(order.indexOf("skill:code-review")).toBeLessThan(order.indexOf("command:review"));
+	});
+
+	test("command depending on another command is allowed (active resources can compose)", async () => {
+		// Cross-resource dep on the active side: command -> command. The graph
+		// permits this (only skill -> non-skill is rejected). Mostly a
+		// guardrail so the type-constraint rule doesn't accidentally tighten
+		// to "active resources may only depend on skills" without an explicit
+		// design decision.
+		const dir = await makeTempDir("skilltree-cmd-to-cmd-");
+		await mkdir(join(dir, "commands"), { recursive: true });
+		await writeFile(
+			join(dir, "commands", "lint.md"),
+			"---\nname: lint\ndescription: Lint command\n---\nBody\n",
+		);
+		await writeFile(
+			join(dir, "commands", "full-review.md"),
+			"---\nname: full-review\ndescription: Orchestrator\ndependencies:\n  - lint\n---\nBody\n",
+		);
+
+		const result = await resolveAll(
+			{
+				dependencies: {
+					"full-review": { local: "./commands/full-review.md", type: "command" },
+					lint: { local: "./commands/lint.md", type: "command" },
+				},
+			},
+			dir,
+		);
+
+		expect(result.errors).toEqual([]);
+		const parent = result.entities.get("command:full-review");
+		expect(parent?.dependencies).toContain("lint");
+
+		const order = result.installOrder;
+		expect(order.indexOf("command:lint")).toBeLessThan(order.indexOf("command:full-review"));
+	});
+});
