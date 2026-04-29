@@ -1,3 +1,9 @@
+## v0.20.0 (2026-04-29)
+
+### Feat
+
+- **manifest**: make .yml the default extension (#12)
+
 ## v0.19.1 (2026-04-28)
 
 ### Fix
