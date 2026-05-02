@@ -1,3 +1,9 @@
+## v0.23.0 (2026-05-02)
+
+### Feat
+
+- **add**: support glob patterns for batch registry adds (#19)
+
 ## v0.22.1 (2026-05-02)
 
 ### Fix
