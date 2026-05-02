@@ -113,11 +113,18 @@ async function addGlobCommand(pattern: string, opts: AddOptions, dir: string): P
 
 	const re = globToRegex(pattern);
 	const all = await loadRegistryEntities(opts);
-	const items = buildGlobPreview(all.filter((m) => re.test(m.entity.name)));
+	// `--type` filters expansion (Issue #22). Without it, `add 'hyp-*' --type
+	// command` would still pull in matching skills/agents — surprising and
+	// inconsistent with single-name resolution.
+	const matched = all.filter(
+		(m) => re.test(m.entity.name) && (!opts.type || m.entity.type === opts.type),
+	);
+	const items = buildGlobPreview(matched);
 
 	if (items.length === 0) {
+		const typeHint = opts.type ? ` of type '${opts.type}'` : "";
 		throw new Error(
-			`Glob "${pattern}": no entries matched in any registry. Run 'skilltree search ${pattern.replace(/[*?]/g, "")}' to see available names.`,
+			`Glob "${pattern}": no entries${typeHint} matched in any registry. Run 'skilltree search ${pattern.replace(/[*?]/g, "")}' to see available names.`,
 		);
 	}
 
@@ -436,16 +443,34 @@ function checkOtherGroup(
  * the "found in: X, Y" hint when the name is missing from the requested
  * registry but present elsewhere. The cross-registry name check is the
  * reason this can't simply pre-filter via `loadRegistryEntities`.
+ *
+ * `--type` is applied as an *additional* filter on top of `--registry` (Issue
+ * #22). Two same-named entries in one registry that differ only in type
+ * (skill vs command) are unresolvable without it.
  */
 async function resolveFromRegistries(name: string, opts: AddOptions): Promise<Dependency> {
 	const allEntities = await loadRegistryEntities({ ...opts, registry: undefined });
-	const matches = allEntities.filter((m) => m.entity.name === name);
-	const filtered = opts.registry ? matches.filter((m) => m.registry === opts.registry) : matches;
+	const nameMatches = allEntities.filter((m) => m.entity.name === name);
+	const byRegistry = opts.registry
+		? nameMatches.filter((m) => m.registry === opts.registry)
+		: nameMatches;
+	const filtered = opts.type ? byRegistry.filter((m) => m.entity.type === opts.type) : byRegistry;
 
 	if (filtered.length === 0) {
-		if (opts.registry && matches.length > 0) {
+		// Distinguish three "no match" cases so the error names the actual
+		// constraint that eliminated everything. Order matters: check
+		// registry-only emptiness first so a user who typoed --registry
+		// gets the existing "found in: X, Y" hint instead of a confusing
+		// "no entries of type" message.
+		if (opts.registry && nameMatches.length > 0 && byRegistry.length === 0) {
 			throw new Error(
-				`"${name}" not found in registry '${opts.registry}'. Found in: ${matches.map((m) => m.registry).join(", ")}`,
+				`"${name}" not found in registry '${opts.registry}'. Found in: ${nameMatches.map((m) => m.registry).join(", ")}`,
+			);
+		}
+		if (opts.type && byRegistry.length > 0) {
+			const haveTypes = [...new Set(byRegistry.map((m) => m.entity.type))].sort().join(", ");
+			throw new Error(
+				`"${name}" exists but no entries of type '${opts.type}' (found types: ${haveTypes}).`,
 			);
 		}
 		throw new Error(
@@ -456,14 +481,20 @@ async function resolveFromRegistries(name: string, opts: AddOptions): Promise<De
 	if (filtered.length === 1) {
 		const m = filtered[0] as RegistryEntity;
 		console.log(`Resolved from registry '${m.registry}': ${dim(`${m.repo}/${m.entity.path}`)}`);
-		return { repo: m.repo, path: m.entity.path, version: opts.version ?? "*" };
+		const dep: Dependency = { repo: m.repo, path: m.entity.path, version: opts.version ?? "*" };
+		if (opts.type) dep.type = opts.type;
+		return dep;
 	}
 
+	// Multi-match: annotate each row with type so users see whether the
+	// collision is across registries, across types, or both. Hint mentions
+	// both flags — `--type` resolves intra-registry collisions that
+	// `--registry` alone cannot.
 	const listing = filtered
-		.map((m, i) => `  [${i + 1}] ${m.registry} — ${m.repo} :: ${m.entity.path}`)
+		.map((m, i) => `  [${i + 1}] ${m.registry} (${m.entity.type}) — ${m.repo} :: ${m.entity.path}`)
 		.join("\n");
 
 	throw new Error(
-		`"${name}" found in ${filtered.length} registries:\n${listing}\n\nUse --registry <name> to specify which one.`,
+		`"${name}" found in ${filtered.length} entries:\n${listing}\n\nUse --registry <name> and/or --type <type> to disambiguate.`,
 	);
 }

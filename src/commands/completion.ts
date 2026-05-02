@@ -27,6 +27,12 @@ interface FlagDef {
 	short?: string;
 	description: string;
 	takesArg?: boolean;
+	/**
+	 * If set, the *value* of this flag tab-completes via the named
+	 * `_complete` kind. Implies `takesArg: true`. Drives the zsh
+	 * `:arg:helper` spec and the bash `case "$prev"` dispatch (Issue #22).
+	 */
+	valueComplete?: CompleteKind;
 }
 
 interface CmdDef {
@@ -67,8 +73,14 @@ const COMMANDS: CmdDef[] = [
 				short: "-t",
 				description: "Entity type (skill, agent, or command)",
 				takesArg: true,
+				valueComplete: "types",
 			},
-			{ long: "--registry", description: "Resolve from this registry", takesArg: true },
+			{
+				long: "--registry",
+				description: "Resolve from this registry",
+				takesArg: true,
+				valueComplete: "registries",
+			},
 			{ long: "--global", short: "-g", description: "Add to global dependencies" },
 		],
 	},
@@ -135,8 +147,19 @@ const COMMANDS: CmdDef[] = [
 		name: "search",
 		description: "Search registries for skills, agents, and commands",
 		flags: [
-			{ long: "--registry", description: "Search only one registry", takesArg: true },
-			{ long: "--type", short: "-t", description: "Filter by entity type", takesArg: true },
+			{
+				long: "--registry",
+				description: "Search only one registry",
+				takesArg: true,
+				valueComplete: "registries",
+			},
+			{
+				long: "--type",
+				short: "-t",
+				description: "Filter by entity type",
+				takesArg: true,
+				valueComplete: "types",
+			},
 			{ long: "--json", description: "Output results as JSON" },
 		],
 	},
@@ -311,7 +334,11 @@ function zshFlagSpecs(flags: FlagDef[]): string[] {
 	const specs: string[] = [];
 	for (const f of flags) {
 		const desc = escapeZsh(f.description);
-		const argSuffix = f.takesArg ? ":arg:" : "";
+		// `:arg:` with a trailing helper name (or empty) is the zsh
+		// argument spec for "this flag takes one argument completed via
+		// <helper>". Empty helper falls back to default file completion.
+		const helper = f.valueComplete ? zshHelperName(f.valueComplete) : "";
+		const argSuffix = f.takesArg || f.valueComplete ? `:arg:${helper}` : "";
 		if (f.short) {
 			specs.push(`'(${f.long} ${f.short})'{${f.long},${f.short}}'[${desc}]${argSuffix}'`);
 		} else {
@@ -441,6 +468,18 @@ _skilltree_complete_agents() {
     local -a items
     items=(${"$"}{(f)"$(skilltree _complete agents 2>/dev/null)"})
     _describe 'agent' items
+}
+
+_skilltree_complete_types() {
+    local -a items
+    items=(${"$"}{(f)"$(skilltree _complete types 2>/dev/null)"})
+    _describe 'type' items
+}
+
+_skilltree_complete_registries() {
+    local -a items
+    items=(${"$"}{(f)"$(skilltree _complete registries 2>/dev/null)"})
+    _describe 'registry' items
 }`;
 }
 
@@ -533,29 +572,66 @@ function bashFlagWords(flags: FlagDef[]): string {
 	return words.join(" ");
 }
 
+/**
+ * Build a `case "$prev" in` snippet that completes flag *values* via
+ * `_skilltree_dyn <kind>` when the previous word is one of the flags
+ * declaring `valueComplete`. Each case-arm returns immediately so the
+ * surrounding flag/positional logic doesn't run on the value slot.
+ *
+ * Returns an empty string if the command has no value-completed flags.
+ *
+ * Indentation is controlled by `indent` so subcommand emitters and
+ * top-level emitters can both reuse this helper without misaligning.
+ */
+function bashFlagValueDispatch(flags: FlagDef[] | undefined, indent: string): string {
+	const valueFlags = (flags ?? []).filter((f) => f.valueComplete);
+	if (valueFlags.length === 0) return "";
+	const arms = valueFlags
+		.map((f) => {
+			const tokens = f.short ? `${f.long}|${f.short}` : f.long;
+			return `${indent}    ${tokens}) COMPREPLY=($(compgen -W "$(_skilltree_dyn ${f.valueComplete})" -- "$cur")); return ;;`;
+		})
+		.join("\n");
+	return `${indent}case "$prev" in\n${arms}\n${indent}esac`;
+}
+
 function bashCmdBranch(cmd: CmdDef): string {
 	const flagWords = cmd.flags?.length ? bashFlagWords(cmd.flags) : "";
 	const completeKind = cmd.positionalComplete;
+	const valueDispatch = bashFlagValueDispatch(cmd.flags, "            ");
 
-	if (!flagWords && !completeKind) return "";
+	if (!flagWords && !completeKind && !valueDispatch) return "";
 
+	// Compose body: any flag-value dispatch runs first; then the
+	// flag-vs-positional split (if both apply); else just one of them.
+	const lines: string[] = [];
+	if (valueDispatch) lines.push(valueDispatch);
 	if (completeKind && flagWords) {
 		// Mix of flags and a value-completing positional. If the current
 		// word starts with `-`, suggest flags; otherwise suggest values.
-		return `        ${cmd.name})
-            if [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "${flagWords}" -- "$cur"))
-            else
-                COMPREPLY=($(compgen -W "$(_skilltree_dyn ${completeKind})" -- "$cur"))
-            fi
-            ;;`;
+		lines.push(`            if [[ "$cur" == -* ]]; then`);
+		lines.push(`                COMPREPLY=($(compgen -W "${flagWords}" -- "$cur"))`);
+		lines.push(`            else`);
+		lines.push(
+			`                COMPREPLY=($(compgen -W "$(_skilltree_dyn ${completeKind})" -- "$cur"))`,
+		);
+		lines.push(`            fi`);
+	} else if (completeKind) {
+		lines.push(
+			`            COMPREPLY=($(compgen -W "$(_skilltree_dyn ${completeKind})" -- "$cur"))`,
+		);
+	} else if (flagWords) {
+		lines.push(`            COMPREPLY=($(compgen -W "${flagWords}" -- "$cur"))`);
 	}
 
-	if (completeKind) {
-		return `        ${cmd.name}) COMPREPLY=($(compgen -W "$(_skilltree_dyn ${completeKind})" -- "$cur")) ;;`;
+	// Single-line form preserves the original output shape when there's
+	// no value-dispatch — keeps existing freshness tests / regex anchors
+	// stable for the simple case (e.g. `remove)`).
+	if (!valueDispatch && lines.length === 1) {
+		return `        ${cmd.name}) ${lines[0]?.trim() ?? ""} ;;`;
 	}
 
-	return `        ${cmd.name}) COMPREPLY=($(compgen -W "${flagWords}" -- "$cur")) ;;`;
+	return `        ${cmd.name})\n${lines.join("\n")}\n            ;;`;
 }
 
 export function generateBashCompletion(): string {

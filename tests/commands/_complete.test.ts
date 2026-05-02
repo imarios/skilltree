@@ -100,6 +100,51 @@ describe("_complete: getSuggestions", () => {
 		});
 	});
 
+	// Issue #22: flag-value completion needs `types` (static set) and
+	// `registries` (read from config) so users can tab `--type <TAB>` and
+	// `--registry <TAB>` instead of typing values from memory.
+	describe("types", () => {
+		test("returns the EntityType values, sorted", async () => {
+			const result = await getSuggestions("types");
+			expect(result).toEqual(["agent", "command", "skill"]);
+		});
+
+		test("works regardless of cwd / manifest presence", async () => {
+			const result = await getSuggestions("types");
+			expect(result.length).toBe(3);
+		});
+	});
+
+	describe("registries", () => {
+		test("returns registry names from the config, sorted", async () => {
+			tempDir = await mkdtemp(join(tmpdir(), "skilltree-complete-reg-"));
+			const configPath = join(tempDir, "config.yaml");
+			await writeFile(
+				configPath,
+				`registries:\n  - name: zeta\n    repo: github.com/x/z\n  - name: alpha\n    repo: github.com/x/a\n`,
+				"utf-8",
+			);
+			const result = await getSuggestions("registries", { configPath });
+			expect(result).toEqual(["alpha", "zeta"]);
+		});
+
+		test("returns [] when the config file is missing (silent failure)", async () => {
+			tempDir = await mkdtemp(join(tmpdir(), "skilltree-complete-reg-empty-"));
+			const result = await getSuggestions("registries", {
+				configPath: join(tempDir, "missing.yaml"),
+			});
+			expect(result).toEqual([]);
+		});
+
+		test("returns [] when the config has no registries field", async () => {
+			tempDir = await mkdtemp(join(tmpdir(), "skilltree-complete-reg-novel-"));
+			const configPath = join(tempDir, "config.yaml");
+			await writeFile(configPath, "other_field: 1\n", "utf-8");
+			const result = await getSuggestions("registries", { configPath });
+			expect(result).toEqual([]);
+		});
+	});
+
 	// Regression: the boundary used to cast `kind: string` straight into the
 	// typed kind, then rely on the switch having no default to throw via
 	// "undefined.length". `completeCommand` now validates explicitly so an
@@ -109,6 +154,8 @@ describe("_complete: getSuggestions", () => {
 			expect(isCompleteKind("deps")).toBe(true);
 			expect(isCompleteKind("targets")).toBe(true);
 			expect(isCompleteKind("agents")).toBe(true);
+			expect(isCompleteKind("types")).toBe(true);
+			expect(isCompleteKind("registries")).toBe(true);
 			expect(isCompleteKind("bogus")).toBe(false);
 			expect(isCompleteKind("")).toBe(false);
 		});
