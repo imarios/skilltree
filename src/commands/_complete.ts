@@ -15,10 +15,18 @@
 
 import { getKnownAgentNames } from "../core/agents.js";
 import { getAllDependencyNames, readGlobalManifest, readManifest } from "../core/manifest.js";
+import { listRegistries } from "../core/registry-config.js";
 import type { Manifest } from "../types.js";
 
-export const COMPLETE_KINDS = ["deps", "targets", "agents"] as const;
+export const COMPLETE_KINDS = ["deps", "targets", "agents", "types", "registries"] as const;
 export type CompleteKind = (typeof COMPLETE_KINDS)[number];
+
+/**
+ * Static set for the `types` kind. Hard-coded (not derived from a TS union)
+ * because completion must succeed without a project manifest. Update both
+ * here and `EntityType` in `types.ts` if the set ever changes.
+ */
+const ENTITY_TYPE_NAMES: readonly string[] = ["agent", "command", "skill"];
 
 export function isCompleteKind(value: string): value is CompleteKind {
 	return COMPLETE_KINDS.includes(value as CompleteKind);
@@ -28,6 +36,7 @@ export interface CompleteOptions {
 	global?: boolean;
 	dir?: string; // override CWD (testing)
 	globalDir?: string; // override ~/.skilltree (testing)
+	configPath?: string; // override ~/.skilltree/config.yaml (testing)
 }
 
 /**
@@ -56,6 +65,12 @@ export async function getSuggestions(
 				return [...((await loadManifest(opts)).install_targets ?? [])].sort();
 			case "agents":
 				return getKnownAgentNames();
+			case "types":
+				return [...ENTITY_TYPE_NAMES].sort();
+			case "registries": {
+				const entries = await listRegistries(opts.configPath);
+				return entries.map((r) => r.name).sort();
+			}
 			default:
 				kind satisfies never;
 				return [];

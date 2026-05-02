@@ -269,6 +269,59 @@ describe("completion generator", () => {
 		expect(branch).toContain("_skilltree_dyn deps");
 	});
 
+	// Issue #22: --type and --registry are the disambiguation interface for
+	// `add` and `search`. Their *values* must tab-complete or users still
+	// have to type "skill"/"agent"/"command" and registry names from memory.
+	describe("flag-value completion (--type, --registry)", () => {
+		test("zsh declares helper functions for types and registries", () => {
+			const zsh = generateZshCompletion();
+			expect(zsh).toContain("_skilltree_complete_types()");
+			expect(zsh).toContain("_skilltree_complete_registries()");
+			expect(zsh).toContain("skilltree _complete types");
+			expect(zsh).toContain("skilltree _complete registries");
+		});
+
+		test("zsh wires --type and --registry value completion on `add`", () => {
+			const zsh = generateZshCompletion();
+			const branch = extractCaseBranch(zsh, "add");
+			expect(branch).toContain("_skilltree_complete_types");
+			expect(branch).toContain("_skilltree_complete_registries");
+		});
+
+		test("zsh wires --type and --registry value completion on `search`", () => {
+			const zsh = generateZshCompletion();
+			const branch = extractCaseBranch(zsh, "search");
+			expect(branch).toContain("_skilltree_complete_types");
+			expect(branch).toContain("_skilltree_complete_registries");
+		});
+
+		// Bash `extractCaseBranch` stops at the first `;;`, which inner
+		// `case "$prev"` arms would terminate prematurely. Match the
+		// full-script slice between the outer `add)` / `search)` start and
+		// the next outer command branch instead.
+		function extractOuterBranch(script: string, name: string): string {
+			const re = new RegExp(`(^|\\n)\\s*${name}\\)([\\s\\S]*?)(?=\\n\\s+(?:[a-z][\\w-]*\\)|esac))`);
+			const m = script.match(re);
+			return m ? (m[2] ?? "") : "";
+		}
+
+		test("bash dispatches --type and --registry value completion on `add`", () => {
+			const bash = generateBashCompletion();
+			const branch = extractOuterBranch(bash, "add");
+			expect(branch).not.toBe("");
+			expect(branch).toMatch(/--type.*_skilltree_dyn types/s);
+			expect(branch).toMatch(/--registry.*_skilltree_dyn registries/s);
+		});
+
+		test("bash dispatches --type and --registry value completion on `search`", () => {
+			const bash = generateBashCompletion();
+			const branch = extractOuterBranch(bash, "search");
+			expect(branch).not.toBe("");
+			expect(branch).toMatch(/--type.*_skilltree_dyn types/s);
+			expect(branch).toMatch(/--registry.*_skilltree_dyn registries/s);
+		});
+	});
+
 	// Issue 1 regression: `*::value:func` (any-number) re-fired completion
 	// after the user already typed an arg. We use `:value:func` (exactly one)
 	// because every command with positionalComplete takes one positional.
