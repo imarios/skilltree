@@ -98,11 +98,10 @@ describe("scanCommand", () => {
 
 		let exitCode: number | undefined;
 		const originalExit = process.exit;
-		// biome-ignore lint/suspicious/noExplicitAny: test mock
 		process.exit = ((code: number) => {
 			exitCode = code;
 			throw new Error(`exit ${code}`);
-		}) as any;
+		}) as typeof process.exit;
 
 		try {
 			await scanCommand([join(dir, "my-skill")], { check: true });
@@ -120,10 +119,9 @@ describe("scanCommand", () => {
 
 		let exitCalled = false;
 		const originalExit = process.exit;
-		// biome-ignore lint/suspicious/noExplicitAny: test mock
 		process.exit = (() => {
 			exitCalled = true;
-		}) as any;
+		}) as typeof process.exit;
 
 		try {
 			await scanCommand([join(dir, "my-skill")], { check: true });

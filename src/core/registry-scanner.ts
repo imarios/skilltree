@@ -2,7 +2,7 @@ import { basename, dirname } from "node:path";
 import simpleGit from "simple-git";
 import YAML from "yaml";
 import type { EntityType, IndexEntry } from "../types.js";
-import { mdFileType } from "./entity-type.js";
+import { entityNameFromPath, mdFileType } from "./entity-type.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { readFileAtRef } from "./git.js";
 
@@ -98,10 +98,23 @@ export async function dynamicScanRepo(repoDir: string): Promise<IndexEntry[]> {
 		}),
 	);
 
+	// Skill directory prefixes — used to exclude internal `.md` files (e.g.,
+	// `skills/foo/commands/helper.md`, `skills/foo/references/notes.md`)
+	// from the agent/command scan. Mirrors the walk-stops-at-SKILL.md
+	// guard in `repo-scanner.ts`. Without this, `mdFileType` would
+	// mis-classify any helper file under a skill's `commands/` subdir as a
+	// top-level slash-command. A repo-root SKILL.md (skillDir === ".")
+	// owns the entire repo, so we treat it as a "" prefix that matches
+	// every other path.
+	const skillDirPrefixes = skillPaths.map((p) => (p === "SKILL.md" ? "" : `${dirname(p)}/`));
+	const isInsideSkill = (p: string): boolean =>
+		skillDirPrefixes.some((prefix) => prefix === "" || p.startsWith(prefix));
+
 	// Find standalone .md files that could be agents (parallel reads)
 	const mdPaths = allPaths.filter((p) => {
 		if (!p.endsWith(".md")) return false;
 		if (p.endsWith("/SKILL.md") || p === "SKILL.md") return false;
+		if (isInsideSkill(p)) return false;
 		if (SKIP_MD_FILES.has(basename(p))) return false;
 		const base = basename(p);
 		if (base === base.toUpperCase() && base !== base.toLowerCase()) return false;
@@ -113,9 +126,16 @@ export async function dynamicScanRepo(repoDir: string): Promise<IndexEntry[]> {
 			try {
 				const content = await readFileAtRef(repoDir, "HEAD", mdPath);
 				const fm = parseFrontmatter(content);
-				if (!fm || (!fm.name && !fm.skills)) return null;
-				const name = fm.name ?? basename(mdPath, ".md");
-				const entry: IndexEntry = { name, type: mdFileType(mdPath), path: mdPath };
+				if (!fm) return null;
+				const type = mdFileType(mdPath);
+				// Agents need a `name:` or `skills:` heuristic so loose `.md`
+				// notes outside `commands/` don't get indexed. Slash-commands
+				// (path under `commands/`) conventionally carry only
+				// `description:`, so the path itself is signal enough — see
+				// issue #21.
+				if (type === "agent" && !fm.name && !fm.skills) return null;
+				const name = fm.name ?? entityNameFromPath(mdPath);
+				const entry: IndexEntry = { name, type, path: mdPath };
 				if (fm.description) entry.description = fm.description;
 				return entry;
 			} catch {
