@@ -44,7 +44,7 @@ const COMMANDS: CmdDef[] = [
 		description: "Initialize a new skilltree project",
 		flags: [
 			{ long: "--global", short: "-g", description: "Initialize global dependencies" },
-			{ long: "--scan", description: "Scan repo for existing skills/agents" },
+			{ long: "--scan", description: "Scan repo for existing skills, agents, and commands" },
 			{
 				long: "--yes",
 				short: "-y",
@@ -62,7 +62,12 @@ const COMMANDS: CmdDef[] = [
 			{ long: "--version", short: "-v", description: "Semver version constraint", takesArg: true },
 			{ long: "--local", short: "-l", description: "Local filesystem path", takesArg: true },
 			{ long: "--dev", short: "-D", description: "Add as dev dependency" },
-			{ long: "--type", short: "-t", description: "Entity type (skill or agent)", takesArg: true },
+			{
+				long: "--type",
+				short: "-t",
+				description: "Entity type (skill, agent, or command)",
+				takesArg: true,
+			},
 			{ long: "--registry", description: "Resolve from this registry", takesArg: true },
 			{ long: "--global", short: "-g", description: "Add to global dependencies" },
 		],
@@ -113,7 +118,7 @@ const COMMANDS: CmdDef[] = [
 	},
 	{
 		name: "scan",
-		description: "Scan skills for undeclared dependencies",
+		description: "Scan skills, agents, and commands for undeclared dependencies",
 		flags: [
 			{ long: "--check", description: "Exit 1 if undeclared deps found" },
 			{ long: "--apply", description: "Auto-update frontmatter" },
@@ -128,7 +133,7 @@ const COMMANDS: CmdDef[] = [
 	},
 	{
 		name: "search",
-		description: "Search registries for skills and agents",
+		description: "Search registries for skills, agents, and commands",
 		flags: [
 			{ long: "--registry", description: "Search only one registry", takesArg: true },
 			{ long: "--type", short: "-t", description: "Filter by entity type", takesArg: true },
@@ -137,7 +142,7 @@ const COMMANDS: CmdDef[] = [
 	},
 	{
 		name: "info",
-		description: "Show detailed information about a skill or agent",
+		description: "Show detailed information about a skill, agent, or command",
 		positionalComplete: "deps",
 		flags: [{ long: "--json", description: "Output results as JSON" }],
 	},

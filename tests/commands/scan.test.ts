@@ -2,7 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scanCommand } from "../../src/commands/scan.js";
+import { classifyEntityFile, scanCommand } from "../../src/commands/scan.js";
+import type { EntityType } from "../../src/types.js";
 
 let tempDir: string;
 
@@ -73,7 +74,7 @@ describe("scanCommand", () => {
 		} finally {
 			restore();
 		}
-		expect(logs.some((l) => l.includes("All skill references are declared"))).toBe(true);
+		expect(logs.some((l) => l.includes("All entity references are declared"))).toBe(true);
 	});
 
 	test("--json outputs JSON array", async () => {
@@ -171,4 +172,60 @@ describe("scanCommand", () => {
 		}
 		expect(logs.some((l) => l.includes("testing"))).toBe(true);
 	});
+
+	test("detects undeclared slash-command reference in a command file", async () => {
+		const dir = await makeTempDir();
+		const cmdDir = join(dir, "commands");
+		await mkdir(cmdDir, { recursive: true });
+		await writeFile(
+			join(cmdDir, "code-refinement.md"),
+			"---\ndescription: Iterate hypotheses\n---\n\nRun /hypothesis each round until clean.\n",
+		);
+
+		const { logs, restore } = captureConsole();
+		try {
+			await scanCommand([cmdDir], {});
+		} finally {
+			restore();
+		}
+		expect(logs.some((l) => l.includes("hypothesis"))).toBe(true);
+	});
+});
+
+describe("classifyEntityFile", () => {
+	// Parametrized: each row is [path, frontmatter name | undefined, expected].
+	// Edge cases live next to canonical inputs so the matrix stays the single
+	// source of truth — adding a new layout convention is one new row.
+	const cases: Array<[string, string | undefined, { name: string; type: EntityType } | null]> = [
+		// Skill: directory-based, name from declaring directory or frontmatter
+		["skills/python-coding/SKILL.md", undefined, { name: "python-coding", type: "skill" }],
+		[
+			"/abs/path/skills/python-coding/SKILL.md",
+			"python-coding",
+			{ name: "python-coding", type: "skill" },
+		],
+		["skills/aliased-dir/SKILL.md", "real-name", { name: "real-name", type: "skill" }],
+
+		// Command: under any commands/ segment, name from filename stem
+		["commands/hypothesis.md", undefined, { name: "hypothesis", type: "command" }],
+		["commands/hypothesis.md", "fm-named", { name: "fm-named", type: "command" }],
+		[
+			".claude/commands/code-refinement.md",
+			undefined,
+			{ name: "code-refinement", type: "command" },
+		],
+		["nested/commands/sub/foo.md", undefined, { name: "foo", type: "command" }],
+
+		// Agent: single-file .md not under commands/, name from filename or frontmatter
+		["agents/reviewer.md", undefined, { name: "reviewer", type: "agent" }],
+		["agents/reviewer.md", "fm-named", { name: "fm-named", type: "agent" }],
+		["loose-agent.md", undefined, { name: "loose-agent", type: "agent" }],
+	];
+
+	for (const [path, fmName, expected] of cases) {
+		const fmDesc = fmName === undefined ? "no fm name" : `fm=${fmName}`;
+		test(`${path} (${fmDesc}) → ${expected ? `${expected.type}:${expected.name}` : "null"}`, () => {
+			expect(classifyEntityFile(path, fmName)).toEqual(expected);
+		});
+	}
 });

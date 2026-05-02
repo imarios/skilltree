@@ -276,6 +276,98 @@ describe("scanFile", () => {
 	});
 });
 
+describe("scanFile — slash-command references", () => {
+	async function writeCommand(
+		dir: string,
+		name: string,
+		body: string,
+		deps?: string[],
+	): Promise<string> {
+		const cmdDir = join(dir, "commands");
+		await mkdir(cmdDir, { recursive: true });
+		const depsYaml = deps?.length ? `dependencies:\n${deps.map((d) => `  - ${d}`).join("\n")}` : "";
+		const content = `---\nname: ${name}\n${depsYaml}\n---\n\n${body}\n`;
+		const filePath = join(cmdDir, `${name}.md`);
+		await writeFile(filePath, content);
+		return filePath;
+	}
+
+	test("detects /name slash-command reference in body", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeCommand(
+			dir,
+			"code-refinement-with-hypothesis",
+			"Use /loop 1m /hypothesis to run iteratively.",
+		);
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).toContain("hypothesis");
+		expect(result?.detected).toContain("loop");
+		expect(result?.undeclared).toContain("hypothesis");
+	});
+
+	test("does not match path segments like /tmp or /usr/local", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeCommand(
+			dir,
+			"my-command",
+			"Write to /tmp/output and read /usr/local/share. URLs like https://example.com are common.",
+		);
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).not.toContain("tmp");
+		expect(result?.detected).not.toContain("usr");
+		expect(result?.detected).not.toContain("local");
+		expect(result?.detected).not.toContain("share");
+		expect(result?.detected).not.toContain("example");
+	});
+
+	test("filters self-reference for slash command", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeCommand(dir, "hypothesis", "Run /hypothesis recursively.");
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).not.toContain("hypothesis");
+	});
+
+	test("does not report declared slash-command deps as undeclared", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeCommand(
+			dir,
+			"code-refinement-with-hypothesis",
+			"Use /hypothesis each round.",
+			["hypothesis"],
+		);
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).toContain("hypothesis");
+		expect(result?.undeclared).toEqual([]);
+	});
+
+	test("detects backticked /name reference", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeCommand(dir, "my-cmd", "Run `/hypothesis` first.");
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).toContain("hypothesis");
+	});
+
+	test("filters self-reference by filename when no name: in frontmatter", async () => {
+		const dir = await makeTempDir();
+		const cmdDir = join(dir, "commands");
+		await mkdir(cmdDir, { recursive: true });
+		const filePath = join(cmdDir, "verify-documentation.md");
+		await writeFile(
+			filePath,
+			"---\ndescription: Verify the docs\n---\n\nRun /verify-documentation across the repo.\n",
+		);
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).not.toContain("verify-documentation");
+		expect(result?.undeclared).toEqual([]);
+	});
+});
+
 describe("applyToFrontmatter", () => {
 	test("adds undeclared deps to frontmatter", async () => {
 		const dir = await makeTempDir();

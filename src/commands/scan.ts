@@ -1,8 +1,10 @@
 import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { entityNameFromPath, mdFileType } from "../core/entity-type.js";
 import type { ScanResult } from "../core/scanner.js";
 import { applyToFrontmatter, scanFiles, scanFileWithLlm } from "../core/scanner.js";
 import { dim, pc, success } from "../core/ui.js";
+import type { EntityType } from "../types.js";
 
 export interface ScanOptions {
 	check?: boolean;
@@ -31,13 +33,32 @@ async function collectMdFiles(path: string): Promise<string[]> {
 	return files;
 }
 
-async function buildKnownEntities(files: string[]): Promise<Array<{ name: string; type: string }>> {
-	const entities: Array<{ name: string; type: string }> = [];
+/**
+ * Classify a `.md` path into an entity descriptor for the LLM scanner's
+ * known-entity list. SKILL.md → skill; `.md` under any `commands/` segment
+ * → command; everything else → agent. Frontmatter `name:` wins; otherwise
+ * the name is derived from the path (parent dir for SKILL.md, filename
+ * stem otherwise). Returns null only for the degenerate empty-name case
+ * (e.g., a literal `.md` file with no frontmatter name).
+ */
+export function classifyEntityFile(
+	filePath: string,
+	frontmatterName?: string,
+): { name: string; type: EntityType } | null {
+	const name = frontmatterName ?? entityNameFromPath(filePath);
+	if (!name) return null;
+	const type: EntityType = basename(filePath) === "SKILL.md" ? "skill" : mdFileType(filePath);
+	return { name, type };
+}
+
+async function buildKnownEntities(
+	files: string[],
+): Promise<Array<{ name: string; type: EntityType }>> {
 	const results = await scanFiles(files);
+	const entities: Array<{ name: string; type: EntityType }> = [];
 	for (const result of results) {
-		if (result.name) {
-			entities.push({ name: result.name, type: "skill" });
-		}
+		const classified = classifyEntityFile(result.file, result.name);
+		if (classified) entities.push(classified);
 	}
 	return entities;
 }
@@ -101,7 +122,7 @@ async function displayResults(results: ScanResult[], options: ScanOptions): Prom
 	}
 
 	if (!hasGaps && !results.some((r) => (r.confirmed?.length ?? 0) > 0)) {
-		success("All skill references are declared in frontmatter.");
+		success("All entity references are declared in frontmatter.");
 	}
 
 	return hasGaps;

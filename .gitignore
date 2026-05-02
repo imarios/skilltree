@@ -10,6 +10,8 @@ demo/*.gif
 demo/*.mp4
 .claude/skills/
 .claude/agents/
+.claude/commands/
+.claude/worktrees/
 test
 package-lock.json
 .playwright-cli/
