@@ -312,6 +312,127 @@ describe("glob-pattern add (Issue #14)", () => {
 		expect(manifest.dependencies?.["kibana-search"]).toBeDefined();
 	});
 
+	test("--yes skips the prompt even when interactive", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithKibanaIndex(dir);
+		let asked = false;
+		await addCommand(
+			"kibana-*",
+			{
+				configPath,
+				cacheDir,
+				yes: true,
+				isInteractive: true,
+				askFn: async () => {
+					asked = true;
+					return "n";
+				},
+			},
+			dir,
+		);
+		expect(asked).toBe(false);
+		const manifest = await readManifestRaw(dir);
+		expect(manifest.dependencies?.["kibana-search"]).toBeDefined();
+	});
+
+	test("interactive prompt: 'y' adds entries", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithKibanaIndex(dir);
+		await addCommand(
+			"kibana-*",
+			{ configPath, cacheDir, isInteractive: true, askFn: async () => "y" },
+			dir,
+		);
+		const manifest = await readManifestRaw(dir);
+		expect(manifest.dependencies?.["kibana-search"]).toBeDefined();
+		expect(manifest.dependencies?.["kibana-investigate"]).toBeDefined();
+	});
+
+	test("interactive prompt: empty answer (default) adds entries", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithKibanaIndex(dir);
+		await addCommand(
+			"kibana-*",
+			{ configPath, cacheDir, isInteractive: true, askFn: async () => "" },
+			dir,
+		);
+		const manifest = await readManifestRaw(dir);
+		expect(manifest.dependencies?.["kibana-search"]).toBeDefined();
+	});
+
+	test("interactive prompt: 'n' aborts and writes nothing", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithKibanaIndex(dir);
+		await addCommand(
+			"kibana-*",
+			{ configPath, cacheDir, isInteractive: true, askFn: async () => "n" },
+			dir,
+		);
+		const manifest = await readManifestRaw(dir);
+		expect(manifest.dependencies?.["kibana-search"]).toBeUndefined();
+		expect(manifest.dependencies?.["kibana-investigate"]).toBeUndefined();
+	});
+
+	test("non-interactive default proceeds without --yes (CI-safe)", async () => {
+		// No `isInteractive`, no `askFn`, no `--yes`. Mirrors how the test
+		// runner invokes the CLI: stdout is piped, so detection falls
+		// through to the CI-safe default of proceeding.
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithKibanaIndex(dir);
+		await addCommand("kibana-*", { configPath, cacheDir }, dir);
+		const manifest = await readManifestRaw(dir);
+		expect(manifest.dependencies?.["kibana-search"]).toBeDefined();
+	});
+
+	test("cross-registry collision: picks first, surfaces alternate in preview", async () => {
+		const dir = await setup();
+		const configPath = join(dir, ".skilltree-config.yaml");
+		const cacheDir = join(dir, ".skilltree-cache");
+
+		await writeConfig(
+			{
+				registries: [
+					{ name: "vibes", repo: "github.com/imarios/vibes" },
+					{ name: "open-vibes", repo: "github.com/imarios/open-vibes" },
+				],
+			},
+			configPath,
+		);
+		await writeRegistryIndex(
+			{
+				registry: "vibes",
+				repo: "github.com/imarios/vibes",
+				updated_at: new Date().toISOString(),
+				entities: [{ name: "kubernetes", type: "skill", path: "skills/kubernetes" }],
+			},
+			cacheDir,
+		);
+		await writeRegistryIndex(
+			{
+				registry: "open-vibes",
+				repo: "github.com/imarios/open-vibes",
+				updated_at: new Date().toISOString(),
+				entities: [{ name: "kubernetes", type: "skill", path: "skills/kubernetes" }],
+			},
+			cacheDir,
+		);
+
+		// Capture warn() output
+		const warnings: string[] = [];
+		const origWarn = console.warn;
+		console.warn = (msg: string) => warnings.push(msg);
+		try {
+			await addCommand("kuber*", { configPath, cacheDir, yes: true }, dir);
+		} finally {
+			console.warn = origWarn;
+		}
+
+		const manifest = await readManifestRaw(dir);
+		const dep = manifest.dependencies?.kubernetes;
+		expect(dep && isRemoteDependency(dep) && dep.repo).toBe("github.com/imarios/vibes");
+		expect(warnings.some((w) => w.includes("kubernetes") && w.includes("open-vibes"))).toBe(true);
+	});
+
 	test("supports `?` as single-char glob", async () => {
 		const dir = await setup();
 		const configPath = join(dir, ".skilltree-config.yaml");

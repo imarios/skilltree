@@ -1,4 +1,5 @@
 import { stat } from "node:fs/promises";
+import { createInterface } from "node:readline/promises";
 import semver from "semver";
 import { canonicalSource } from "../core/deps.js";
 import { MANIFEST_NEW } from "../core/filenames.js";
@@ -6,7 +7,7 @@ import { loadManifestOrThrow, writeGlobalManifest, writeManifest } from "../core
 import { collapseTilde, expandTilde, getGlobalDir } from "../core/paths.js";
 import { readRegistryIndex } from "../core/registry-cache.js";
 import { listRegistries } from "../core/registry-config.js";
-import { dim, success, warn } from "../core/ui.js";
+import { dim, pc, success, warn } from "../core/ui.js";
 import type {
 	Dependency,
 	EntityType,
@@ -26,10 +27,16 @@ export interface AddOptions {
 	type?: EntityType;
 	registry?: string;
 	global?: boolean;
+	/** Skip the glob-mode confirmation prompt. */
+	yes?: boolean;
 	// Test overrides (avoid touching real ~/.skilltree/)
 	configPath?: string;
 	cacheDir?: string;
 	globalDir?: string;
+	/** Test hook: canned answer for the glob confirmation prompt. */
+	askFn?: (question: string) => Promise<string>;
+	/** Test hook: override TTY detection. Defaults to process.stdout.isTTY. */
+	isInteractive?: boolean;
 }
 
 export async function addCommand(name: string, opts: AddOptions, dir: string): Promise<void> {
@@ -92,9 +99,9 @@ function globToRegex(pattern: string): RegExp {
 /**
  * Glob mode is registry-only — `--repo`/`--source`/`--local`/`--path` are
  * single-source flags whose semantics don't generalize across many matches.
- * We collapse the matches into a single manifest read+write rather than
- * recursing into `addCommand` per match (which would re-read+rewrite the
- * manifest N times).
+ * Two-phase commit: build a preview of every match (with cross-registry
+ * collisions surfaced), confirm with the user, then write the manifest in
+ * one batched read/write.
  */
 async function addGlobCommand(pattern: string, opts: AddOptions, dir: string): Promise<void> {
 	if (opts.repo || opts.source || opts.local || opts.path) {
@@ -106,26 +113,27 @@ async function addGlobCommand(pattern: string, opts: AddOptions, dir: string): P
 
 	const re = globToRegex(pattern);
 	const all = await loadRegistryEntities(opts);
-	const matches = dedupeByEntityName(all.filter((m) => re.test(m.entity.name)));
+	const items = buildGlobPreview(all.filter((m) => re.test(m.entity.name)));
 
-	if (matches.length === 0) {
+	if (items.length === 0) {
 		throw new Error(
 			`Glob "${pattern}": no entries matched in any registry. Run 'skilltree search ${pattern.replace(/[*?]/g, "")}' to see available names.`,
 		);
 	}
 
-	console.log(
-		dim(
-			`Glob "${pattern}" matched ${matches.length} ${matches.length === 1 ? "entry" : "entries"}: ${matches.map((m) => m.entity.name).join(", ")}`,
-		),
-	);
+	const group = opts.dev ? "dev-dependencies" : "dependencies";
+	printGlobPreview(pattern, items, group, opts.global);
+	if (!(await confirmGlobAdd(items.length, opts))) {
+		console.log(dim("Aborted."));
+		return;
+	}
 
 	const globalDir = opts.globalDir ?? getGlobalDir();
 	const manifest = await loadManifestOrThrow(dir, { global: opts.global, globalDir });
-	const group = opts.dev ? "dev-dependencies" : "dependencies";
 	const deps = manifest[group] ?? {};
 
-	for (const m of matches) {
+	for (const item of items) {
+		const m = item.picked;
 		const dep: Dependency = { repo: m.repo, path: m.entity.path, version: opts.version ?? "*" };
 		if (opts.type) dep.type = opts.type;
 		checkOverwrite(m.entity.name, deps, group, dep, manifest.sources);
@@ -142,10 +150,94 @@ async function addGlobCommand(pattern: string, opts: AddOptions, dir: string): P
 	}
 
 	success(
-		`Added ${matches.length} ${matches.length === 1 ? "entry" : "entries"} to ${group}${opts.global ? " (global)" : ""}: ${matches.map((m) => m.entity.name).join(", ")}`,
+		`Added ${items.length} ${items.length === 1 ? "entry" : "entries"} to ${group}${opts.global ? " (global)" : ""}: ${items.map((i) => i.picked.entity.name).join(", ")}`,
 	);
 	const installCmd = opts.global ? "skilltree install --global" : "skilltree install";
 	console.log(dim(`  Run \`${installCmd}\` to install.`));
+}
+
+/**
+ * One row of the glob preview: the name, the registry/repo/path that will
+ * actually be written (`picked`), and any other registries that also
+ * publish this name (`alternates`). The first match in registry order
+ * wins — alternates are reported so the user can override with --registry.
+ */
+interface GlobPreviewItem {
+	picked: RegistryEntity;
+	alternates: RegistryEntity[];
+}
+
+function buildGlobPreview(matches: RegistryEntity[]): GlobPreviewItem[] {
+	const byName = new Map<string, RegistryEntity[]>();
+	for (const m of matches) {
+		const list = byName.get(m.entity.name);
+		if (list) list.push(m);
+		else byName.set(m.entity.name, [m]);
+	}
+	const items: GlobPreviewItem[] = [];
+	for (const group of byName.values()) {
+		const [picked, ...alternates] = group;
+		if (picked) items.push({ picked, alternates });
+	}
+	items.sort((a, b) => a.picked.entity.name.localeCompare(b.picked.entity.name));
+	return items;
+}
+
+function printGlobPreview(
+	pattern: string,
+	items: GlobPreviewItem[],
+	group: string,
+	isGlobal: boolean | undefined,
+): void {
+	const target = `${group}${isGlobal ? " (global)" : ""}`;
+	console.log(
+		`\nGlob "${pc.bold(pattern)}" matched ${pc.bold(String(items.length))} ${items.length === 1 ? "entry" : "entries"} for ${target}:\n`,
+	);
+	const nameW = Math.max(...items.map((i) => i.picked.entity.name.length));
+	const regW = Math.max(...items.map((i) => i.picked.registry.length));
+	for (const item of items) {
+		const m = item.picked;
+		console.log(
+			`  ${pc.bold(m.entity.name.padEnd(nameW))}  ${dim(m.registry.padEnd(regW))}  ${dim(`${m.repo}/${m.entity.path}`)}`,
+		);
+	}
+	const collisions = items.filter((i) => i.alternates.length > 0);
+	if (collisions.length > 0) {
+		console.log();
+		for (const item of collisions) {
+			const others = item.alternates.map((a) => a.registry).join(", ");
+			warn(
+				`"${item.picked.entity.name}" also in ${others} — picking ${item.picked.registry} (first registry). Use --registry to override.`,
+			);
+		}
+	}
+	console.log();
+}
+
+/**
+ * Decide whether to proceed. Resolution order mirrors `init.ts`:
+ *  1. `--yes` → proceed without prompting.
+ *  2. `askFn` (test hook) → ask via that function.
+ *  3. TTY (or `isInteractive: true` override) → prompt via readline.
+ *  4. Non-TTY (CI/tests) → CI-safe default: proceed.
+ */
+async function confirmGlobAdd(count: number, opts: AddOptions): Promise<boolean> {
+	if (opts.yes) return true;
+	const interactive = opts.isInteractive ?? Boolean(process.stdout.isTTY);
+	const ask = opts.askFn ?? (interactive ? readlineAsk : null);
+	if (!ask) return true;
+	const noun = count === 1 ? "this entry" : `these ${count} entries`;
+	const answer = (await ask(`Add ${noun}? [Y/n] `)).trim().toLowerCase();
+	return answer === "" || answer === "y" || answer === "yes";
+}
+
+async function readlineAsk(question: string): Promise<string> {
+	const rl = createInterface({ input: process.stdin, output: process.stdout });
+	try {
+		return await rl.question(question);
+	} finally {
+		rl.close();
+	}
 }
 
 interface RegistryEntity {
@@ -186,16 +278,6 @@ async function loadRegistryEntities(opts: AddOptions): Promise<RegistryEntity[]>
 		throw new Error("No registry indexes available. Run 'skilltree registry update' first.");
 	}
 	return entities;
-}
-
-/** Keep the first occurrence of each entity name; later registries lose ties. */
-function dedupeByEntityName(entities: RegistryEntity[]): RegistryEntity[] {
-	const seen = new Set<string>();
-	return entities.filter((m) => {
-		if (seen.has(m.entity.name)) return false;
-		seen.add(m.entity.name);
-		return true;
-	});
 }
 
 function validateAddFlags(opts: AddOptions): void {
