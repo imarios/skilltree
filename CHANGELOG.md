@@ -1,3 +1,9 @@
+## v0.22.1 (2026-05-02)
+
+### Fix
+
+- **ci**: set explicit GITHUB_TOKEN permissions on CI workflow (#17)
+
 ## v0.22.0 (2026-05-02)
 
 ### Feat
