@@ -180,6 +180,27 @@ describe("completion generator", () => {
 		expect(zsh).toContain("compdef");
 	});
 
+	// Pins the slash-commands feature into user-facing strings so a future
+	// rewrite that drops "command" from a description is caught at PR time
+	// rather than via a confused user wondering why `add --type command` is
+	// "supported but not in the help".
+	describe("user-facing strings include 'command' for the third resource type", () => {
+		const lines: Array<[string, string]> = [
+			["zsh --type completion", "Entity type (skill, agent, or command)"],
+			["zsh init --scan description", "skills, agents, and commands"],
+			["zsh search description", "Search registries for skills, agents, and commands"],
+			["zsh info description", "Show detailed information about a skill, agent, or command"],
+			["zsh scan description", "Scan skills, agents, and commands for undeclared dependencies"],
+		];
+
+		for (const [label, needle] of lines) {
+			test(label, () => {
+				const zsh = generateZshCompletion();
+				expect(zsh).toContain(needle);
+			});
+		}
+	});
+
 	// Regression: escapeZsh used to escape `'`, `[`, `]` but not `\`. A
 	// description containing `\[` would emit `\\[` to the script, which zsh
 	// reads as literal-backslash + description-group-start — breaking the

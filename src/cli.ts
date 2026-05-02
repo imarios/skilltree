@@ -47,7 +47,10 @@ program
 	.command("init")
 	.description("Initialize a new skilltree project")
 	.option("-g, --global", "Initialize global dependencies")
-	.option("--scan", "Scan the repo for existing skills/agents and register them as local deps")
+	.option(
+		"--scan",
+		"Scan the repo for existing skills, agents, and commands and register them as local deps",
+	)
 	.option("-y, --yes", "With --scan, include all discovered entries without prompting")
 	.action(async (opts) => {
 		await initCommand(process.cwd(), {
@@ -243,7 +246,7 @@ registry
 
 program
 	.command("search <query>")
-	.description("Search registries for skills and agents")
+	.description("Search registries for skills, agents, and commands")
 	.option("--registry <name>", "Search only one registry")
 	.option("-t, --type <type>", "Filter by entity type (skill, agent, or command)")
 	.option("--json", "Output results as JSON")
@@ -257,7 +260,7 @@ program
 
 program
 	.command("info <name>")
-	.description("Show detailed information about a skill or agent")
+	.description("Show detailed information about a skill, agent, or command")
 	.option("--json", "Output results as JSON")
 	.action(async (name: string, opts) => {
 		await infoCommand(name, { json: opts.json });

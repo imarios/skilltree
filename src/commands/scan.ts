@@ -39,7 +39,7 @@ async function collectMdFiles(path: string): Promise<string[]> {
  * to the filename stem when frontmatter doesn't supply one — commands and
  * many agents are named by filename, not a `name:` field.
  */
-function classifyEntityFile(
+export function classifyEntityFile(
 	filePath: string,
 	frontmatterName?: string,
 ): { name: string; type: string } | null {
