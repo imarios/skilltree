@@ -33,6 +33,10 @@ export interface AddOptions {
 }
 
 export async function addCommand(name: string, opts: AddOptions, dir: string): Promise<void> {
+	if (isGlobPattern(name)) {
+		await addGlobCommand(name, opts, dir);
+		return;
+	}
 	validateAddFlags(opts);
 	const dep = await buildDependency(name, opts, dir);
 
@@ -63,6 +67,135 @@ export async function addCommand(name: string, opts: AddOptions, dir: string): P
 	success(`Added ${name} to ${group}${opts.global ? " (global)" : ""}`);
 	const installCmd = opts.global ? "skilltree install --global" : "skilltree install";
 	console.log(dim(`  Run \`${installCmd}\` to install.`));
+}
+
+/** A literal `*` or `?` in a name signals user-intent glob expansion (Issue #14). */
+function isGlobPattern(name: string): boolean {
+	return /[*?]/.test(name);
+}
+
+/**
+ * Convert a glob pattern (`*`, `?`) into an anchored regex. All other
+ * characters are regex-escaped so user input like `kibana-*` matches
+ * literally everywhere except at the wildcards.
+ */
+function globToRegex(pattern: string): RegExp {
+	let re = "";
+	for (const ch of pattern) {
+		if (ch === "*") re += ".*";
+		else if (ch === "?") re += ".";
+		else re += ch.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+	}
+	return new RegExp(`^${re}$`);
+}
+
+/**
+ * Glob mode is registry-only — `--repo`/`--source`/`--local`/`--path` are
+ * single-source flags whose semantics don't generalize across many matches.
+ * We collapse the matches into a single manifest read+write rather than
+ * recursing into `addCommand` per match (which would re-read+rewrite the
+ * manifest N times).
+ */
+async function addGlobCommand(pattern: string, opts: AddOptions, dir: string): Promise<void> {
+	if (opts.repo || opts.source || opts.local || opts.path) {
+		throw new Error(
+			`Glob patterns (e.g. "${pattern}") are only supported for registry-resolved adds. Drop --repo/--source/--local/--path to expand from registries.`,
+		);
+	}
+	validateAddFlags(opts);
+
+	const re = globToRegex(pattern);
+	const all = await loadRegistryEntities(opts);
+	const matches = dedupeByEntityName(all.filter((m) => re.test(m.entity.name)));
+
+	if (matches.length === 0) {
+		throw new Error(
+			`Glob "${pattern}": no entries matched in any registry. Run 'skilltree search ${pattern.replace(/[*?]/g, "")}' to see available names.`,
+		);
+	}
+
+	console.log(
+		dim(
+			`Glob "${pattern}" matched ${matches.length} ${matches.length === 1 ? "entry" : "entries"}: ${matches.map((m) => m.entity.name).join(", ")}`,
+		),
+	);
+
+	const globalDir = opts.globalDir ?? getGlobalDir();
+	const manifest = await loadManifestOrThrow(dir, { global: opts.global, globalDir });
+	const group = opts.dev ? "dev-dependencies" : "dependencies";
+	const deps = manifest[group] ?? {};
+
+	for (const m of matches) {
+		const dep: Dependency = { repo: m.repo, path: m.entity.path, version: opts.version ?? "*" };
+		if (opts.type) dep.type = opts.type;
+		checkOverwrite(m.entity.name, deps, group, dep, manifest.sources);
+		checkOtherGroup(m.entity.name, manifest, opts);
+		preserveOrthogonalFields(dep, deps[m.entity.name]);
+		deps[m.entity.name] = dep;
+	}
+	manifest[group] = deps;
+
+	if (opts.global) {
+		await writeGlobalManifest(manifest, globalDir);
+	} else {
+		await writeManifest(dir, manifest);
+	}
+
+	success(
+		`Added ${matches.length} ${matches.length === 1 ? "entry" : "entries"} to ${group}${opts.global ? " (global)" : ""}: ${matches.map((m) => m.entity.name).join(", ")}`,
+	);
+	const installCmd = opts.global ? "skilltree install --global" : "skilltree install";
+	console.log(dim(`  Run \`${installCmd}\` to install.`));
+}
+
+interface RegistryEntity {
+	entity: IndexEntry;
+	registry: string;
+	repo: string;
+}
+
+/**
+ * Load every entity across all (or `--registry`-filtered) registries. Throws
+ * if no registries are configured or no indexes are available so callers
+ * can rely on the result being non-empty by registry, not by match. Reads
+ * indexes in parallel — they live in distinct cache files.
+ */
+async function loadRegistryEntities(opts: AddOptions): Promise<RegistryEntity[]> {
+	const registries = await listRegistries(opts.configPath);
+	if (registries.length === 0) {
+		throw new Error(
+			`No location specified and no registries configured.\nEither specify --repo and --path, or run 'skilltree registry add <url>' first.`,
+		);
+	}
+
+	const targets = opts.registry ? registries.filter((r) => r.name === opts.registry) : registries;
+	const loaded = await Promise.all(
+		targets.map(async (reg) => ({ reg, index: await readRegistryIndex(reg.name, opts.cacheDir) })),
+	);
+
+	const entities: RegistryEntity[] = [];
+	let anyIndexLoaded = false;
+	for (const { reg, index } of loaded) {
+		if (!index) continue;
+		anyIndexLoaded = true;
+		for (const entity of index.entities) {
+			entities.push({ entity, registry: reg.name, repo: reg.repo });
+		}
+	}
+	if (!anyIndexLoaded) {
+		throw new Error("No registry indexes available. Run 'skilltree registry update' first.");
+	}
+	return entities;
+}
+
+/** Keep the first occurrence of each entity name; later registries lose ties. */
+function dedupeByEntityName(entities: RegistryEntity[]): RegistryEntity[] {
+	const seen = new Set<string>();
+	return entities.filter((m) => {
+		if (seen.has(m.entity.name)) return false;
+		seen.add(m.entity.name);
+		return true;
+	});
 }
 
 function validateAddFlags(opts: AddOptions): void {
@@ -211,39 +344,15 @@ function checkOtherGroup(
 
 /**
  * Resolve a skill/agent name from registered registries.
+ *
+ * Note: when `--registry` is set we still load all registries so we can give
+ * the "found in: X, Y" hint when the name is missing from the requested
+ * registry but present elsewhere. The cross-registry name check is the
+ * reason this can't simply pre-filter via `loadRegistryEntities`.
  */
 async function resolveFromRegistries(name: string, opts: AddOptions): Promise<Dependency> {
-	const registries = await listRegistries(opts.configPath);
-
-	if (registries.length === 0) {
-		throw new Error(
-			`No location specified and no registries configured.\nEither specify --repo and --path, or run 'skilltree registry add <url>' first.`,
-		);
-	}
-
-	interface Match {
-		entity: IndexEntry;
-		registry: string;
-		repo: string;
-	}
-	const matches: Match[] = [];
-	let anyIndexLoaded = false;
-
-	for (const reg of registries) {
-		const index = await readRegistryIndex(reg.name, opts.cacheDir);
-		if (!index) continue;
-		anyIndexLoaded = true;
-		for (const entity of index.entities) {
-			if (entity.name === name) {
-				matches.push({ entity, registry: reg.name, repo: reg.repo });
-			}
-		}
-	}
-
-	if (!anyIndexLoaded) {
-		throw new Error("No registry indexes available. Run 'skilltree registry update' first.");
-	}
-
+	const allEntities = await loadRegistryEntities({ ...opts, registry: undefined });
+	const matches = allEntities.filter((m) => m.entity.name === name);
 	const filtered = opts.registry ? matches.filter((m) => m.registry === opts.registry) : matches;
 
 	if (filtered.length === 0) {
@@ -258,7 +367,7 @@ async function resolveFromRegistries(name: string, opts: AddOptions): Promise<De
 	}
 
 	if (filtered.length === 1) {
-		const m = filtered[0] as Match;
+		const m = filtered[0] as RegistryEntity;
 		console.log(`Resolved from registry '${m.registry}': ${dim(`${m.repo}/${m.entity.path}`)}`);
 		return { repo: m.repo, path: m.entity.path, version: opts.version ?? "*" };
 	}

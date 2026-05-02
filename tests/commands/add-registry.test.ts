@@ -178,3 +178,168 @@ describe("registry-assisted add", () => {
 		expect(dep && isLocalDependency(dep) && dep.local).toBe("./skills/local-skill");
 	});
 });
+
+describe("glob-pattern add (Issue #14)", () => {
+	async function setupWithKibanaIndex(
+		dir: string,
+	): Promise<{ configPath: string; cacheDir: string }> {
+		const configPath = join(dir, ".skilltree-config.yaml");
+		const cacheDir = join(dir, ".skilltree-cache");
+
+		await writeConfig(
+			{ registries: [{ name: "vibes", repo: "github.com/imarios/vibes" }] },
+			configPath,
+		);
+
+		const index: RegistryIndex = {
+			registry: "vibes",
+			repo: "github.com/imarios/vibes",
+			updated_at: new Date().toISOString(),
+			entities: [
+				{ name: "kibana-investigate", type: "skill", path: "skills/kibana-investigate" },
+				{ name: "kibana-search", type: "skill", path: "skills/kibana-search" },
+				{ name: "kibana-dashboard", type: "skill", path: "skills/kibana-dashboard" },
+				{ name: "splunk-skill", type: "skill", path: "skills/splunk-skill" },
+				{ name: "python-coding", type: "skill", path: "skills/python-coding" },
+			],
+		};
+		await writeRegistryIndex(index, cacheDir);
+
+		return { configPath, cacheDir };
+	}
+
+	test("expands `kibana-*` to all matching registry entries", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithKibanaIndex(dir);
+
+		await addCommand("kibana-*", { configPath, cacheDir }, dir);
+
+		const manifest = await readManifestRaw(dir);
+		expect(manifest.dependencies?.["kibana-investigate"]).toBeDefined();
+		expect(manifest.dependencies?.["kibana-search"]).toBeDefined();
+		expect(manifest.dependencies?.["kibana-dashboard"]).toBeDefined();
+		// Non-matching entries must not be added.
+		expect(manifest.dependencies?.["splunk-skill"]).toBeUndefined();
+		expect(manifest.dependencies?.["python-coding"]).toBeUndefined();
+	});
+
+	test("glob respects --version and --dev across all matches", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithKibanaIndex(dir);
+
+		await addCommand("kibana-*", { configPath, cacheDir, version: "^1.2.0", dev: true }, dir);
+
+		const manifest = await readManifestRaw(dir);
+		expect(manifest.dependencies?.["kibana-investigate"]).toBeUndefined();
+		const devDep = manifest["dev-dependencies"]?.["kibana-investigate"];
+		expect(devDep).toBeDefined();
+		expect(devDep && isRemoteDependency(devDep) && devDep.version).toBe("^1.2.0");
+	});
+
+	test("glob errors when no registry entries match", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithKibanaIndex(dir);
+
+		await expect(addCommand("nomatch-*", { configPath, cacheDir }, dir)).rejects.toThrow(
+			"no entries matched",
+		);
+	});
+
+	test("glob errors when combined with --repo (single-source flag)", async () => {
+		const dir = await setup();
+
+		await expect(
+			addCommand("kibana-*", { repo: "github.com/x/y", path: "skills/kibana" }, dir),
+		).rejects.toThrow(/glob/i);
+	});
+
+	test("glob errors when combined with --local (single-source flag)", async () => {
+		const dir = await setup();
+
+		await expect(addCommand("kibana-*", { local: "./skills/kibana" }, dir)).rejects.toThrow(
+			/glob/i,
+		);
+	});
+
+	test("glob honors --registry filter", async () => {
+		const dir = await setup();
+		const configPath = join(dir, ".skilltree-config.yaml");
+		const cacheDir = join(dir, ".skilltree-cache");
+
+		await writeConfig(
+			{
+				registries: [
+					{ name: "vibes", repo: "github.com/imarios/vibes" },
+					{ name: "other", repo: "github.com/other/other" },
+				],
+			},
+			configPath,
+		);
+
+		await writeRegistryIndex(
+			{
+				registry: "vibes",
+				repo: "github.com/imarios/vibes",
+				updated_at: new Date().toISOString(),
+				entities: [{ name: "kibana-search", type: "skill", path: "skills/kibana-search" }],
+			},
+			cacheDir,
+		);
+		await writeRegistryIndex(
+			{
+				registry: "other",
+				repo: "github.com/other/other",
+				updated_at: new Date().toISOString(),
+				entities: [{ name: "kibana-other", type: "skill", path: "skills/kibana-other" }],
+			},
+			cacheDir,
+		);
+
+		await addCommand("kibana-*", { configPath, cacheDir, registry: "vibes" }, dir);
+
+		const manifest = await readManifestRaw(dir);
+		expect(manifest.dependencies?.["kibana-search"]).toBeDefined();
+		expect(manifest.dependencies?.["kibana-other"]).toBeUndefined();
+	});
+
+	test("name without glob chars is unchanged (no glob path)", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithKibanaIndex(dir);
+
+		await addCommand("kibana-search", { configPath, cacheDir }, dir);
+
+		const manifest = await readManifestRaw(dir);
+		expect(manifest.dependencies?.["kibana-search"]).toBeDefined();
+	});
+
+	test("supports `?` as single-char glob", async () => {
+		const dir = await setup();
+		const configPath = join(dir, ".skilltree-config.yaml");
+		const cacheDir = join(dir, ".skilltree-cache");
+
+		await writeConfig(
+			{ registries: [{ name: "vibes", repo: "github.com/imarios/vibes" }] },
+			configPath,
+		);
+		await writeRegistryIndex(
+			{
+				registry: "vibes",
+				repo: "github.com/imarios/vibes",
+				updated_at: new Date().toISOString(),
+				entities: [
+					{ name: "ab", type: "skill", path: "skills/ab" },
+					{ name: "ac", type: "skill", path: "skills/ac" },
+					{ name: "abc", type: "skill", path: "skills/abc" },
+				],
+			},
+			cacheDir,
+		);
+
+		await addCommand("a?", { configPath, cacheDir }, dir);
+
+		const manifest = await readManifestRaw(dir);
+		expect(manifest.dependencies?.ab).toBeDefined();
+		expect(manifest.dependencies?.ac).toBeDefined();
+		expect(manifest.dependencies?.abc).toBeUndefined();
+	});
+});
