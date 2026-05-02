@@ -2,16 +2,17 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	DEFAULT_REGISTRIES,
 	inferRegistryName,
+	OUTDATED_SUFFIX,
 	registryAddCommand,
 	registryInitCommand,
 	registryListCommand,
 	registryRemoveCommand,
 } from "../../src/commands/registry.js";
-import { writeRegistryIndex } from "../../src/core/registry-cache.js";
+import { getRegistryIndexPath, writeRegistryIndex } from "../../src/core/registry-cache.js";
 import { readConfig, writeConfig } from "../../src/core/registry-config.js";
 import type { RegistryIndex } from "../../src/types.js";
 
@@ -195,6 +196,41 @@ describe("registryListCommand", () => {
 		expect(output).toContain("vibes");
 		expect(output).toContain("community");
 		expect(output).toContain("github.com/imarios/vibes");
+	});
+
+	test("annotates outdated caches (scanner_version mismatch) so users see they need to update", async () => {
+		const dir = await setup();
+		const configPath = join(dir, "config.yaml");
+		const cacheDir = join(dir, "cache");
+
+		await writeConfig(
+			{ registries: [{ name: "vibes", repo: "github.com/imarios/vibes" }] },
+			configPath,
+		);
+
+		// Hand-write a cache without scanner_version (pre-#25 shape).
+		const indexPath = getRegistryIndexPath("vibes", cacheDir);
+		await mkdir(dirname(indexPath), { recursive: true });
+		const stale = {
+			registry: "vibes",
+			repo: "github.com/imarios/vibes",
+			updated_at: new Date().toISOString(),
+			entities: [{ name: "python-coding", type: "skill", path: "skills/python-coding" }],
+		};
+		await writeFile(indexPath, JSON.stringify(stale), "utf-8");
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		try {
+			await registryListCommand(configPath, cacheDir);
+		} finally {
+			console.log = originalLog;
+		}
+
+		const output = logs.join("\n");
+		expect(output).toContain("vibes");
+		expect(output).toContain(OUTDATED_SUFFIX);
 	});
 
 	test("shows message when no registries configured", async () => {

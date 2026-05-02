@@ -5,7 +5,7 @@ import { canonicalSource } from "../core/deps.js";
 import { MANIFEST_NEW } from "../core/filenames.js";
 import { loadManifestOrThrow, writeGlobalManifest, writeManifest } from "../core/manifest.js";
 import { collapseTilde, expandTilde, getGlobalDir } from "../core/paths.js";
-import { readRegistryIndex } from "../core/registry-cache.js";
+import { loadFreshRegistryIndex } from "../core/registry-cache.js";
 import { listRegistries } from "../core/registry-config.js";
 import { dim, pc, success, warn } from "../core/ui.js";
 import type {
@@ -262,7 +262,12 @@ async function loadRegistryEntities(opts: AddOptions): Promise<RegistryEntity[]>
 
 	const targets = opts.registry ? registries.filter((r) => r.name === opts.registry) : registries;
 	const loaded = await Promise.all(
-		targets.map(async (reg) => ({ reg, index: await readRegistryIndex(reg.name, opts.cacheDir) })),
+		// loadFreshRegistryIndex skips fingerprint-incompatible caches (issue #25),
+		// so a stale index can't surface entities that no longer match reality.
+		targets.map(async (reg) => ({
+			reg,
+			index: await loadFreshRegistryIndex(reg.name, opts.cacheDir),
+		})),
 	);
 
 	const entities: RegistryEntity[] = [];

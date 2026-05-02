@@ -1,4 +1,4 @@
-import { DEFAULT_TTL_MS, readRegistryIndex } from "../core/registry-cache.js";
+import { DEFAULT_TTL_MS, loadFreshRegistryIndex } from "../core/registry-cache.js";
 import { listRegistries } from "../core/registry-config.js";
 import { searchRegistries } from "../core/registry-search.js";
 import { dim, pc, warn } from "../core/ui.js";
@@ -31,10 +31,13 @@ export async function searchCommand(
 		// Skip registries not targeted by --registry
 		if (opts.registry && reg.name !== opts.registry) continue;
 
-		const index = await readRegistryIndex(reg.name, cacheDir);
+		// Fingerprint-aware load: a cache produced by a logically-incompatible
+		// scanner (issue #25) returns null here, same as missing — both fix
+		// with `skilltree registry update`.
+		const index = await loadFreshRegistryIndex(reg.name, cacheDir);
 		if (!index) {
 			warn(
-				`Skipping registry '${reg.name}' (never updated). Run ${pc.cyan(`'skilltree registry update ${reg.name}'`)} first.`,
+				`Skipping registry '${reg.name}' (never updated or outdated cache). Run ${pc.cyan(`'skilltree registry update ${reg.name}'`)} first.`,
 			);
 			continue;
 		}
