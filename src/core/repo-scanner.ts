@@ -2,7 +2,7 @@ import type { Dirent } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, dirname, join, relative, sep } from "node:path";
 import type { EntityType } from "../types.js";
-import { mdFileType } from "./entity-type.js";
+import { entityNameFromPath, mdFileType } from "./entity-type.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { SKIP_MD_FILES } from "./registry-scanner.js";
 
@@ -131,13 +131,20 @@ async function classifyMdFile(
 		return entry;
 	}
 
-	// Agent or command candidate — require a name in frontmatter. Without one
-	// we have no stable identifier and the file is probably neither.
-	if (!fm?.name) return null;
+	// Agent or command candidate. Agents need a `name:` (or a `skills:`
+	// composite — mirrors the registry-scanner heuristic so the same input
+	// classifies the same way in both paths) so loose `.md` notes don't
+	// sneak in. Slash-commands (path under `commands/`) conventionally
+	// carry only `description:` — the path is signal enough, and the
+	// filename stem is a stable identifier (issue #21).
+	if (!fm) return null;
+	const type = mdFileType(relPath);
+	if (type === "agent" && !fm.name && !fm.skills) return null;
+	const name = fm.name ?? entityNameFromPath(relPath);
 
 	const entry: LocalEntry = {
-		name: fm.name,
-		type: mdFileType(relPath),
+		name,
+		type,
 		path: relPath,
 	};
 	if (fm.description) entry.description = fm.description;

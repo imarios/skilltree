@@ -180,6 +180,82 @@ describe("dynamicScanRepo", () => {
 		const entries = await dynamicScanRepo(bareDir);
 		expect(entries).toHaveLength(0);
 	});
+
+	// Regression for issue #21: slash-commands have only `description:` in
+	// frontmatter — no `name:`, no `skills:` — so the agent-heuristic filter
+	// dropped every command. Path under `commands/` is signal enough.
+	test("finds slash-commands with only description in frontmatter", async () => {
+		const dir = await setup();
+		const bareDir = await createBareFixture(dir, {
+			"commands/hypothesis.md":
+				"---\ndescription: Generate 4 hypotheses about the last change\nallowed-tools:\n---\n\n# Body\n",
+		});
+
+		const entries = await dynamicScanRepo(bareDir);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.name).toBe("hypothesis");
+		expect(entries[0]?.type).toBe("command");
+		expect(entries[0]?.path).toBe("commands/hypothesis.md");
+		expect(entries[0]?.description).toBe("Generate 4 hypotheses about the last change");
+	});
+
+	test("finds slash-commands with empty frontmatter (path alone is the signal)", async () => {
+		const dir = await setup();
+		const bareDir = await createBareFixture(dir, {
+			"commands/empty-fm.md": "---\n---\n\n# Body of the command\n",
+		});
+
+		const entries = await dynamicScanRepo(bareDir);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.name).toBe("empty-fm");
+		expect(entries[0]?.type).toBe("command");
+	});
+
+	test("respects explicit name: in command frontmatter when present", async () => {
+		const dir = await setup();
+		const bareDir = await createBareFixture(dir, {
+			"commands/foo.md":
+				"---\nname: my-fancy-command\ndescription: Has explicit name\n---\n\nBody\n",
+		});
+
+		const entries = await dynamicScanRepo(bareDir);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.name).toBe("my-fancy-command");
+		expect(entries[0]?.type).toBe("command");
+	});
+
+	// Regression for H4 (hypothesis review of the issue #21 fix):
+	// `mdFileType` classifies any `commands/` segment ANYWHERE as command.
+	// A helper `.md` inside a skill (e.g., `skills/foo/commands/helper.md`)
+	// must NOT be promoted to a top-level slash-command — the file belongs
+	// to the skill, not the registry's command bucket. `repo-scanner` has
+	// the equivalent guard (it stops descending at SKILL.md); the registry
+	// scanner needs to filter out paths that live inside a skill directory.
+	test("does NOT promote helper .md inside a skill's commands/ subdir to a top-level command", async () => {
+		const dir = await setup();
+		const bareDir = await createBareFixture(dir, {
+			"skills/my-skill/SKILL.md": "---\nname: my-skill\ndescription: A skill\n---\n\n# Body\n",
+			"skills/my-skill/commands/helper.md":
+				"---\ndescription: internal helper\n---\n\nNot a top-level command\n",
+			"skills/my-skill/references/notes.md": "---\ndescription: internal notes\n---\n\n",
+		});
+
+		const entries = await dynamicScanRepo(bareDir);
+		// Only the skill itself should be indexed.
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.type).toBe("skill");
+		expect(entries[0]?.name).toBe("my-skill");
+	});
+
+	test("non-command .md without name/skills is still dropped (agent heuristic preserved)", async () => {
+		const dir = await setup();
+		const bareDir = await createBareFixture(dir, {
+			"docs/random-note.md": "---\ndescription: Just a note, not an agent\n---\n\nBody\n",
+		});
+
+		const entries = await dynamicScanRepo(bareDir);
+		expect(entries).toHaveLength(0);
+	});
 });
 
 describe("scanRegistry", () => {

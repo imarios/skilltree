@@ -146,11 +146,10 @@ describe("indexCommand", () => {
 
 		let exitCode: number | undefined;
 		const originalExit = process.exit;
-		// biome-ignore lint/suspicious/noExplicitAny: test mock
 		process.exit = ((code: number) => {
 			exitCode = code;
 			throw new Error(`exit ${code}`);
-		}) as any;
+		}) as typeof process.exit;
 		try {
 			await indexCommand({ check: true }, dir);
 		} catch {
@@ -168,11 +167,10 @@ describe("indexCommand", () => {
 
 		let exitCode: number | undefined;
 		const originalExit = process.exit;
-		// biome-ignore lint/suspicious/noExplicitAny: test mock
 		process.exit = ((code: number) => {
 			exitCode = code;
 			throw new Error(`exit ${code}`);
-		}) as any;
+		}) as typeof process.exit;
 		try {
 			await indexCommand({ check: true }, dir);
 		} catch {

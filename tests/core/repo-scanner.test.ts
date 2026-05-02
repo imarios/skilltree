@@ -157,6 +157,49 @@ describe("scanLocalRepo", () => {
 		]);
 	});
 
+	// Regression for issue #21: same bug pattern in the local repo scanner.
+	// Slash-commands set only `description:` (no `name:`) but the path under
+	// `commands/` is sufficient signal to keep them.
+	test("finds slash-command with only description in frontmatter", async () => {
+		const dir = await setup();
+		await writeAgent(
+			dir,
+			"commands/hypothesis.md",
+			"description: Generate 4 hypotheses about the last change",
+		);
+
+		const result = await scanLocalRepo(dir);
+		expect(result).toHaveLength(1);
+		expect(result[0]?.name).toBe("hypothesis");
+		expect(result[0]?.type).toBe("command");
+		expect(result[0]?.path).toBe("commands/hypothesis.md");
+	});
+
+	test("agent .md without name: is still skipped (heuristic preserved)", async () => {
+		const dir = await setup();
+		await writeAgent(dir, "agents/no-name.md", "description: agent without a name");
+
+		const result = await scanLocalRepo(dir);
+		expect(result).toEqual([]);
+	});
+
+	// Parity with registry-scanner: an agent with `skills:` but no `name:` is
+	// still indexable (composite-agent heuristic). Without this, the same
+	// input would classify differently in the two scan paths.
+	test("agent with skills: but no name: is kept (matches registry-scanner heuristic)", async () => {
+		const dir = await setup();
+		await writeAgent(
+			dir,
+			"agents/composite.md",
+			"skills: [python-coding, general-coding]\ndescription: composite agent",
+		);
+
+		const result = await scanLocalRepo(dir);
+		expect(result).toHaveLength(1);
+		expect(result[0]?.name).toBe("composite");
+		expect(result[0]?.type).toBe("agent");
+	});
+
 	test("tolerates malformed frontmatter without crashing (skips file)", async () => {
 		const dir = await setup();
 		await mkdir(join(dir, "agents"), { recursive: true });
