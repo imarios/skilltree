@@ -1,3 +1,9 @@
+## v0.23.2 (2026-05-02)
+
+### Fix
+
+- **cache**: fingerprint registry index cache by scanner version (#25) (#26)
+
 ## v0.23.1 (2026-05-02)
 
 ### Fix
