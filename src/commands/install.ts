@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { isSingleFileEntity } from "../core/entity-type.js";
 import { getDeclaredDeps, parseFrontmatter } from "../core/frontmatter.js";
 import { ensureCached, getCommitSha } from "../core/git.js";
 import type { ResolvedEntity } from "../core/graph.js";
@@ -342,10 +343,10 @@ function validateFrozenLocalDeps(
 		try {
 			const expandedLocal = expandTilde(manifestDep.local);
 			const localPath = expandedLocal.startsWith("/") ? expandedLocal : `${dir}/${expandedLocal}`;
-			const skillMdPath = entry.type === "skill" ? `${localPath}/SKILL.md` : localPath;
+			const fmPath = isSingleFileEntity(entry.type) ? localPath : `${localPath}/SKILL.md`;
 			// readFile is sync-compatible here since we imported it at the top
 			const fs = require("node:fs") as typeof import("node:fs");
-			const content = fs.readFileSync(skillMdPath, "utf-8");
+			const content = fs.readFileSync(fmPath, "utf-8");
 			const fm = parseFrontmatter(content);
 			const fmDeps = (fm ? getDeclaredDeps(fm) : []).filter((d) => d !== (entry.name ?? key));
 

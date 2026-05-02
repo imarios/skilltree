@@ -13,7 +13,8 @@ import {
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import simpleGit from "simple-git";
-import type { Lockfile } from "../types.js";
+import type { EntityType, Lockfile } from "../types.js";
+import { isSingleFileEntity } from "./entity-type.js";
 import { readFileAtRef } from "./git.js";
 import type { ResolvedEntity } from "./graph.js";
 import { stripDotSlash } from "./paths.js";
@@ -92,10 +93,19 @@ function basename(path: string): string {
 
 /**
  * Get the install target path for an entity or lockfile entry.
+ *
+ * Commands install as single `.md` files under `commands/` (sibling to
+ * `agents/` and `skills/`) — matching Claude Code's slash-command layout.
  */
-export function getTargetPath(entity: { name: string; type: string }, installBase: string): string {
+export function getTargetPath(
+	entity: { name: string; type: EntityType },
+	installBase: string,
+): string {
 	if (entity.type === "agent") {
 		return join(installBase, "agents", `${entity.name}.md`);
+	}
+	if (entity.type === "command") {
+		return join(installBase, "commands", `${entity.name}.md`);
 	}
 	return join(installBase, "skills", entity.name);
 }
@@ -176,6 +186,7 @@ export async function executeInstall(
 	const installBase = options.installPath ?? join(projectDir, ".claude");
 	await mkdir(join(installBase, "skills"), { recursive: true });
 	await mkdir(join(installBase, "agents"), { recursive: true });
+	await mkdir(join(installBase, "commands"), { recursive: true });
 
 	for (const item of plan.toInstall) {
 		const { entity, action, targetPath } = item;
@@ -235,10 +246,10 @@ async function prepareTarget(
 async function copyEntityFiles(
 	sourcePath: string,
 	targetPath: string,
-	entityType: string,
+	entityType: EntityType,
 ): Promise<void> {
-	if (entityType === "agent") {
-		// Single file copy
+	if (isSingleFileEntity(entityType)) {
+		// Single file copy (agents and commands)
 		await mkdir(dirname(targetPath), { recursive: true });
 		await cp(sourcePath, targetPath);
 	} else {
@@ -261,7 +272,7 @@ async function copyFromGitCache(entity: ResolvedEntity, targetPath: string): Pro
 	const path = stripDotSlash(entity.path);
 
 	try {
-		if (entity.type === "agent") {
+		if (isSingleFileEntity(entity.type)) {
 			await mkdir(dirname(targetPath), { recursive: true });
 			const content = await readFileAtRef(entity.cachePath, ref, path);
 			await writeFile(targetPath, content, "utf-8");

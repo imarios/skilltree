@@ -94,6 +94,46 @@ describe("addCommand", () => {
 		expect((manifest.dependencies?.["my-skill"] as { version: string }).version).toBe("*");
 	});
 
+	test("adds remote dependency with --type command (Issue #11)", async () => {
+		// Slash commands are a third resource type alongside skills and agents.
+		// `add --type command` must round-trip the explicit type so the resolver
+		// installs to commands/ rather than guessing from the file extension.
+		const dir = await setup();
+		await addCommand(
+			"review",
+			{
+				repo: "github.com/user/cmds",
+				path: "commands/review.md",
+				type: "command",
+			},
+			dir,
+		);
+
+		const manifest = await readManifest(dir);
+		const dep = manifest.dependencies?.review;
+		expect(dep).toBeDefined();
+		expect((dep as { type: string }).type).toBe("command");
+		expect((dep as { path: string }).path).toBe("commands/review.md");
+	});
+
+	test("adds local command dependency", async () => {
+		const dir = await setup();
+		const cmdsDir = join(dir, "commands");
+		await mkdir(cmdsDir, { recursive: true });
+		await writeFile(
+			join(cmdsDir, "review.md"),
+			"---\nname: review\ndescription: Review the diff\n---\nbody\n",
+		);
+
+		await addCommand("review", { local: "./commands/review.md", type: "command" }, dir);
+
+		const manifest = await readManifest(dir);
+		expect(manifest.dependencies?.review).toEqual({
+			local: "./commands/review.md",
+			type: "command",
+		});
+	});
+
 	test("errors when --repo and --source used together", async () => {
 		const dir = await setup();
 		await expect(

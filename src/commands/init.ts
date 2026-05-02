@@ -156,15 +156,22 @@ async function readlineAsk(question: string): Promise<string> {
 function printDiscovered(entries: LocalEntry[]): void {
 	const skills = entries.filter((e) => e.type === "skill");
 	const agents = entries.filter((e) => e.type === "agent");
+	const commands = entries.filter((e) => e.type === "command");
 
-	console.log(
-		`\nFound ${skills.length} skill${skills.length === 1 ? "" : "s"} and ${agents.length} agent${agents.length === 1 ? "" : "s"}:\n`,
-	);
+	const skillStr = `${skills.length} ${pluralize("skill", skills.length)}`;
+	const agentStr = `${agents.length} ${pluralize("agent", agents.length)}`;
+	const commandStr = `${commands.length} ${pluralize("command", commands.length)}`;
+	const summary =
+		commands.length > 0
+			? `${skillStr}, ${agentStr} and ${commandStr}`
+			: `${skillStr} and ${agentStr}`;
+	console.log(`\nFound ${summary}:\n`);
 
 	let idx = 1;
 	for (const section of [
 		{ label: "Skills", items: skills },
 		{ label: "Agents", items: agents },
+		{ label: "Commands", items: commands },
 	]) {
 		if (section.items.length === 0) continue;
 		console.log(`${section.label}:`);

@@ -67,7 +67,7 @@ skilltree installs skills to a single directory (default `.claude/`). Users who 
 ### `skilltree targets` Subcommand
 
 - **R11**: `skilltree targets list` shows all known agents with two indicators: detected on system, and present in `install_targets`. Also shows custom paths from `install_targets`.
-- **R12**: `skilltree targets add <name|path>` adds a target to `install_targets` in `skilltree.yaml`
+- **R12**: `skilltree targets add <name|path>` adds a target to `install_targets` in `skilltree.yml`
 - **R13**: `skilltree targets remove <name|path>` removes a target from `install_targets`
 - **R14**: `skilltree targets detect` scans for installed agents and adds any missing ones to `install_targets`
 - **R15**: `skilltree targets migrate` converts `dev_install_path` → `install_targets` and removes `dev_install_path` from the manifest. Known paths are reverse-looked-up to agent names (`.claude` → `claude`); unknown paths become literal (`./custom` → `./custom`)
@@ -84,7 +84,7 @@ skilltree installs skills to a single directory (default `.claude/`). Users who 
 
 ### `skilltree init`
 
-- **R20**: `skilltree init` auto-detects agents and pre-populates `install_targets` in the new `skilltree.yaml`. Falls back to `[claude]` if none detected.
+- **R20**: `skilltree init` auto-detects agents and pre-populates `install_targets` in the new `skilltree.yml`. Falls back to `[claude]` if none detected.
 
 ### `skilltree teach`
 
@@ -177,7 +177,7 @@ Run: skilltree targets migrate
 
 $ skilltree targets migrate
 Migrated dev_install_path: .claude → install_targets: [claude]
-Removed dev_install_path from skilltree.yaml.
+Removed dev_install_path from skilltree.yml.
 ```
 
 ## Constraints

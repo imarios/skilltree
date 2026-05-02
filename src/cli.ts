@@ -66,7 +66,7 @@ program
 	.option("-v, --version <constraint>", "Semver version constraint")
 	.option("-l, --local <path>", "Local filesystem path")
 	.option("-D, --dev", "Add as dev dependency")
-	.option("-t, --type <type>", "Entity type (skill or agent)")
+	.option("-t, --type <type>", "Entity type (skill, agent, or command)")
 	.option("--registry <name>", "Resolve from this registry (when no --repo)")
 	.option("-g, --global", "Add to global dependencies")
 	.action(async (name: string, opts) => {
@@ -245,7 +245,7 @@ program
 	.command("search <query>")
 	.description("Search registries for skills and agents")
 	.option("--registry <name>", "Search only one registry")
-	.option("-t, --type <type>", "Filter by entity type (skill or agent)")
+	.option("-t, --type <type>", "Filter by entity type (skill, agent, or command)")
 	.option("--json", "Output results as JSON")
 	.action(async (query: string, opts) => {
 		await searchCommand(query, {

@@ -86,7 +86,7 @@ skilltree scan --llm ./skills/
 
 ## Use source shorthands
 
-In `skilltree.yaml`:
+In `skilltree.yml`:
 ```yaml
 sources:
   shared: github.com/org/shared-skills
@@ -163,7 +163,7 @@ skilltree targets add codex  # Now you can add more agents
 
 ## Set up global dependencies
 
-Global deps install to all detected agent homes — available in every project without adding to each `skilltree.yaml`.
+Global deps install to all detected agent homes — available in every project without adding to each `skilltree.yml`.
 
 ```bash
 # Initialize global manifest
@@ -182,14 +182,14 @@ skilltree verify --global
 skilltree deps tree --global
 ```
 
-**Important:** Global deps are personal convenience. If the project *requires* a skill, add it to the project's `skilltree.yaml`.
+**Important:** Global deps are personal convenience. If the project *requires* a skill, add it to the project's `skilltree.yml`.
 
 ## Use local sources (avoid repeating paths)
 
 When many skills come from the same local directory:
 
 ```yaml
-# skilltree.yaml or ~/.skilltree/global.yaml
+# skilltree.yml or ~/.skilltree/global.yaml
 sources:
   mine: ~/Projects/my-skills    # local source (starts with ~/)
 
@@ -213,7 +213,7 @@ When skills come from a private repo and consumers don't have access:
 skilltree vendor
 
 # .claude/ is now committed to git — consumers get it via git clone
-git add .claude/ skilltree.yaml skilltree.lock
+git add .claude/ skilltree.yml skilltree.lock
 git commit -m "vendor skills"
 ```
 

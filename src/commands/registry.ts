@@ -154,6 +154,7 @@ export async function registryUpdateCommand(
 
 		const skills = entities.filter((e) => e.type === "skill").length;
 		const agents = entities.filter((e) => e.type === "agent").length;
+		const commands = entities.filter((e) => e.type === "command").length;
 
 		const index: RegistryIndex = {
 			registry: reg.name,
@@ -163,9 +164,9 @@ export async function registryUpdateCommand(
 		};
 		await writeRegistryIndex(index, cacheDir);
 
-		console.log(
-			pc.green(`${entities.length} entities`) + dim(` (${skills} skills, ${agents} agents)`),
-		);
+		const breakdown = [`${skills} skills`, `${agents} agents`];
+		if (commands > 0) breakdown.push(`${commands} commands`);
+		console.log(pc.green(`${entities.length} entities`) + dim(` (${breakdown.join(", ")})`));
 	}
 }
 

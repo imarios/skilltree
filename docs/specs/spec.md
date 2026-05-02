@@ -3,7 +3,7 @@
 **Version**: 1.0 (spec)
 **Date**: 2026-03-29
 
-Two files (`skilltree.yaml` + `skilltree.lock`), one command (`skilltree install`), git repos as the registry. Resolves transitive dependencies, pins versions via git tags, produces lockfiles for reproducibility, handles dev/prod separation, and supports local (symlinked) dependencies for skill authors.
+Two files (`skilltree.yml` + `skilltree.lock`), one command (`skilltree install`), git repos as the registry. Resolves transitive dependencies, pins versions via git tags, produces lockfiles for reproducibility, handles dev/prod separation, and supports local (symlinked) dependencies for skill authors.
 
 See [background.md](background.md) for why this tool exists and how it compares to alternatives.
 
@@ -13,7 +13,7 @@ See [background.md](background.md) for why this tool exists and how it compares 
 
 | Where | What it tracks | Who writes it |
 |-------|---------------|---------------|
-| `skilltree.yaml` | What you WANT -- repo URLs, version constraints, local paths | You (via `skilltree add` or hand-edit) |
+| `skilltree.yml` | What you WANT -- repo URLs, version constraints, local paths | You (via `skilltree add` or hand-edit) |
 | `skilltree.lock` | What you GOT -- resolved versions, exact commits, integrity hashes, full graph | skilltree (via `skilltree install`) |
 | SKILL.md frontmatter | What THIS skill NEEDS -- `dependencies: [name, name]` (name-only, no versions/repos) | Skill author |
 
@@ -25,15 +25,17 @@ Developer skills are **gitignored** -- like `node_modules/`, they're ephemeral:
 
 ```
 my-project/
-├── skilltree.yaml              # Checked into git (what you want)
+├── skilltree.yml              # Checked into git (what you want)
 ├── skilltree.lock              # Checked into git (what you got)
-├── .gitignore                 # Includes .claude/skills/, .claude/agents/
+├── .gitignore                 # Includes .claude/skills/, .claude/agents/, .claude/commands/
 ├── .claude/                   # dev_install_path (gitignored)
 │   ├── skills/                # Populated by `skilltree install`
 │   │   ├── code-review/       # Remote dep: copied from git cache
 │   │   └── my-style/          # Local dep: symlinked to source
-│   └── agents/
-│       └── workflow-builder.md
+│   ├── agents/
+│   │   └── workflow-builder.md
+│   └── commands/              # Claude Code slash commands
+│       └── review.md
 ├── src/skills/                # src_install_path (optional -- tracked or gitignored)
 │   ├── code-review/           # deps only (not dev-deps)
 │   └── my-style/
@@ -67,9 +69,9 @@ Error: 2 unresolved dependencies
 
   1. code-review (from github.com/org/repo) declares dependency "linting",
      not found in:
-       - your skilltree.yaml
+       - your skilltree.yml
        - already-resolved dependencies
-       - origin's skilltree.yaml dependencies (github.com/org/repo)
+       - origin's skilltree.yml dependencies (github.com/org/repo)
        - conventional paths in github.com/org/repo
   2. code-review (from github.com/org/repo) declares dependency "testing",
      not found in: (same locations as above)
@@ -91,7 +93,7 @@ These two gaps are independent. A skill can pass `scan --check` (all body refere
 
 ```bash
 # 1. Start a project
-skilltree init                           # Creates skilltree.yaml, updates .gitignore
+skilltree init                           # Creates skilltree.yml, updates .gitignore
 
 # 2. Declare what you need
 skilltree add code-review --repo github.com/org/skills --path skills/code-review --version "^2.0.0"
@@ -137,20 +139,29 @@ skilltree install --prod --frozen        # Zero resolution. Lockfile only.
 1. **Git is the registry.** No server, database, or Docker. Versions are git tags. Private repos just work.
 2. **Dependency resolution is the core value.** What needs installing, in what order, at what version.
 3. **Single binary, zero infrastructure.** TypeScript compiled via Bun. State = two files.
-4. **Standards-aligned.** SKILL.md standard. Installs to `.claude/skills/` and `.claude/agents/`.
+4. **Standards-aligned.** SKILL.md standard. Installs to `.claude/skills/`, `.claude/agents/`, and `.claude/commands/`.
 5. **Explicit over magic.** Frontmatter `dependencies` is the source of truth. Scanning is an authoring aid.
 6. **Installed files are never checked in.** Like `node_modules/` -- gitignored, recreated by `skilltree install`.
 
 ## Core Concepts
 
-### Skills and Agents
+### Skills, Agents, and Commands
+
+skilltree manages three first-class resource types. They share the same
+manifest grammar and resolution pipeline; they differ in shape and
+install location.
 
 | Entity | Format | Install Location |
 |--------|--------|------------------|
 | Skill | Directory with `SKILL.md` + optional `references/` | `.claude/skills/{name}/` |
 | Agent | Single `.md` file with YAML frontmatter | `.claude/agents/{name}.md` |
+| Command | Single `.md` file with YAML frontmatter (Claude Code slash commands) | `.claude/commands/{name}.md` |
 
-**Type constraint:** Skills can only depend on skills. Agents can depend on both skills and agents.
+**Type constraint:** Skills can only depend on skills. Agents can depend
+on skills (and other agents). Commands can depend on skills (same
+relaxation as agents). Agents and commands have the same on-disk shape
+(single `.md`); the difference is install location and how Claude Code
+loads them — slash commands are user-invoked via `/<name>`.
 
 ### Dependencies: Remote vs Local
 
@@ -232,12 +243,12 @@ The user controls whether `src_install_path` is tracked in git (committed, like 
 
 ### Origin-Manifest Resolution
 
-A repo that ships its own `skilltree.yaml` becomes **self-describing** to downstream consumers. The origin manifest provides name → location mappings that skilltree uses in two places:
+A repo that ships its own `skilltree.yml` becomes **self-describing** to downstream consumers. The origin manifest provides name → location mappings that skilltree uses in two places:
 
-**Direct deps, path inference (v2 / R9):** Consumers can omit `path:` on their own `skilltree.yaml` entries when origin declares the name. Path is looked up from origin at install time.
+**Direct deps, path inference (v2 / R9):** Consumers can omit `path:` on their own `skilltree.yml` entries when origin declares the name. Path is looked up from origin at install time.
 
 ```yaml
-# Consumer's skilltree.yaml — no path: needed
+# Consumer's skilltree.yml — no path: needed
 dependencies:
   task-builder:
     repo: github.com/org/analysi-backend
@@ -249,10 +260,10 @@ When the consumer's `path:` matches origin's declaration, skilltree warns that i
 **Transitive deps, full resolution:** When a skill's frontmatter declares a dep, skilltree resolves it using this priority:
 
 1. **Resolution context** -- B was already resolved by another chain
-2. **Consumer manifest** -- B is in `skilltree.yaml` (either group)
+2. **Consumer manifest** -- B is in `skilltree.yml` (either group)
 3. **Local-source probe** -- A came from a local source directory; look for B inside it. See [global.md](global.md) for local source details.
-4. **Origin-manifest lookup** -- A came from a remote repo; read the origin's `skilltree.yaml` at the pinned ref and look up B in `dependencies` (NOT `dev-dependencies`). If found as a `local:` entry, treat B as a same-repo dep pinned to A's tag. Lets authors organize repos without following the `skills/<name>/` convention.
-5. **Same-repo conventional probe** -- A came from a remote repo; probe `skills/<name>/SKILL.md`, `agents/<name>.md`, or `<name>/SKILL.md` at A's repo root.
+4. **Origin-manifest lookup** -- A came from a remote repo; read the origin's `skilltree.yml` at the pinned ref and look up B in `dependencies` (NOT `dev-dependencies`). If found as a `local:` entry, treat B as a same-repo dep pinned to A's tag. Lets authors organize repos without following the `skills/<name>/` convention.
+5. **Same-repo conventional probe** -- A came from a remote repo; probe `skills/<name>/SKILL.md`, `agents/<name>.md`, `commands/<name>.md`, or `<name>/SKILL.md` at A's repo root.
 6. **Error** -- actionable message listing every location checked, with a fix command.
 
 The resolution context grows during graph construction, making resolution order-independent. Manifest entries processed in declaration order (`dependencies` before `dev-dependencies`). See [reference.md](reference.md) for the full origin-manifest lookup semantics (cross-repo entries fall through; malformed origin manifests fall through silently).
@@ -279,7 +290,7 @@ workflow-builder-agent:         # YAML key = alias
   name: workflow-builder        # Actual name for installation
 ```
 
-No filesystem collision (skills and agents install to different directories).
+No filesystem collision (skills, agents, and commands install to different directories).
 
 **Frontmatter disambiguation:** When `dependencies: [workflow-builder]` appears in frontmatter and both a skill and agent match, **skill always takes precedence** (skills depending on skills is the only option; agents depending on skills is the common pattern). There is no frontmatter syntax to target a same-name agent -- this is a known limitation. If an agent needs to depend on another agent that shares a name with a skill, the agent must be renamed to have a unique name. See [decisions.md](decisions.md) #7 for full rules and test scenarios.
 
@@ -288,8 +299,8 @@ No filesystem collision (skills and agents install to different directories).
 ### `skilltree init`
 ```bash
 $ skilltree init
-Created skilltree.yaml
-Updated .gitignore (added .claude/skills/, .claude/agents/)
+Created skilltree.yml
+Updated .gitignore (added .claude/skills/, .claude/agents/, .claude/commands/)
 ```
 
 ### `skilltree add <name>`
@@ -305,9 +316,12 @@ $ skilltree add my-style --local ./skills/my-style
 
 # With source shorthand
 $ skilltree add linting --source shared --path skills/linting --version "^2.0.0"
+
+# Slash command (single .md under commands/, installs to .claude/commands/)
+$ skilltree add review --repo github.com/org/cmds --path commands/review.md --type command
 ```
 
-Default version when `--version` omitted: `"*"`. If the name already exists in the manifest, `add` overwrites it (with a warning). To move a dep between groups (dev to prod or vice versa), edit `skilltree.yaml` directly and run `skilltree install`.
+Default version when `--version` omitted: `"*"`. If the name already exists in the manifest, `add` overwrites it (with a warning). To move a dep between groups (dev to prod or vice versa), edit `skilltree.yml` directly and run `skilltree install`.
 
 ### `skilltree install`
 ```bash
@@ -343,7 +357,7 @@ Updated skilltree.lock
 - `--frozen` -- Lockfile-only, error if out of sync
 - `--force` -- Overwrite local modifications
 - `--dry-run` -- Show plan without installing
-- `--install-path <path>` -- Override target (e.g., `./build/.claude` for Docker). Creates `skills/` + `agents/` subdirs. Local deps copied, not symlinked. Takes precedence over `src_install_path`.
+- `--install-path <path>` -- Override target (e.g., `./build/.claude` for Docker). Creates `skills/`, `agents/`, and `commands/` subdirs. Local deps copied, not symlinked. Takes precedence over `src_install_path`.
 
 ### `skilltree update [name]`
 ```bash
@@ -435,7 +449,7 @@ ci-check:
 
 ```
 skilltree (TypeScript, compiled to single binary via Bun)
-  ├── Manifest Parser (skilltree.yaml)
+  ├── Manifest Parser (skilltree.yml)
   ├── Lockfile Manager (skilltree.lock)
   ├── Git Client (clone, fetch, checkout tags)
   ├── Dependency Scanner (regex + optional LLM)
@@ -451,7 +465,7 @@ skilltree (TypeScript, compiled to single binary via Bun)
 
 ## Scope
 
-skilltree manages **raw skills and agents** (SKILL.md files and agent .md files). It does NOT manage Claude Code plugins, MCP servers, or act as a marketplace.
+skilltree manages **raw skills, agents, and slash commands** (SKILL.md files plus single-file `.md` agents and commands). It does NOT manage Claude Code plugins, MCP servers, or act as a marketplace.
 
 Plugins coexist without conflict (different namespaces, different storage). For production Docker images, raw skills are the correct primitive.
 
@@ -459,7 +473,7 @@ Plugins coexist without conflict (different namespaces, different storage). For 
 
 ### Phase 1: Foundation
 - Project setup (TypeScript, Bun, CI)
-- `skilltree.yaml` parser/validator (deps, dev-deps, local, sources, name aliasing)
+- `skilltree.yml` parser/validator (deps, dev-deps, local, sources, name aliasing)
 - `skilltree init`, `skilltree add`
 - SKILL.md frontmatter parser
 

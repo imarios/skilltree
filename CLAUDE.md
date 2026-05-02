@@ -2,7 +2,7 @@
 
 ## What is this?
 
-Dependency-aware package manager for AI agent skills (SKILL.md) and agents. Uses git repos as the registry, resolves transitive dependencies, supports semver version pinning via git tags, and produces lockfiles for reproducible installs.
+Dependency-aware package manager for AI agent skills (SKILL.md), agents, and Claude Code slash commands. Uses git repos as the registry, resolves transitive dependencies, supports semver version pinning via git tags, and produces lockfiles for reproducible installs.
 
 ## Docs
 
@@ -32,7 +32,7 @@ skilltree/
 │   ├── cli.ts              # CLI entry point (commander)
 │   ├── commands/            # One file per command
 │   ├── core/
-│   │   ├── manifest.ts      # skilltree.yaml parsing/writing
+│   │   ├── manifest.ts      # skilltree.yml parsing/writing
 │   │   ├── lockfile.ts      # skilltree.lock parsing/writing
 │   │   ├── resolver.ts      # Version resolution (semver constraints)
 │   │   ├── graph.ts         # Dependency graph + topological sort
@@ -63,7 +63,7 @@ bun build --compile src/cli.ts --outfile dist/skilltree
 ## Key Design Decisions
 
 1. Git is the registry -- no server, no database
-2. `skilltree.yaml` + `skilltree.lock` -- only two state files
+2. `skilltree.yml` + `skilltree.lock` -- only two state files
 3. Lockfile-first for remote deps, always-fresh for local deps (Cargo/npm pattern)
 4. Name aliasing for same-name skill/agent collisions -- **marked as hard, needs thorough testing**
 5. Kahn's algorithm for topological sort
@@ -75,11 +75,11 @@ bun build --compile src/cli.ts --outfile dist/skilltree
 
 | Need | Mechanism | Who uses it |
 |------|-----------|-------------|
-| Project needs a skill | `skilltree.yaml` (project dep) | Everyone on the team |
+| Project needs a skill | `skilltree.yml` (project dep) | Everyone on the team |
 | You want a skill everywhere | `~/.skilltree/global.yaml` (global dep) | Just you |
 | Ship skills without upstream access | `skilltree vendor` | Consumers of your repo |
 
-**Global deps are a convenience.** If you want `python-coding` in every project without adding it to each `skilltree.yaml`, put it in your global manifest. But if the project *requires* it, define it in the project's `skilltree.yaml` — that's the contract teammates and CI rely on.
+**Global deps are a convenience.** If you want `python-coding` in every project without adding it to each `skilltree.yml`, put it in your global manifest. But if the project *requires* it, define it in the project's `skilltree.yml` — that's the contract teammates and CI rely on.
 
 **Vendor is for distribution.** When skills come from a private repo and you need others to use them without access, `skilltree vendor` copies everything into `.claude/` as committed files. Consumers `git clone` and it works — no `skilltree install` needed. The maintainer can `skilltree unvendor` to go back to normal development.
 

@@ -2,6 +2,7 @@ import { basename, dirname } from "node:path";
 import simpleGit from "simple-git";
 import YAML from "yaml";
 import type { EntityType, IndexEntry } from "../types.js";
+import { mdFileType } from "./entity-type.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { readFileAtRef } from "./git.js";
 
@@ -114,7 +115,7 @@ export async function dynamicScanRepo(repoDir: string): Promise<IndexEntry[]> {
 				const fm = parseFrontmatter(content);
 				if (!fm || (!fm.name && !fm.skills)) return null;
 				const name = fm.name ?? basename(mdPath, ".md");
-				const entry: IndexEntry = { name, type: "agent", path: mdPath };
+				const entry: IndexEntry = { name, type: mdFileType(mdPath), path: mdPath };
 				if (fm.description) entry.description = fm.description;
 				return entry;
 			} catch {

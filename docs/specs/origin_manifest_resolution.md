@@ -23,7 +23,7 @@ summary = "Extended to direct deps (R9). Consumers can omit path: and inherit it
 
 ## Problem Statement
 
-Origin repos that ship a `skilltree.yaml` already declare, authoritatively, where every skill and agent they own lives. Transitive resolution (v1.x of this spec) leveraged that manifest to auto-resolve dependencies that downstream consumers didn't declare themselves. But for **direct** deps, consumers still have to specify `path:` explicitly — duplicating information origin already provided.
+Origin repos that ship a `skilltree.yml` already declare, authoritatively, where every skill and agent they own lives. Transitive resolution (v1.x of this spec) leveraged that manifest to auto-resolve dependencies that downstream consumers didn't declare themselves. But for **direct** deps, consumers still have to specify `path:` explicitly — duplicating information origin already provided.
 
 Concrete friction: a consumer writes
 
@@ -58,7 +58,7 @@ Every entry repeats a path the origin already told the world about. If origin re
 
 ### Carried forward from v1.x (transitive resolution)
 
-- **R1**: When a transitive dep cannot be found in the consumer's manifest, the already-resolved context, or the parent's local source, the resolver MUST consult the origin repo's `skilltree.yaml` (read at the parent's pinned git ref) before falling back to the conventional path probe.
+- **R1**: When a transitive dep cannot be found in the consumer's manifest, the already-resolved context, or the parent's local source, the resolver MUST consult the origin repo's `skilltree.yml` (read at the parent's pinned git ref) before falling back to the conventional path probe.
 - **R2**: If the origin manifest declares the dep name under `dependencies:` with a `local:` entry, the resolver MUST synthesize a same-repo remote dep (`{repo: parentRepo, path: stripDotSlash(local)}`) pinned to the parent's resolved tag and resolve it.
 - **R3**: If the origin manifest is missing, unreadable, or malformed, the resolver MUST silently fall through to the conventional probe.
 - **R4**: The resolver MUST NOT expose `dev-dependencies` declared in the origin manifest. Transitive deps only in origin's `dev-dependencies` fail with an informative error (R5).
@@ -69,7 +69,7 @@ Every entry repeats a path the origin already told the world about. If origin re
 
 ### New in v2.0 (direct deps)
 
-- **R9**: A direct dep with `repo:` (or `source:`-expanded-to-`repo:`) MAY omit `path:`. When omitted, the resolver MUST look up the actual entity name in the origin repo's `skilltree.yaml`:
+- **R9**: A direct dep with `repo:` (or `source:`-expanded-to-`repo:`) MAY omit `path:`. When omitted, the resolver MUST look up the actual entity name in the origin repo's `skilltree.yml`:
   - If origin declares the name under `dependencies:` with a `local:` entry whose path is relative, use that path within the consumer-declared repo.
   - If origin declares the name under `dependencies:` with a `repo:` entry pointing at the **same** repo the consumer declared, use origin's path.
   - If origin declares the name under `dependencies:` with a `repo:` entry pointing at a **different** repo, fall through (do not redirect — consumer's `repo:` wins).
@@ -81,7 +81,7 @@ Every entry repeats a path the origin already told the world about. If origin re
 - **R11**: A dependency entry MAY include `force_path: true` to silence R10 warnings for that entry. `force_path` has no other effect on resolution.
 - **R12**: Manifest validation (`validateManifest`) MUST NOT require `path:` on remote dependencies. The existing requirement that `repo:`/`source:` and `local:` are mutually exclusive stays.
 - **R13**: `skilltree add --repo <url>` (and `--source <alias>`) MUST accept an omitted `--path`. If the origin manifest resolves the path at add-time, it MAY be written into the consumer's manifest; otherwise the manifest is written with no `path:` and resolution happens at install-time.
-- **R14 (stale-tag manifest)**: For each resolved remote repo, the resolver MUST check whether `skilltree.yaml` exists at the resolved tag. If it is absent at the tag but present on the default branch, the resolver MUST emit a single warning per repo that names the repo, the resolved tag, the default branch, and recommends cutting a new tag. This guards the common case where an author commits a manifest to `main` without tagging a release, so consumers silently lose R9/R10 signals.
+- **R14 (stale-tag manifest)**: For each resolved remote repo, the resolver MUST check whether `skilltree.yml` exists at the resolved tag. If it is absent at the tag but present on the default branch, the resolver MUST emit a single warning per repo that names the repo, the resolved tag, the default branch, and recommends cutting a new tag. This guards the common case where an author commits a manifest to `main` without tagging a release, so consumers silently lose R9/R10 signals.
 
 ## Constraints
 
@@ -91,7 +91,7 @@ Today: `resolveRemoteEntity()` requires `dep.path` and calls `pathExistsAtRef()`
 
 After R9: when `dep.path` is missing, the resolver runs a path-inference tier **before** validation:
 
-1. **Origin-manifest lookup** — read origin's `skilltree.yaml` at the resolved tag, look up the entity name in `dependencies`, use its declared path (subject to R9 rules).
+1. **Origin-manifest lookup** — read origin's `skilltree.yml` at the resolved tag, look up the entity name in `dependencies`, use its declared path (subject to R9 rules).
 2. **Conventional probe** — try `skills/<name>/SKILL.md`, `agents/<name>.md`, `<name>/SKILL.md` at the consumer's declared repo.
 3. **Error** — missing path + no origin lookup + no probe match → clear error naming every location checked.
 
@@ -117,7 +117,7 @@ Let `C` be consumer's declared `path:`, `O` be origin's declared path (`stripDot
 
 ### `force_path` schema
 
-New optional boolean field on `RemoteDependency` and `SourceDependency`. Defaults to `false`. Serialized in `skilltree.yaml` but NOT in `skilltree.lock` (warnings are authoring-time, not install-path).
+New optional boolean field on `RemoteDependency` and `SourceDependency`. Defaults to `false`. Serialized in `skilltree.yml` but NOT in `skilltree.lock` (warnings are authoring-time, not install-path).
 
 ## Error Handling
 
@@ -130,7 +130,7 @@ New optional boolean field on `RemoteDependency` and `SourceDependency`. Default
 | Origin declares name, different `repo:` | Fall through; if convention probe fails → error |
 | Origin doesn't declare name, convention probe hits | Path inferred (matches today's transitive behavior), no error |
 | Origin doesn't declare name, convention probe misses | Clear error with list of checked locations |
-| Origin `skilltree.yaml` missing, convention probe misses | Clear error |
+| Origin `skilltree.yml` missing, convention probe misses | Clear error |
 | Origin declares name only in `dev-dependencies` | Fall through to convention probe; if still missing → error that names the dev-dep location |
 
 Example error (R9 all tiers failed):
@@ -138,11 +138,11 @@ Example error (R9 all tiers failed):
 ```
 Error: "task-builder" (from github.com/org/repo) has no path, and the resolver
   could not infer one from:
-    - origin's skilltree.yaml dependencies (github.com/org/repo)
+    - origin's skilltree.yml dependencies (github.com/org/repo)
     - conventional paths in github.com/org/repo
 
-  Fix: add `path:` to your skilltree.yaml entry, or have origin declare
-       "task-builder" under `dependencies:` in its skilltree.yaml.
+  Fix: add `path:` to your skilltree.yml entry, or have origin declare
+       "task-builder" under `dependencies:` in its skilltree.yml.
 ```
 
 ### R10 — warnings
@@ -150,14 +150,14 @@ Error: "task-builder" (from github.com/org/repo) has no path, and the resolver
 Redundant:
 ```
 Warning: `task-builder` declares path "skills/source/task-builder", which is the
-  same path origin's skilltree.yaml declares for this name (file://...).
+  same path origin's skilltree.yml declares for this name (file://...).
   You can omit `path:` — it will be inferred.
 ```
 
 Override:
 ```
 Warning: `task-builder` declares path "skills/alt/task-builder", but origin's
-  skilltree.yaml declares this name at "skills/source/task-builder" (file://...).
+  skilltree.yml declares this name at "skills/source/task-builder" (file://...).
   If this override is intentional, set `force_path: true` to silence this warning.
 ```
 
@@ -176,8 +176,8 @@ Warning: `task-builder` declares path "skills/alt/task-builder", but origin's
 - [ ] Origin declares name with `local:` absolute path → fall through, convention probe.
 - [ ] Origin doesn't declare name, convention probe hits → inferred.
 - [ ] Origin doesn't declare name, convention probe misses → error naming all checked locations.
-- [ ] Origin `skilltree.yaml` missing → convention probe.
-- [ ] Origin `skilltree.yaml` malformed → convention probe.
+- [ ] Origin `skilltree.yml` missing → convention probe.
+- [ ] Origin `skilltree.yml` malformed → convention probe.
 - [ ] Origin declares name only in `dev-dependencies` → fall through; convention probe or error.
 - [ ] Aliased YAML key (`name:` differs from key) → lookup uses actual name, not key.
 - [ ] Agent direct dep, no path, origin declares agent → inferred with `type: agent`.
@@ -218,5 +218,5 @@ None. Decisions locked:
 
 - **Origin-manifest-driven `name:` inference for aliases.** Not motivated.
 - **Transitive lockfile provenance.** `skilltree deps tree` should annotate origin-manifest-sourced deps.
-- **`skilltree validate` for origin authors.** Lint origin's own `skilltree.yaml` for broken paths / dev-deps transitively exposed / cross-repo constraints.
+- **`skilltree validate` for origin authors.** Lint origin's own `skilltree.yml` for broken paths / dev-deps transitively exposed / cross-repo constraints.
 - **`skilltree explain <dep>`.** Show every constraint on a dep and who placed it (post-R7 useful for debugging deep chains).

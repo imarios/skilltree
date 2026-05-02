@@ -2,7 +2,7 @@
 
 ## `skilltree init`
 
-Create a new `skilltree.yaml` and update `.gitignore`.
+Create a new `skilltree.yml` and update `.gitignore`.
 
 ```bash
 skilltree init              # Project manifest
@@ -12,7 +12,7 @@ skilltree init --global     # Global manifest (~/.skilltree/global.yaml)
 **Flags:**
 - `-g, --global` — Initialize global dependencies instead of project
 
-Creates `skilltree.yaml` with project name from directory, adds `.claude/skills/` and `.claude/agents/` to `.gitignore`.
+Creates `skilltree.yml` with project name from directory, adds `.claude/skills/` and `.claude/agents/` to `.gitignore`.
 
 ## `skilltree add <name>`
 
@@ -44,7 +44,7 @@ skilltree add testing --dev --repo github.com/org/shared-skills --path skills/te
 - `-v, --version <constraint>` — Semver constraint (default: `"*"`)
 - `-l, --local <path>` — Local filesystem path (mutually exclusive with `--repo`/`--source`)
 - `-D, --dev` — Add to `dev-dependencies` instead of `dependencies`
-- `-t, --type <skill|agent>` — Override type inference
+- `-t, --type <skill|agent|command>` — Override type inference (commands install to `.claude/commands/`)
 - `--registry <name>` — When no `--repo`, resolve from this registry only (disambiguates multiple matches)
 - `-g, --global` — Add to global dependencies (~/.skilltree/global.yaml)
 
@@ -234,7 +234,7 @@ skilltree search python --json
 
 **Flags:**
 - `--registry <name>` — Search only one registry
-- `--type <skill|agent>` — Filter by entity type
+- `--type <skill|agent|command>` — Filter by entity type
 - `--json` — Machine-readable JSON output
 
 ## `skilltree info <name>`
@@ -277,7 +277,7 @@ skilltree vendor --dry-run    # Show plan without making changes
 - `--frozen` — Use lockfile only, error if out of sync
 - `-n, --dry-run` — Show plan without writing files
 
-Sets `vendor: true` in `skilltree.yaml` and removes `.claude/skills/` and `.claude/agents/` from `.gitignore`.
+Sets `vendor: true` in `skilltree.yml` and removes `.claude/skills/` and `.claude/agents/` from `.gitignore`.
 
 ## `skilltree unvendor`
 
@@ -310,7 +310,7 @@ skilltree targets list --global
 
 ## `skilltree targets add <target>`
 
-Add an agent or custom path to `install_targets` in `skilltree.yaml`.
+Add an agent or custom path to `install_targets` in `skilltree.yml`.
 
 | Flag | Description |
 |------|-------------|

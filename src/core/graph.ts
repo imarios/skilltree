@@ -9,6 +9,7 @@ import type {
 	Manifest,
 } from "../types.js";
 import { isLocalDependency, isRemoteDependency } from "../types.js";
+import { conventionalCandidates, isSingleFileEntity, mdFileType } from "./entity-type.js";
 import { MANIFEST_NEW, MANIFEST_NEW_ALT } from "./filenames.js";
 import { getDeclaredDeps, parseFrontmatter } from "./frontmatter.js";
 import {
@@ -250,8 +251,8 @@ async function readLocalFrontmatter(
 	entityName: string,
 ): Promise<string[]> {
 	try {
-		const skillMdPath = type === "skill" ? `${localPath}/SKILL.md` : localPath;
-		const content = await readFile(skillMdPath, "utf-8");
+		const fmPath = isSingleFileEntity(type) ? localPath : `${localPath}/SKILL.md`;
+		const content = await readFile(fmPath, "utf-8");
 		const fm = parseFrontmatter(content);
 		return (fm ? getDeclaredDeps(fm) : []).filter((d) => d !== entityName);
 	} catch {
@@ -267,8 +268,8 @@ async function readRemoteFrontmatter(
 	entityName: string,
 ): Promise<string[]> {
 	try {
-		const skillMdFile = type === "skill" ? `${entityPath}/SKILL.md` : entityPath;
-		const content = await readFileAtRef(cachePath, ref, stripDotSlash(skillMdFile));
+		const fmFile = isSingleFileEntity(type) ? entityPath : `${entityPath}/SKILL.md`;
+		const content = await readFileAtRef(cachePath, ref, stripDotSlash(fmFile));
 		const fm = parseFrontmatter(content);
 		return (fm ? getDeclaredDeps(fm) : []).filter((d) => d !== entityName);
 	} catch {
@@ -446,9 +447,10 @@ function checkExistingResolution(
 		if (existing && parentGroup === "prod" && existing.group === "dev") {
 			existing.group = "prod";
 		}
-		if (parentType === "skill" && existing?.type === "agent") {
+		if (parentType === "skill" && existing && existing.type !== "skill") {
+			const parentName = state.entities.get(parentCompositeKey)?.name;
 			state.errors.push(
-				`Error: Invalid dependency type\n\n  skill:${state.entities.get(parentCompositeKey)?.name} cannot depend on agent:${depName}.\n  Skills can only depend on other skills.\n\nFix: Remove ${depName} from ${state.entities.get(parentCompositeKey)?.name}'s dependencies.`,
+				`Error: Invalid dependency type\n\n  skill:${parentName} cannot depend on ${existing.type}:${depName}.\n  Skills can only depend on other skills.\n\nFix: Remove ${depName} from ${parentName}'s dependencies.`,
 			);
 		}
 	}
@@ -736,8 +738,7 @@ async function inferDirectDepPath(
 	}
 
 	// Tier 2: conventional probe.
-	const candidates = [`skills/${entityName}`, `agents/${entityName}.md`, entityName];
-	for (const candidate of candidates) {
+	for (const candidate of conventionalCandidates(entityName)) {
 		try {
 			const probeFile = candidate.endsWith(".md") ? candidate : `${candidate}/SKILL.md`;
 			await readFileAtRef(resolution.cachePath, ref, probeFile);
@@ -786,9 +787,8 @@ async function tryResolveFromSameRepo(
 	if (!resolution) return false;
 
 	const ref = resolution.tag ?? resolution.commit;
-	const candidates = [`skills/${depName}`, `agents/${depName}.md`, depName];
 
-	for (const candidatePath of candidates) {
+	for (const candidatePath of conventionalCandidates(depName)) {
 		try {
 			const normalizedPath = stripDotSlash(candidatePath);
 			await readFileAtRef(
@@ -860,6 +860,7 @@ async function resolveFromLocalSource(
 	const candidates: Array<{ path: string; type: EntityType }> = [
 		{ path: `${sourceDir}/skills/${depName}`, type: "skill" },
 		{ path: `${sourceDir}/agents/${depName}.md`, type: "agent" },
+		{ path: `${sourceDir}/commands/${depName}.md`, type: "command" },
 		{ path: `${sourceDir}/${depName}`, type: "skill" },
 	];
 
@@ -876,10 +877,10 @@ async function resolveFromLocalSource(
 				await resolveEntity(depName, depName, syntheticDep, group, state);
 				return true;
 			}
-			if (candidate.type === "agent" && stats.isFile()) {
+			if ((candidate.type === "agent" || candidate.type === "command") && stats.isFile()) {
 				const syntheticDep: LocalDependency = {
 					local: candidate.path,
-					type: "agent",
+					type: candidate.type,
 					_sourceDir: sourceDir,
 				};
 				await resolveEntity(depName, depName, syntheticDep, group, state);
@@ -899,8 +900,8 @@ function validateTypeConstraints(state: ResolutionState): void {
 			const depKey = state.resolutionContext.get(depName);
 			if (!depKey) continue;
 			const dep = state.entities.get(depKey);
-			if (dep?.type === "agent") {
-				const errMsg = `Error: Invalid dependency type\n\n  skill:${entity.name} cannot depend on agent:${depName}.\n  Skills can only depend on other skills.\n\nFix: Remove ${depName} from ${entity.name}'s dependencies.`;
+			if (dep && dep.type !== "skill") {
+				const errMsg = `Error: Invalid dependency type\n\n  skill:${entity.name} cannot depend on ${dep.type}:${depName}.\n  Skills can only depend on other skills.\n\nFix: Remove ${depName} from ${entity.name}'s dependencies.`;
 				if (!state.errors.includes(errMsg)) {
 					state.errors.push(errMsg);
 				}
@@ -991,7 +992,7 @@ function detectCycles(
 async function inferType(localPath: string): Promise<EntityType> {
 	try {
 		const stats = await stat(localPath);
-		if (stats.isFile() && localPath.endsWith(".md")) return "agent";
+		if (stats.isFile() && localPath.endsWith(".md")) return mdFileType(localPath);
 		if (stats.isDirectory()) {
 			try {
 				await stat(`${localPath}/SKILL.md`);
@@ -1027,7 +1028,7 @@ export async function inferTypeFromGit(
 		}
 
 		if (entry.objectType === "blob" && entry.name.endsWith(".md")) {
-			return { type: "agent", resolvedPath: normalizedPath };
+			return { type: mdFileType(normalizedPath), resolvedPath: normalizedPath };
 		}
 
 		return { type: "skill", resolvedPath: normalizedPath };
@@ -1043,7 +1044,8 @@ export async function inferTypeFromGit(
 }
 
 function fallbackType(path: string): { type: EntityType; resolvedPath: string } {
-	return { type: path.endsWith(".md") ? "agent" : "skill", resolvedPath: path };
+	const type: EntityType = path.endsWith(".md") ? mdFileType(path) : "skill";
+	return { type, resolvedPath: path };
 }
 
 async function findGitEntry(
