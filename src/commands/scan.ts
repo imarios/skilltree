@@ -1,5 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { mdFileType } from "../core/entity-type.js";
 import type { ScanResult } from "../core/scanner.js";
 import { applyToFrontmatter, scanFiles, scanFileWithLlm } from "../core/scanner.js";
 import { dim, pc, success } from "../core/ui.js";
@@ -31,12 +32,34 @@ async function collectMdFiles(path: string): Promise<string[]> {
 	return files;
 }
 
+/**
+ * Classify a `.md` path into an entity descriptor with the right `type`.
+ * SKILL.md → skill (name from declaring directory); single-file `.md` under
+ * a `commands/` segment → command; everything else → agent. Names default
+ * to the filename stem when frontmatter doesn't supply one — commands and
+ * many agents are named by filename, not a `name:` field.
+ */
+function classifyEntityFile(
+	filePath: string,
+	frontmatterName?: string,
+): { name: string; type: string } | null {
+	const stem = basename(filePath, ".md");
+	if (stem === "SKILL") {
+		const name = frontmatterName ?? basename(dirname(filePath));
+		return name ? { name, type: "skill" } : null;
+	}
+	const name = frontmatterName ?? stem;
+	if (!name) return null;
+	return { name, type: mdFileType(filePath) };
+}
+
 async function buildKnownEntities(files: string[]): Promise<Array<{ name: string; type: string }>> {
 	const entities: Array<{ name: string; type: string }> = [];
 	const results = await scanFiles(files);
 	for (const result of results) {
-		if (result.name) {
-			entities.push({ name: result.name, type: "skill" });
+		const classified = classifyEntityFile(result.file, result.name);
+		if (classified) {
+			entities.push(classified);
 		}
 	}
 	return entities;
@@ -101,7 +124,7 @@ async function displayResults(results: ScanResult[], options: ScanOptions): Prom
 	}
 
 	if (!hasGaps && !results.some((r) => (r.confirmed?.length ?? 0) > 0)) {
-		success("All skill references are declared in frontmatter.");
+		success("All entity references are declared in frontmatter.");
 	}
 
 	return hasGaps;

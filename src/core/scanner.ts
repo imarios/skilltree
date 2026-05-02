@@ -1,10 +1,11 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { basename, dirname } from "node:path";
 import { getDeclaredDeps, parseFrontmatter } from "./frontmatter.js";
 import { llmScanContent } from "./llm.js";
 
 /**
- * Regex patterns for detecting skill references in body text.
- * Battle-tested patterns for detecting skill references.
+ * Regex patterns for detecting entity references in body text.
+ * Battle-tested patterns for skill prose plus slash-command syntax.
  */
 const PATTERNS = [
 	// **LOAD** `task-builder` skill
@@ -20,6 +21,11 @@ const PATTERNS = [
 	/(?:the|a)\s+[`'"<]?([a-z0-9][a-z0-9-]*)[`'">]?\s+skill\b/gi,
 	// Standalone quoted/bracketed: `X` skill, "X" skill, 'X' skill, <X> skill (no article needed)
 	/[`'"<]([a-z0-9][a-z0-9-]*)[`'">]\s+skill\b/gi,
+	// Claude Code slash-command syntax: /<name>. Lookbehind blocks path segments
+	// (path/to, https://...) by requiring the `/` to follow whitespace, line start,
+	// or a quoting/bracketing character — not a word/identifier character or another
+	// `/`. Lookahead `(?!/)` blocks multi-segment paths like /usr/local/share.
+	/(?<![/\w])\/([a-z][a-z0-9-]+)\b(?!\/)/g,
 ];
 
 /**
@@ -96,7 +102,8 @@ export interface ScanResult {
 }
 
 /**
- * Scan a single SKILL.md or agent .md file for undeclared dependencies.
+ * Scan a single SKILL.md, agent .md, or command .md file for undeclared
+ * dependencies.
  */
 export async function scanFile(filePath: string): Promise<ScanResult | null> {
 	const content = await readFile(filePath, "utf-8");
@@ -108,7 +115,14 @@ export async function scanFile(filePath: string): Promise<ScanResult | null> {
 	}
 
 	const declared = getDeclaredDeps(frontmatter);
-	const name = frontmatter.name;
+	// Self-reference filter wants the *entity name*. Skills usually carry
+	// `name:` in frontmatter; agents and commands typically don't — their
+	// name is the filename stem (or parent dir for `SKILL.md`). Falling back
+	// to the filename keeps self-refs from leaking into `undeclared` for
+	// command files like `verify-documentation.md` that mention themselves.
+	const stem = basename(filePath, ".md");
+	const fileDerivedName = stem === "SKILL" ? basename(dirname(filePath)) : stem;
+	const name = frontmatter.name ?? fileDerivedName;
 
 	// Extract body (everything after frontmatter)
 	const bodyStart = content.indexOf("---", content.indexOf("---") + 3);

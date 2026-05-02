@@ -73,7 +73,7 @@ describe("scanCommand", () => {
 		} finally {
 			restore();
 		}
-		expect(logs.some((l) => l.includes("All skill references are declared"))).toBe(true);
+		expect(logs.some((l) => l.includes("All entity references are declared"))).toBe(true);
 	});
 
 	test("--json outputs JSON array", async () => {
