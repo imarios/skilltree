@@ -1,3 +1,9 @@
+## v0.23.3 (2026-05-02)
+
+### Fix
+
+- **install**: print 'Install order' once + friendly per-target labels (#20) (#28)
+
 ## v0.23.2 (2026-05-02)
 
 ### Fix
