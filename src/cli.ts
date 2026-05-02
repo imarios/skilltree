@@ -72,6 +72,7 @@ program
 	.option("-t, --type <type>", "Entity type (skill, agent, or command)")
 	.option("--registry <name>", "Resolve from this registry (when no --repo)")
 	.option("-g, --global", "Add to global dependencies")
+	.option("-y, --yes", "Skip the glob-mode confirmation prompt")
 	.action(async (name: string, opts) => {
 		await addCommand(name, opts, process.cwd());
 	});

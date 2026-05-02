@@ -1,4 +1,5 @@
 import { stat } from "node:fs/promises";
+import { createInterface } from "node:readline/promises";
 import semver from "semver";
 import { canonicalSource } from "../core/deps.js";
 import { MANIFEST_NEW } from "../core/filenames.js";
@@ -6,7 +7,7 @@ import { loadManifestOrThrow, writeGlobalManifest, writeManifest } from "../core
 import { collapseTilde, expandTilde, getGlobalDir } from "../core/paths.js";
 import { readRegistryIndex } from "../core/registry-cache.js";
 import { listRegistries } from "../core/registry-config.js";
-import { dim, success, warn } from "../core/ui.js";
+import { dim, pc, success, warn } from "../core/ui.js";
 import type {
 	Dependency,
 	EntityType,
@@ -26,13 +27,23 @@ export interface AddOptions {
 	type?: EntityType;
 	registry?: string;
 	global?: boolean;
+	/** Skip the glob-mode confirmation prompt. */
+	yes?: boolean;
 	// Test overrides (avoid touching real ~/.skilltree/)
 	configPath?: string;
 	cacheDir?: string;
 	globalDir?: string;
+	/** Test hook: canned answer for the glob confirmation prompt. */
+	askFn?: (question: string) => Promise<string>;
+	/** Test hook: override TTY detection. Defaults to process.stdout.isTTY. */
+	isInteractive?: boolean;
 }
 
 export async function addCommand(name: string, opts: AddOptions, dir: string): Promise<void> {
+	if (isGlobPattern(name)) {
+		await addGlobCommand(name, opts, dir);
+		return;
+	}
 	validateAddFlags(opts);
 	const dep = await buildDependency(name, opts, dir);
 
@@ -63,6 +74,210 @@ export async function addCommand(name: string, opts: AddOptions, dir: string): P
 	success(`Added ${name} to ${group}${opts.global ? " (global)" : ""}`);
 	const installCmd = opts.global ? "skilltree install --global" : "skilltree install";
 	console.log(dim(`  Run \`${installCmd}\` to install.`));
+}
+
+/** A literal `*` or `?` in a name signals user-intent glob expansion (Issue #14). */
+function isGlobPattern(name: string): boolean {
+	return /[*?]/.test(name);
+}
+
+/**
+ * Convert a glob pattern (`*`, `?`) into an anchored regex. All other
+ * characters are regex-escaped so user input like `kibana-*` matches
+ * literally everywhere except at the wildcards.
+ */
+function globToRegex(pattern: string): RegExp {
+	let re = "";
+	for (const ch of pattern) {
+		if (ch === "*") re += ".*";
+		else if (ch === "?") re += ".";
+		else re += ch.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+	}
+	return new RegExp(`^${re}$`);
+}
+
+/**
+ * Glob mode is registry-only — `--repo`/`--source`/`--local`/`--path` are
+ * single-source flags whose semantics don't generalize across many matches.
+ * Two-phase commit: build a preview of every match (with cross-registry
+ * collisions surfaced), confirm with the user, then write the manifest in
+ * one batched read/write.
+ */
+async function addGlobCommand(pattern: string, opts: AddOptions, dir: string): Promise<void> {
+	if (opts.repo || opts.source || opts.local || opts.path) {
+		throw new Error(
+			`Glob patterns (e.g. "${pattern}") are only supported for registry-resolved adds. Drop --repo/--source/--local/--path to expand from registries.`,
+		);
+	}
+	validateAddFlags(opts);
+
+	const re = globToRegex(pattern);
+	const all = await loadRegistryEntities(opts);
+	const items = buildGlobPreview(all.filter((m) => re.test(m.entity.name)));
+
+	if (items.length === 0) {
+		throw new Error(
+			`Glob "${pattern}": no entries matched in any registry. Run 'skilltree search ${pattern.replace(/[*?]/g, "")}' to see available names.`,
+		);
+	}
+
+	const group = opts.dev ? "dev-dependencies" : "dependencies";
+	printGlobPreview(pattern, items, group, opts.global);
+	if (!(await confirmGlobAdd(items.length, opts))) {
+		console.log(dim("Aborted."));
+		return;
+	}
+
+	const globalDir = opts.globalDir ?? getGlobalDir();
+	const manifest = await loadManifestOrThrow(dir, { global: opts.global, globalDir });
+	const deps = manifest[group] ?? {};
+
+	for (const item of items) {
+		const m = item.picked;
+		const dep: Dependency = { repo: m.repo, path: m.entity.path, version: opts.version ?? "*" };
+		if (opts.type) dep.type = opts.type;
+		checkOverwrite(m.entity.name, deps, group, dep, manifest.sources);
+		checkOtherGroup(m.entity.name, manifest, opts);
+		preserveOrthogonalFields(dep, deps[m.entity.name]);
+		deps[m.entity.name] = dep;
+	}
+	manifest[group] = deps;
+
+	if (opts.global) {
+		await writeGlobalManifest(manifest, globalDir);
+	} else {
+		await writeManifest(dir, manifest);
+	}
+
+	success(
+		`Added ${items.length} ${items.length === 1 ? "entry" : "entries"} to ${group}${opts.global ? " (global)" : ""}: ${items.map((i) => i.picked.entity.name).join(", ")}`,
+	);
+	const installCmd = opts.global ? "skilltree install --global" : "skilltree install";
+	console.log(dim(`  Run \`${installCmd}\` to install.`));
+}
+
+/**
+ * One row of the glob preview: the name, the registry/repo/path that will
+ * actually be written (`picked`), and any other registries that also
+ * publish this name (`alternates`). The first match in registry order
+ * wins — alternates are reported so the user can override with --registry.
+ */
+interface GlobPreviewItem {
+	picked: RegistryEntity;
+	alternates: RegistryEntity[];
+}
+
+function buildGlobPreview(matches: RegistryEntity[]): GlobPreviewItem[] {
+	const byName = new Map<string, RegistryEntity[]>();
+	for (const m of matches) {
+		const list = byName.get(m.entity.name);
+		if (list) list.push(m);
+		else byName.set(m.entity.name, [m]);
+	}
+	const items: GlobPreviewItem[] = [];
+	for (const group of byName.values()) {
+		const [picked, ...alternates] = group;
+		if (picked) items.push({ picked, alternates });
+	}
+	items.sort((a, b) => a.picked.entity.name.localeCompare(b.picked.entity.name));
+	return items;
+}
+
+function printGlobPreview(
+	pattern: string,
+	items: GlobPreviewItem[],
+	group: string,
+	isGlobal: boolean | undefined,
+): void {
+	const target = `${group}${isGlobal ? " (global)" : ""}`;
+	console.log(
+		`\nGlob "${pc.bold(pattern)}" matched ${pc.bold(String(items.length))} ${items.length === 1 ? "entry" : "entries"} for ${target}:\n`,
+	);
+	const nameW = Math.max(...items.map((i) => i.picked.entity.name.length));
+	const regW = Math.max(...items.map((i) => i.picked.registry.length));
+	for (const item of items) {
+		const m = item.picked;
+		console.log(
+			`  ${pc.bold(m.entity.name.padEnd(nameW))}  ${dim(m.registry.padEnd(regW))}  ${dim(`${m.repo}/${m.entity.path}`)}`,
+		);
+	}
+	const collisions = items.filter((i) => i.alternates.length > 0);
+	if (collisions.length > 0) {
+		console.log();
+		for (const item of collisions) {
+			const others = item.alternates.map((a) => a.registry).join(", ");
+			warn(
+				`"${item.picked.entity.name}" also in ${others} — picking ${item.picked.registry} (first registry). Use --registry to override.`,
+			);
+		}
+	}
+	console.log();
+}
+
+/**
+ * Decide whether to proceed. Resolution order mirrors `init.ts`:
+ *  1. `--yes` → proceed without prompting.
+ *  2. `askFn` (test hook) → ask via that function.
+ *  3. TTY (or `isInteractive: true` override) → prompt via readline.
+ *  4. Non-TTY (CI/tests) → CI-safe default: proceed.
+ */
+async function confirmGlobAdd(count: number, opts: AddOptions): Promise<boolean> {
+	if (opts.yes) return true;
+	const interactive = opts.isInteractive ?? Boolean(process.stdout.isTTY);
+	const ask = opts.askFn ?? (interactive ? readlineAsk : null);
+	if (!ask) return true;
+	const noun = count === 1 ? "this entry" : `these ${count} entries`;
+	const answer = (await ask(`Add ${noun}? [Y/n] `)).trim().toLowerCase();
+	return answer === "" || answer === "y" || answer === "yes";
+}
+
+async function readlineAsk(question: string): Promise<string> {
+	const rl = createInterface({ input: process.stdin, output: process.stdout });
+	try {
+		return await rl.question(question);
+	} finally {
+		rl.close();
+	}
+}
+
+interface RegistryEntity {
+	entity: IndexEntry;
+	registry: string;
+	repo: string;
+}
+
+/**
+ * Load every entity across all (or `--registry`-filtered) registries. Throws
+ * if no registries are configured or no indexes are available so callers
+ * can rely on the result being non-empty by registry, not by match. Reads
+ * indexes in parallel — they live in distinct cache files.
+ */
+async function loadRegistryEntities(opts: AddOptions): Promise<RegistryEntity[]> {
+	const registries = await listRegistries(opts.configPath);
+	if (registries.length === 0) {
+		throw new Error(
+			`No location specified and no registries configured.\nEither specify --repo and --path, or run 'skilltree registry add <url>' first.`,
+		);
+	}
+
+	const targets = opts.registry ? registries.filter((r) => r.name === opts.registry) : registries;
+	const loaded = await Promise.all(
+		targets.map(async (reg) => ({ reg, index: await readRegistryIndex(reg.name, opts.cacheDir) })),
+	);
+
+	const entities: RegistryEntity[] = [];
+	let anyIndexLoaded = false;
+	for (const { reg, index } of loaded) {
+		if (!index) continue;
+		anyIndexLoaded = true;
+		for (const entity of index.entities) {
+			entities.push({ entity, registry: reg.name, repo: reg.repo });
+		}
+	}
+	if (!anyIndexLoaded) {
+		throw new Error("No registry indexes available. Run 'skilltree registry update' first.");
+	}
+	return entities;
 }
 
 function validateAddFlags(opts: AddOptions): void {
@@ -211,39 +426,15 @@ function checkOtherGroup(
 
 /**
  * Resolve a skill/agent name from registered registries.
+ *
+ * Note: when `--registry` is set we still load all registries so we can give
+ * the "found in: X, Y" hint when the name is missing from the requested
+ * registry but present elsewhere. The cross-registry name check is the
+ * reason this can't simply pre-filter via `loadRegistryEntities`.
  */
 async function resolveFromRegistries(name: string, opts: AddOptions): Promise<Dependency> {
-	const registries = await listRegistries(opts.configPath);
-
-	if (registries.length === 0) {
-		throw new Error(
-			`No location specified and no registries configured.\nEither specify --repo and --path, or run 'skilltree registry add <url>' first.`,
-		);
-	}
-
-	interface Match {
-		entity: IndexEntry;
-		registry: string;
-		repo: string;
-	}
-	const matches: Match[] = [];
-	let anyIndexLoaded = false;
-
-	for (const reg of registries) {
-		const index = await readRegistryIndex(reg.name, opts.cacheDir);
-		if (!index) continue;
-		anyIndexLoaded = true;
-		for (const entity of index.entities) {
-			if (entity.name === name) {
-				matches.push({ entity, registry: reg.name, repo: reg.repo });
-			}
-		}
-	}
-
-	if (!anyIndexLoaded) {
-		throw new Error("No registry indexes available. Run 'skilltree registry update' first.");
-	}
-
+	const allEntities = await loadRegistryEntities({ ...opts, registry: undefined });
+	const matches = allEntities.filter((m) => m.entity.name === name);
 	const filtered = opts.registry ? matches.filter((m) => m.registry === opts.registry) : matches;
 
 	if (filtered.length === 0) {
@@ -258,7 +449,7 @@ async function resolveFromRegistries(name: string, opts: AddOptions): Promise<De
 	}
 
 	if (filtered.length === 1) {
-		const m = filtered[0] as Match;
+		const m = filtered[0] as RegistryEntity;
 		console.log(`Resolved from registry '${m.registry}': ${dim(`${m.repo}/${m.entity.path}`)}`);
 		return { repo: m.repo, path: m.entity.path, version: opts.version ?? "*" };
 	}
