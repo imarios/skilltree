@@ -226,6 +226,13 @@ export function validateManifest(manifest: Manifest): string[] {
 	validateDeps(manifest.dependencies, "dependencies");
 	validateDeps(manifest["dev-dependencies"], "dev-dependencies");
 
+	// Reject empty install_targets explicitly. An empty array would otherwise
+	// pass through as a no-op install (loop runs zero times) — silent success
+	// is worse than a clear error. Omit the field entirely to use defaults.
+	if (Array.isArray(manifest.install_targets) && manifest.install_targets.length === 0) {
+		errors.push("install_targets must not be empty — omit the field to use the default (.claude)");
+	}
+
 	// Check for install_targets + dev_install_path conflict
 	if (manifest.install_targets && (manifest.dev_install_path || manifest.install_path)) {
 		errors.push(

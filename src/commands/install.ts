@@ -11,7 +11,12 @@ import { ensureCached, getCommitSha } from "../core/git.js";
 import type { ResolvedEntity } from "../core/graph.js";
 import { resolveAll, topologicalSort } from "../core/graph.js";
 import type { InstallOptions, InstallPlan } from "../core/installer.js";
-import { applyIntegrityHashes, executeInstall, planInstall } from "../core/installer.js";
+import {
+	applyIntegrityHashes,
+	executeInstall,
+	isSkippedForProd,
+	planInstall,
+} from "../core/installer.js";
 import {
 	buildLockfile,
 	diffManifestLockfile,
@@ -76,20 +81,32 @@ function printInstallOrderFromPlan(plan: InstallPlan): void {
  * is printed exactly once regardless of how many install targets there are.
  *
  * Skips entities filtered out by `--prod` so the listing matches what will
- * actually be installed.
+ * actually be installed. If `--prod` filters everything, suppress the header
+ * and print a clear "nothing to install" message instead of a bare label
+ * followed by silence (issue #27 item 5).
  */
 function printInstallOrderFromResolution(
 	result: { entities: Map<string, ResolvedEntity>; installOrder: string[] },
 	options: InstallOptions,
 ): void {
-	header("\nInstall order:");
-	let i = 0;
+	const visible: ResolvedEntity[] = [];
 	for (const compositeKey of result.installOrder) {
 		const entity = result.entities.get(compositeKey);
 		if (!entity) continue;
-		if (options.prod && entity.group === "dev") continue;
+		if (isSkippedForProd(entity, options)) continue;
+		visible.push(entity);
+	}
+
+	if (visible.length === 0) {
+		if (options.prod) {
+			console.log(dim("\nNothing to install for --prod (all dependencies are dev-only)."));
+		}
+		return;
+	}
+
+	header("\nInstall order:");
+	for (const [i, entity] of visible.entries()) {
 		console.log(formatInstallOrderLine(i, entity));
-		i++;
 	}
 }
 
@@ -192,6 +209,11 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 
 	const manifest = await loadManifestOrThrow(dir);
 
+	// Fire deprecation warnings before any early-return guard so vendor-mode
+	// users still see the nudge to migrate off legacy install-path fields.
+	// (Issue #27 item 2.)
+	warnLegacyInstallPath(manifest);
+
 	// Vendor mode guard
 	if (manifest.vendor && !options.force) {
 		warn("Vendor mode is active. Vendored files in .claude/ are committed to git.");
@@ -202,7 +224,6 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 	}
 
 	validateManifestOrThrow(manifest);
-	warnLegacyInstallPath(manifest);
 
 	const existingLockfile = await readLockfile(dir);
 
@@ -252,7 +273,10 @@ async function installToTargets(
 	dir: string,
 	options: InstallOptions,
 ): Promise<Map<string, string>> {
-	let integrityMap: Map<string, string> = new Map();
+	// Accumulate across targets instead of letting the last target win
+	// (issue #27 item 3). Content-derived hashes are identical per target
+	// today, so this is data-flow hygiene rather than a behavior fix.
+	const integrityMap: Map<string, string> = new Map();
 	let skippedReported = false;
 
 	for (const target of targets) {
@@ -265,13 +289,28 @@ async function installToTargets(
 			skippedReported = true;
 		}
 
+		// When --prod filters every entity to "skipped", the per-target line
+		// would say "Installing into X… — 0 skills" once per target, which
+		// contradicts the "Nothing to install for --prod" message printed by
+		// printInstallOrderFromResolution. Suppress the per-target line in
+		// that case — the "Skipped N dev dependencies (--prod)" line above
+		// is the user's signal.
+		const suppressPerTarget = plan.toInstall.length === 0 && Boolean(options.prod);
+
 		if (options.dryRun) {
-			console.log(`\n${formatPerTargetLine(target, plan)} ${dim("(dry run)")}`);
+			if (!suppressPerTarget) {
+				console.log(`\n${formatPerTargetLine(target, plan)} ${dim("(dry run)")}`);
+			}
 			continue;
 		}
 
-		console.log(`\n${formatPerTargetLine(target, plan)}`);
-		integrityMap = await executeInstall(plan, dir, options);
+		if (!suppressPerTarget) {
+			console.log(`\n${formatPerTargetLine(target, plan)}`);
+		}
+		const perTargetMap = await executeInstall(plan, dir, options);
+		for (const [key, hash] of perTargetMap) {
+			integrityMap.set(key, hash);
+		}
 
 		if (srcInstallBase && !options.prod) {
 			const srcOptions: InstallOptions = { ...options, prod: true, installPath: srcInstallBase };

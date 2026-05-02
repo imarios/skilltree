@@ -178,20 +178,79 @@ describe("frozen install output: friendly tilde path", () => {
 		await installCommand(dir, {});
 
 		// Frozen install with installBase pointing under home — exercises the
-		// `collapseTilde` fallback in `frozenTarget`.
+		// `collapseTilde` fallback in `frozenTarget`. Path is randomized so
+		// parallel test runs don't collide and a SIGKILL leaves at most one
+		// uniquely-named stray dir behind. (Issue #27 item 6.)
 		const home = homedir();
-		const homeBase = join(home, ".skilltree-test-home-base");
+		const suffix = Math.random().toString(36).slice(2);
+		const homeBaseName = `.skilltree-test-${suffix}`;
+		const homeBase = join(home, homeBaseName);
 		try {
 			const output = await captureOutput(() =>
 				installCommand(dir, { frozen: true, installPath: homeBase }),
 			);
 			const clean = stripAnsi(output);
 			// Friendly tilde form must appear; raw home prefix must not.
-			expect(clean).toContain("~/.skilltree-test-home-base");
+			expect(clean).toContain(`~/${homeBaseName}`);
 			expect(clean).not.toContain(home);
 		} finally {
 			await rm(homeBase, { recursive: true, force: true });
 		}
+	});
+});
+
+// Issue #27 item 5: with --prod and a project that has only dev-dependencies,
+// the install order list iterates and skips every entity. The user used to see
+// a bare "Install order:" header followed by an empty list — confusing.
+describe("install output: --prod with only dev-deps suppresses empty header", () => {
+	test("does not print bare 'Install order:' when --prod filters everything", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "alpha");
+
+		await writeManifest(
+			dir,
+			["name: test", "dev-dependencies:", "  alpha:", "    local: ./skills/alpha", ""].join("\n"),
+		);
+
+		const output = await captureOutput(() => installCommand(dir, { prod: true }));
+		const clean = stripAnsi(output);
+
+		// Header should NOT appear when nothing is going to print under it.
+		expect(clean).not.toMatch(/Install order:/);
+		// User should get an explicit message instead of silent success.
+		expect(clean).toMatch(/nothing to install for --prod/i);
+	});
+
+	// Hypothesis-review follow-up: with multiple install_targets, the per-target
+	// "Installing into X… — 0 skills" line used to fire once per target,
+	// contradicting the "Nothing to install for --prod" message above. The
+	// suppression must hold across all targets.
+	test("does not print contradictory per-target lines with multi-target + --prod", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "alpha");
+
+		await writeManifest(
+			dir,
+			[
+				"name: test",
+				"install_targets:",
+				"  - claude",
+				"  - codex",
+				"dev-dependencies:",
+				"  alpha:",
+				"    local: ./skills/alpha",
+				"",
+			].join("\n"),
+		);
+
+		const output = await captureOutput(() => installCommand(dir, { prod: true }));
+		const clean = stripAnsi(output);
+
+		expect(clean).toMatch(/nothing to install for --prod/i);
+		// No per-target "Installing …" lines should appear — they would say
+		// "0 skills" and contradict the message above.
+		expect(clean).not.toMatch(/Installing agent knowledge for/);
+		expect(clean).not.toMatch(/Installing into /);
 	});
 });
 

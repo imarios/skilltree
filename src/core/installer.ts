@@ -27,6 +27,15 @@ export interface InstallOptions {
 	installPath?: string;
 }
 
+/**
+ * Single source of truth for "is this entity filtered out by --prod?".
+ * Used by `planInstall` (decides what to install) and the install-order
+ * printer (decides what to display) so the two views can never disagree.
+ */
+export function isSkippedForProd(entity: ResolvedEntity, options: InstallOptions): boolean {
+	return Boolean(options.prod) && entity.group === "dev";
+}
+
 export interface InstallPlan {
 	toInstall: Array<{
 		entity: ResolvedEntity;
@@ -150,8 +159,7 @@ export async function planInstall(
 		const entity = entities.get(compositeKey);
 		if (!entity) continue;
 
-		// Skip dev deps in prod mode
-		if (options.prod && entity.group === "dev") {
+		if (isSkippedForProd(entity, options)) {
 			skipped.push(compositeKey);
 			continue;
 		}
