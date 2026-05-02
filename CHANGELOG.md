@@ -1,3 +1,9 @@
+## v0.24.1 (2026-05-02)
+
+### Fix
+
+- **install**: polish output + harden tests (#27) (#30)
+
 ## v0.24.0 (2026-05-02)
 
 ### Feat
