@@ -3,6 +3,8 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	AGENT_LABELS,
+	AGENT_REGISTRY,
 	detectInstalledAgents,
 	getAgentLabel,
 	getKnownAgentNames,
@@ -167,6 +169,15 @@ describe("getAgentLabel", () => {
 
 	test("returns null for unknown bare words", () => {
 		expect(getAgentLabel("foo")).toBeNull();
+	});
+});
+
+// Issue #27 item 4: AGENT_LABELS and AGENT_REGISTRY are two parallel maps
+// that must stay in lockstep. A future contributor adding an entry to one
+// but not the other would silently lose the friendly label.
+describe("AGENT_LABELS / AGENT_REGISTRY parity", () => {
+	test("AGENT_LABELS keys match AGENT_REGISTRY keys", () => {
+		expect(Object.keys(AGENT_LABELS).sort()).toEqual(Object.keys(AGENT_REGISTRY).sort());
 	});
 });
 

@@ -75,6 +75,21 @@ describe("dev_install_path deprecation warning", () => {
 		expect(warns.some((w) => w.includes("deprecated"))).toBe(true);
 	});
 
+	// Issue #27 item 2: warnLegacyInstallPath used to live BELOW the vendor-mode
+	// early return, so vendor-mode users with a legacy dev_install_path never
+	// saw the deprecation nudge.
+	test("emits warning in vendor mode (early return must not bypass it)", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+		await writeManifest(
+			dir,
+			`vendor: true\ndev_install_path: .claude\ndependencies:\n  my-skill:\n    local: ./skills/my-skill\n`,
+		);
+
+		const warns = await captureWarn(() => installCommand(dir, {}));
+		expect(warns.some((w) => w.includes("deprecated"))).toBe(true);
+	});
+
 	test("emits warning when removing from a project with legacy field", async () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "my-skill");

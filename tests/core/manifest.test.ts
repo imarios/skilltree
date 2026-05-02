@@ -4,6 +4,7 @@ import {
 	getInstallTargets,
 	parseManifest,
 	serializeManifest,
+	validateGlobalManifest,
 	validateManifest,
 } from "../../src/core/manifest.js";
 
@@ -234,6 +235,20 @@ dev-dependencies:
 		const errors = validateManifest(manifest);
 		expect(errors.some((e) => e.includes("both dependencies and dev-dependencies"))).toBe(true);
 	});
+
+	// Issue #27 item 1: empty install_targets used to silently no-op installs.
+	// Both validators must reject this — global inherits from project but the
+	// guard is part of the shared logic, so it has to hold in both contexts.
+	for (const [label, validator] of [
+		["validateManifest", validateManifest] as const,
+		["validateGlobalManifest", validateGlobalManifest] as const,
+	]) {
+		test(`${label} errors on empty install_targets array`, () => {
+			const manifest = parseManifest("install_targets: []\ndependencies: {}\n");
+			const errors = validator(manifest);
+			expect(errors.some((e) => /install_targets must not be empty/i.test(e))).toBe(true);
+		});
+	}
 });
 
 describe("expandSources", () => {
