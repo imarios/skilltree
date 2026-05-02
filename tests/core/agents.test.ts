@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	detectInstalledAgents,
+	getAgentLabel,
 	getKnownAgentNames,
 	pathToAgentName,
 	resolveGlobalTarget,
@@ -145,6 +146,27 @@ describe("detectInstalledAgents", () => {
 
 		const agents = await detectInstalledAgents(tempDir);
 		expect(agents).toContain("copilot");
+	});
+});
+
+describe("getAgentLabel", () => {
+	test("returns friendly label for each known agent", () => {
+		expect(getAgentLabel("claude")).toBe("Claude Code");
+		expect(getAgentLabel("codex")).toBe("Codex");
+		expect(getAgentLabel("copilot")).toBe("GitHub Copilot");
+		expect(getAgentLabel("cursor")).toBe("Cursor");
+		expect(getAgentLabel("gemini")).toBe("Gemini CLI");
+		expect(getAgentLabel("windsurf")).toBe("Windsurf");
+	});
+
+	test("returns null for literal paths", () => {
+		expect(getAgentLabel("./custom")).toBeNull();
+		expect(getAgentLabel("/abs/path")).toBeNull();
+		expect(getAgentLabel("~/somewhere")).toBeNull();
+	});
+
+	test("returns null for unknown bare words", () => {
+		expect(getAgentLabel("foo")).toBeNull();
 	});
 });
 

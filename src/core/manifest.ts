@@ -84,20 +84,34 @@ export function getDevInstallPath(manifest: Manifest): string {
 /**
  * Resolve install targets from manifest.
  * - If `install_targets` is set, resolve each entry via the agent registry
- * - If only `dev_install_path` is set, return it as a single-element array (with deprecation warning)
+ * - If only `dev_install_path` is set, return it as a single-element array
  * - If neither is set, default to [".claude"]
+ *
+ * Note: this helper is called from multiple sites in a single command run
+ * (e.g., target build + lockfile build + stale-target check), so the
+ * deprecation warning lives in `warnLegacyInstallPath` instead — call that
+ * once per command from the entry point.
  */
 export function getInstallTargets(manifest: Manifest, opts?: { global?: boolean }): string[] {
 	const resolve = opts?.global ? resolveGlobalTarget : resolveTarget;
 	if (manifest.install_targets) {
 		return manifest.install_targets.map(resolve);
 	}
+	return [getDevInstallPath(manifest)];
+}
+
+/**
+ * Emit a deprecation warning when a manifest still uses legacy
+ * `dev_install_path` / `install_path` instead of `install_targets`.
+ * Idempotent per call — fire once at the start of a command.
+ */
+export function warnLegacyInstallPath(manifest: Manifest): void {
+	if (manifest.install_targets) return;
 	if (manifest.dev_install_path || manifest.install_path) {
 		warn(
 			"dev_install_path is deprecated — use install_targets instead. Run: skilltree targets migrate",
 		);
 	}
-	return [getDevInstallPath(manifest)];
 }
 
 /**
@@ -244,6 +258,14 @@ export function validateGlobalManifest(manifest: Manifest): string[] {
 	}
 	if (manifest.src_install_path) {
 		errors.push("Global manifest does not support src_install_path.");
+	}
+	// Per docs/specs/global.md: legacy install-path fields are project-only.
+	// Without this guard, the field is silently dropped by buildGlobalTargets.
+	if (manifest.dev_install_path) {
+		errors.push("Global manifest does not support dev_install_path. Use install_targets instead.");
+	}
+	if (manifest.install_path) {
+		errors.push("Global manifest does not support install_path. Use install_targets instead.");
 	}
 	if (manifest.vendor) {
 		errors.push("Global manifest does not support vendor mode.");

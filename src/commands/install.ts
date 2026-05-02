@@ -1,4 +1,10 @@
 import { join } from "node:path";
+import {
+	AGENT_REGISTRY,
+	getAgentLabel,
+	resolveGlobalTarget,
+	resolveTarget,
+} from "../core/agents.js";
 import { isSingleFileEntity } from "../core/entity-type.js";
 import { getDeclaredDeps, parseFrontmatter } from "../core/frontmatter.js";
 import { ensureCached, getCommitSha } from "../core/git.js";
@@ -21,10 +27,20 @@ import {
 	getInstallTargets,
 	loadManifestOrThrow,
 	validateManifestOrThrow,
+	warnLegacyInstallPath,
 } from "../core/manifest.js";
-import { expandTilde, getGlobalDir, getGlobalInstallBase } from "../core/paths.js";
-import { dim, error, header, pc, success, throwOnResolutionErrors, warn } from "../core/ui.js";
-import type { Lockfile, Manifest } from "../types.js";
+import { collapseTilde, expandTilde, getGlobalDir, getGlobalInstallBase } from "../core/paths.js";
+import {
+	dim,
+	error,
+	header,
+	pc,
+	pluralize,
+	success,
+	throwOnResolutionErrors,
+	warn,
+} from "../core/ui.js";
+import type { EntityType, Lockfile, Manifest } from "../types.js";
 import { isLocalDependency } from "../types.js";
 
 export interface InstallCommandOptions extends InstallOptions {
@@ -32,17 +48,141 @@ export interface InstallCommandOptions extends InstallOptions {
 	globalDir?: string; // test override
 }
 
-function printInstallOrder(plan: InstallPlan): void {
+/**
+ * Single line for one entity in the "Install order" listing.
+ * Pure formatting helper — shared by the resolution-based and plan-based callers.
+ */
+function formatInstallOrderLine(index: number, entity: ResolvedEntity): string {
+	const version = entity.version ? pc.green(`@${entity.version}`) : "";
+	const source = entity.local ? dim("local") : dim(entity.repo ?? "");
+	return `  ${pc.bold(`${index + 1}.`)} ${entity.type}:${pc.cyan(entity.name)}${version} ${dim(`(${source})`)}`;
+}
+
+/**
+ * Print the install order from a plan. Used by the (single-target) frozen path.
+ */
+function printInstallOrderFromPlan(plan: InstallPlan): void {
 	header("\nInstall order:");
 	for (let i = 0; i < plan.toInstall.length; i++) {
 		const item = plan.toInstall[i];
 		if (!item) continue;
-		const version = item.entity.version ? pc.green(`@${item.entity.version}`) : "";
-		const source = item.entity.local ? dim("local") : dim(item.entity.repo ?? "");
-		console.log(
-			`  ${pc.bold(`${i + 1}.`)} ${item.entity.type}:${pc.cyan(item.entity.name)}${version} ${dim(`(${source})`)}`,
-		);
+		console.log(formatInstallOrderLine(i, item.entity));
 	}
+}
+
+/**
+ * Print the install order from a resolution result. The order is target-agnostic
+ * (it's determined by the dependency graph, not the install location), so this
+ * is printed exactly once regardless of how many install targets there are.
+ *
+ * Skips entities filtered out by `--prod` so the listing matches what will
+ * actually be installed.
+ */
+function printInstallOrderFromResolution(
+	result: { entities: Map<string, ResolvedEntity>; installOrder: string[] },
+	options: InstallOptions,
+): void {
+	header("\nInstall order:");
+	let i = 0;
+	for (const compositeKey of result.installOrder) {
+		const entity = result.entities.get(compositeKey);
+		if (!entity) continue;
+		if (options.prod && entity.group === "dev") continue;
+		console.log(formatInstallOrderLine(i, entity));
+		i++;
+	}
+}
+
+interface TargetInfo {
+	/** Absolute path where files are written. */
+	installBase: string;
+	/** Relative directory shown to the user (e.g., ".claude" or "./vendor/foo"). */
+	displayDir: string;
+	/** Friendly agent label for known agents, or null for literal paths / overrides. */
+	label: string | null;
+}
+
+/**
+ * Build TargetInfo for project install. Mirrors `getInstallTargets()` but
+ * preserves the raw target name so we can recover the friendly agent label.
+ *
+ * - `install_targets` entries go through the agent registry (so "claude" → ".claude").
+ * - Legacy `dev_install_path` / `install_path` are literal paths and are passed
+ *   through unchanged (they are not agent registry keys).
+ */
+function buildProjectTargets(manifest: Manifest, dir: string): TargetInfo[] {
+	if (manifest.install_targets) {
+		return manifest.install_targets.map((raw) => {
+			const displayDir = resolveTarget(raw);
+			return {
+				installBase: join(dir, displayDir),
+				displayDir,
+				label: getAgentLabel(raw),
+			};
+		});
+	}
+	const legacy = manifest.dev_install_path ?? manifest.install_path ?? ".claude";
+	return [
+		{
+			installBase: join(dir, legacy),
+			displayDir: legacy,
+			label: null,
+		},
+	];
+}
+
+/**
+ * Build TargetInfo for global install. Same shape as the project variant but
+ * `displayDir` keeps the `~/...` form for readable output.
+ */
+function buildGlobalTargets(manifest: Manifest): TargetInfo[] {
+	const rawTargets = manifest.install_targets ?? [];
+	if (rawTargets.length === 0) {
+		const fallback = getGlobalInstallBase();
+		return [{ installBase: fallback, displayDir: fallback, label: null }];
+	}
+	return rawTargets.map((raw) => {
+		// For known agents, show the unexpanded `~/...` form so output is portable.
+		const registryEntry = AGENT_REGISTRY[raw];
+		return {
+			installBase: resolveGlobalTarget(raw),
+			displayDir: registryEntry?.globalHome ?? raw,
+			label: getAgentLabel(raw),
+		};
+	});
+}
+
+/**
+ * Pluralized count by entity type, e.g. "5 skills + 2 agents + 1 command".
+ * Returns "0 skills" when the plan is empty so the line still reads naturally.
+ */
+function formatEntityCounts(plan: InstallPlan): string {
+	const counts: Record<EntityType, number> = { skill: 0, agent: 0, command: 0 };
+	for (const item of plan.toInstall) {
+		counts[item.entity.type]++;
+	}
+
+	const parts: string[] = [];
+	const order: EntityType[] = ["skill", "agent", "command"];
+	for (const type of order) {
+		const n = counts[type];
+		if (n === 0) continue;
+		parts.push(`${n} ${pluralize(type, n)}`);
+	}
+	if (parts.length === 0) return "0 skills";
+	return parts.join(" + ");
+}
+
+/**
+ * Build the per-target "Installing agent knowledge for X… (.claude/) — N skills" line.
+ */
+function formatPerTargetLine(target: TargetInfo, plan: InstallPlan): string {
+	const counts = formatEntityCounts(plan);
+	const dir = dim(`(${target.displayDir})`);
+	if (target.label) {
+		return `Installing agent knowledge for ${pc.bold(target.label)}… ${dir} — ${counts}`;
+	}
+	return `Installing into ${pc.bold(target.displayDir)}… — ${counts}`;
 }
 
 export async function installCommand(dir: string, options: InstallCommandOptions): Promise<void> {
@@ -62,6 +202,7 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 	}
 
 	validateManifestOrThrow(manifest);
+	warnLegacyInstallPath(manifest);
 
 	const existingLockfile = await readLockfile(dir);
 
@@ -76,26 +217,28 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 	const result = await resolveWithLockfile(manifest, existingLockfile, dir);
 	throwOnResolutionErrors(result);
 
-	// Determine install targets
-	const resolvedTargets = options.installPath
-		? [options.installPath]
-		: getInstallTargets(manifest).map((t) => join(dir, t));
+	// Determine install targets — preserves agent labels for friendly per-target output.
+	const targets: TargetInfo[] = options.installPath
+		? [{ installBase: options.installPath, displayDir: options.installPath, label: null }]
+		: buildProjectTargets(manifest, dir);
+
+	// Print install order once — it's the same across targets.
+	printInstallOrderFromResolution(result, options);
 
 	const srcInstallBase = manifest.src_install_path ? join(dir, manifest.src_install_path) : null;
-	const integrityMap = await installToTargets(
-		result,
-		resolvedTargets,
-		srcInstallBase,
-		dir,
-		options,
-	);
+	const integrityMap = await installToTargets(result, targets, srcInstallBase, dir, options);
 
 	if (options.dryRun) return;
 
 	warnStaleTargets(existingLockfile, getInstallTargets(manifest));
 
 	const lockfile = buildLockfile(result.entities);
-	lockfile.install_targets = getInstallTargets(manifest);
+	// Only record install_targets in the lockfile when the user actually set
+	// them — mirrors the global path. Otherwise a legacy `dev_install_path`
+	// manifest gets a synthetic `install_targets: [".claude"]` written to disk.
+	if (manifest.install_targets) {
+		lockfile.install_targets = getInstallTargets(manifest);
+	}
 	applyIntegrityHashes(lockfile, integrityMap, existingLockfile);
 	await writeLockfile(dir, lockfile);
 	console.log(dim("Updated skilltree.lock"));
@@ -104,29 +247,30 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 
 async function installToTargets(
 	result: { entities: Map<string, ResolvedEntity>; installOrder: string[] },
-	targets: string[],
+	targets: TargetInfo[],
 	srcInstallBase: string | null,
 	dir: string,
 	options: InstallOptions,
 ): Promise<Map<string, string>> {
 	let integrityMap: Map<string, string> = new Map();
+	let skippedReported = false;
 
-	for (const installBase of targets) {
-		const primaryBase = options.prod && srcInstallBase ? srcInstallBase : installBase;
+	for (const target of targets) {
+		const primaryBase = options.prod && srcInstallBase ? srcInstallBase : target.installBase;
 		const plan = await planInstall(result.entities, result.installOrder, primaryBase, options);
 
-		printInstallOrder(plan);
-
-		if (plan.skipped.length > 0) {
+		// `--prod` skips are target-agnostic — report once, not once per target.
+		if (plan.skipped.length > 0 && !skippedReported) {
 			console.log(dim(`\nSkipped ${plan.skipped.length} dev dependencies (--prod)`));
+			skippedReported = true;
 		}
 
 		if (options.dryRun) {
-			console.log(pc.yellow("\nDry run — no files written."));
+			console.log(`\n${formatPerTargetLine(target, plan)} ${dim("(dry run)")}`);
 			continue;
 		}
 
-		console.log(`\nInstalling ${pc.bold(String(plan.toInstall.length))} entities...`);
+		console.log(`\n${formatPerTargetLine(target, plan)}`);
 		integrityMap = await executeInstall(plan, dir, options);
 
 		if (srcInstallBase && !options.prod) {
@@ -176,9 +320,7 @@ async function installGlobal(options: InstallCommandOptions): Promise<void> {
 	const manifest = await loadManifestOrThrow("", { global: true, globalDir });
 	validateManifestOrThrow(manifest, true);
 
-	const resolvedTargets = getInstallTargets(manifest, { global: true });
-	// Fallback: if no install_targets set, use legacy hardcoded path
-	const installBases = resolvedTargets.length > 0 ? resolvedTargets : [getGlobalInstallBase()];
+	const targets = buildGlobalTargets(manifest);
 
 	const existingLockfile = await readGlobalLockfile(globalDir);
 
@@ -188,7 +330,7 @@ async function installGlobal(options: InstallCommandOptions): Promise<void> {
 		}
 		await frozenInstall(manifest, existingLockfile, globalDir, {
 			...options,
-			installPath: installBases[0],
+			installPath: targets[0]?.installBase,
 		});
 		return;
 	}
@@ -196,7 +338,10 @@ async function installGlobal(options: InstallCommandOptions): Promise<void> {
 	const result = await resolveWithLockfile(manifest, existingLockfile, globalDir, "Global ");
 	throwOnResolutionErrors(result);
 
-	const integrityMap = await installToTargets(result, installBases, null, globalDir, options);
+	// Print install order once — shared across all targets.
+	printInstallOrderFromResolution(result, options);
+
+	const integrityMap = await installToTargets(result, targets, null, globalDir, options);
 
 	if (options.dryRun) return;
 
@@ -289,16 +434,43 @@ async function frozenInstall(
 	const primaryBase = options.prod && srcBase ? srcBase : devBase;
 	const plan = await planInstall(entities, installOrder, primaryBase, options);
 
-	printInstallOrder(plan);
+	printInstallOrderFromPlan(plan);
+
+	// Reconstruct a TargetInfo so frozen output matches the regular install line.
+	const target = frozenTarget(primaryBase, dir, manifest);
 
 	if (options.dryRun) {
-		console.log(pc.yellow("\nDry run — no files written."));
+		console.log(`\n${formatPerTargetLine(target, plan)} ${dim("(dry run)")}`);
 		return;
 	}
 
-	console.log(`\nInstalling ${pc.bold(String(plan.toInstall.length))} entities...`);
+	console.log(`\n${formatPerTargetLine(target, plan)}`);
 	await executeInstall(plan, dir, options);
 	success("Done.");
+}
+
+/**
+ * Best-effort TargetInfo for the single-target frozen path. Used to format
+ * the per-target line consistently with the regular install path.
+ *
+ * `displayDir` precedence:
+ *   1. Strip a leading `${dir}/` prefix when the install base is under the
+ *      project root → readable relative path like `.claude`.
+ *   2. Fall back to `~/...` form via collapseTilde for absolute paths under
+ *      the user's home (covers global frozen, where `dir` is `~/.skilltree`
+ *      but installBase is `~/.claude`).
+ *   3. Otherwise show the absolute path verbatim — the user passed it.
+ */
+function frozenTarget(installBase: string, dir: string, manifest: Manifest): TargetInfo {
+	const raw = manifest.install_targets?.[0];
+	const label = raw ? getAgentLabel(raw) : null;
+	let displayDir: string;
+	if (installBase.startsWith(`${dir}/`)) {
+		displayDir = installBase.slice(dir.length + 1);
+	} else {
+		displayDir = collapseTilde(installBase);
+	}
+	return { installBase, displayDir, label };
 }
 
 function verifyFrozenSync(manifest: Manifest, lockfile: Lockfile): void {

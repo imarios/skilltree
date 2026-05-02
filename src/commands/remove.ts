@@ -12,6 +12,8 @@ import {
 import {
 	getDevInstallPath,
 	loadManifestOrThrow,
+	validateManifestOrThrow,
+	warnLegacyInstallPath,
 	writeGlobalManifest,
 	writeManifest,
 } from "../core/manifest.js";
@@ -35,6 +37,11 @@ export async function removeCommand(
 	const isGlobal = !!options.global;
 
 	const manifest = await loadManifestOrThrow(dir, { global: isGlobal, globalDir });
+	// Validate first — match the install command's invariants so a malformed
+	// global manifest (e.g., with `dev_install_path`) errors loudly instead of
+	// silently using `~/.claude` and ignoring the user's stated intent.
+	validateManifestOrThrow(manifest, isGlobal);
+	if (!isGlobal) warnLegacyInstallPath(manifest);
 	const lockfile = isGlobal ? await readGlobalLockfile(globalDir) : await readLockfile(dir);
 
 	validateRemoveTarget(name, manifest, lockfile, isGlobal);
