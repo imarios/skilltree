@@ -1,3 +1,9 @@
+## v0.24.0 (2026-05-02)
+
+### Feat
+
+- **add**: apply --type filter during registry resolution and glob expansion (#22) (#29)
+
 ## v0.23.3 (2026-05-02)
 
 ### Fix
