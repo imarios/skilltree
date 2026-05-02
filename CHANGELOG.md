@@ -1,3 +1,9 @@
+## v0.23.1 (2026-05-02)
+
+### Fix
+
+- **scanner**: index slash-commands in registry + repo scans (#21) (#24)
+
 ## v0.23.0 (2026-05-02)
 
 ### Feat
