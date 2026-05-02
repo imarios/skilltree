@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { classifyEntityFile, scanCommand } from "../../src/commands/scan.js";
+import type { EntityType } from "../../src/types.js";
 
 let tempDir: string;
 
@@ -195,7 +196,7 @@ describe("classifyEntityFile", () => {
 	// Parametrized: each row is [path, frontmatter name | undefined, expected].
 	// Edge cases live next to canonical inputs so the matrix stays the single
 	// source of truth — adding a new layout convention is one new row.
-	const cases: Array<[string, string | undefined, { name: string; type: string } | null]> = [
+	const cases: Array<[string, string | undefined, { name: string; type: EntityType } | null]> = [
 		// Skill: directory-based, name from declaring directory or frontmatter
 		["skills/python-coding/SKILL.md", undefined, { name: "python-coding", type: "skill" }],
 		[

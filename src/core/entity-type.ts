@@ -11,6 +11,7 @@
  * conventions — neither side owns the logic outright.
  */
 
+import { basename, dirname } from "node:path";
 import type { EntityType } from "../types.js";
 
 /**
@@ -42,4 +43,15 @@ export function isSingleFileEntity(type: EntityType): boolean {
  */
 export function conventionalCandidates(name: string): string[] {
 	return [`skills/${name}`, `agents/${name}.md`, `commands/${name}.md`, name];
+}
+
+/**
+ * Derive an entity name from its `.md` path alone — the parent directory
+ * for `SKILL.md`, the filename stem otherwise. Used as the fallback when
+ * frontmatter doesn't carry a `name:` field (commands and many agents
+ * are named by file, not by frontmatter).
+ */
+export function entityNameFromPath(filePath: string): string {
+	const stem = basename(filePath, ".md");
+	return stem === "SKILL" ? basename(dirname(filePath)) : stem;
 }

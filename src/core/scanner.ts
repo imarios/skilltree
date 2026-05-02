@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { entityNameFromPath } from "./entity-type.js";
 import { getDeclaredDeps, parseFrontmatter } from "./frontmatter.js";
 import { llmScanContent } from "./llm.js";
 
@@ -118,11 +118,9 @@ export async function scanFile(filePath: string): Promise<ScanResult | null> {
 	// Self-reference filter wants the *entity name*. Skills usually carry
 	// `name:` in frontmatter; agents and commands typically don't — their
 	// name is the filename stem (or parent dir for `SKILL.md`). Falling back
-	// to the filename keeps self-refs from leaking into `undeclared` for
-	// command files like `verify-documentation.md` that mention themselves.
-	const stem = basename(filePath, ".md");
-	const fileDerivedName = stem === "SKILL" ? basename(dirname(filePath)) : stem;
-	const name = frontmatter.name ?? fileDerivedName;
+	// to the path-derived name keeps self-refs from leaking into `undeclared`
+	// for command files like `verify-documentation.md` that mention themselves.
+	const name = frontmatter.name ?? entityNameFromPath(filePath);
 
 	// Extract body (everything after frontmatter)
 	const bodyStart = content.indexOf("---", content.indexOf("---") + 3);
