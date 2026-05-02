@@ -26,6 +26,11 @@ export const SKIP_MD_FILES = new Set([
 /**
  * Scan a bare git repo for skills and agents.
  * Tries skillkit-index.yaml first, falls back to dynamic scanning.
+ *
+ * IMPORTANT: if you change the output shape, classification rules, or which
+ * files are recognized here (or in any helper this calls), bump
+ * `SCANNER_VERSION` in `core/registry-cache.ts`. That fingerprint is what
+ * tells consumers their on-disk caches are no longer trustworthy (issue #25).
  */
 export async function scanRegistry(repoDir: string): Promise<IndexEntry[]> {
 	// Try skillkit-index.yaml first (fast path)

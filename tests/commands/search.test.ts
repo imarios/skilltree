@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { searchCommand } from "../../src/commands/search.js";
-import { writeRegistryIndex } from "../../src/core/registry-cache.js";
+import { getRegistryIndexPath, writeRegistryIndex } from "../../src/core/registry-cache.js";
 import { writeConfig } from "../../src/core/registry-config.js";
 import type { RegistryIndex } from "../../src/types.js";
 
@@ -140,5 +140,42 @@ describe("searchCommand", () => {
 		await expect(searchCommand("python", {}, configPath, join(dir, "cache"))).rejects.toThrow(
 			"No registry indexes",
 		);
+	});
+
+	test("ignores cached indexes that predate the scanner_version field (issue #25)", async () => {
+		// Repro: a build from before #25 wrote `index.json` without a
+		// `scanner_version` fingerprint. After upgrading skilltree, that cache
+		// is logically stale (e.g. it lacks slash-commands from the #21/#24 fix)
+		// but its `updated_at` is recent. `searchCommand` must NOT serve it.
+		const dir = await setup();
+		const configPath = join(dir, "config.yaml");
+		const cacheDir = join(dir, "cache");
+		await writeConfig(
+			{ registries: [{ name: "vibes", repo: "github.com/imarios/vibes" }] },
+			configPath,
+		);
+
+		const indexPath = getRegistryIndexPath("vibes", cacheDir);
+		await mkdir(dirname(indexPath), { recursive: true });
+		const preFixIndex = {
+			registry: "vibes",
+			repo: "github.com/imarios/vibes",
+			updated_at: new Date().toISOString(),
+			entities: [{ name: "python-coding", type: "skill", path: "skills/python-coding" }],
+		};
+		await writeFile(indexPath, JSON.stringify(preFixIndex), "utf-8");
+
+		// Suppress the warn() output during the test.
+		const originalWarn = console.warn;
+		console.warn = () => {
+			// noop — we don't want the warning printed during the assertion
+		};
+		try {
+			await expect(searchCommand("python", {}, configPath, cacheDir)).rejects.toThrow(
+				"No registry indexes",
+			);
+		} finally {
+			console.warn = originalWarn;
+		}
 	});
 });

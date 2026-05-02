@@ -2,15 +2,19 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import simpleGit from "simple-git";
+import pkg from "../../package.json";
 import {
 	cleanRegistryCache,
 	ensureRegistryRepo,
 	getRegistryIndexPath,
 	getRegistryRepoDir,
+	isCacheCompatible,
 	isStale,
+	loadFreshRegistryIndex,
 	readRegistryIndex,
+	SCANNER_VERSION,
 	writeRegistryIndex,
 } from "../../src/core/registry-cache.js";
 import type { RegistryIndex } from "../../src/types.js";
@@ -113,6 +117,199 @@ describe("isStale", () => {
 		await writeRegistryIndex(index, dir);
 		const stale = await isStale("vibes", 24 * 60 * 60 * 1000, dir);
 		expect(stale).toBe(true);
+	});
+
+	test("returns true when scanner_version is missing (pre-#25 cache)", async () => {
+		// Defense in depth: even if the time-based check would say "fresh",
+		// a cache produced by a pre-fingerprint build is not safe to consume.
+		const dir = await setup();
+		const indexPath = getRegistryIndexPath("vibes", dir);
+		await mkdir(dirname(indexPath), { recursive: true });
+		const raw = {
+			registry: "vibes",
+			repo: "github.com/imarios/vibes",
+			updated_at: new Date().toISOString(),
+			entities: [],
+		};
+		await writeFile(indexPath, JSON.stringify(raw), "utf-8");
+		const stale = await isStale("vibes", 24 * 60 * 60 * 1000, dir);
+		expect(stale).toBe(true);
+	});
+});
+
+describe("scanner_version stamping", () => {
+	test("writeRegistryIndex stamps the running SCANNER_VERSION and package_version", async () => {
+		const dir = await setup();
+		// Caller does NOT pass either field — they should be filled in.
+		const index: RegistryIndex = {
+			registry: "vibes",
+			repo: "github.com/imarios/vibes",
+			updated_at: new Date().toISOString(),
+			entities: [],
+		};
+		await writeRegistryIndex(index, dir);
+		const readBack = await readRegistryIndex("vibes", dir);
+		expect(readBack?.scanner_version).toBe(SCANNER_VERSION);
+		expect(readBack?.package_version).toBe(pkg.version);
+	});
+
+	test("writeRegistryIndex preserves an explicit scanner_version (no clobber on round-trip)", async () => {
+		// We never want callers to pin an arbitrary version, but the round-trip
+		// of read → write must not lose the field. The current design always
+		// stamps the running version, so this test pins that behavior:
+		// whatever caller passes is replaced by the running constant.
+		const dir = await setup();
+		const index: RegistryIndex = {
+			registry: "vibes",
+			repo: "github.com/imarios/vibes",
+			updated_at: new Date().toISOString(),
+			entities: [],
+			scanner_version: 99,
+		};
+		await writeRegistryIndex(index, dir);
+		const readBack = await readRegistryIndex("vibes", dir);
+		expect(readBack?.scanner_version).toBe(SCANNER_VERSION);
+	});
+});
+
+describe("isCacheCompatible", () => {
+	test("returns true when scanner_version matches", () => {
+		const index: RegistryIndex = {
+			registry: "vibes",
+			repo: "x",
+			updated_at: new Date().toISOString(),
+			entities: [],
+			scanner_version: SCANNER_VERSION,
+		};
+		expect(isCacheCompatible(index)).toBe(true);
+	});
+
+	test("returns false when scanner_version is missing", () => {
+		const index: RegistryIndex = {
+			registry: "vibes",
+			repo: "x",
+			updated_at: new Date().toISOString(),
+			entities: [],
+		};
+		expect(isCacheCompatible(index)).toBe(false);
+	});
+
+	test("returns false when scanner_version is older", () => {
+		const index: RegistryIndex = {
+			registry: "vibes",
+			repo: "x",
+			updated_at: new Date().toISOString(),
+			entities: [],
+			scanner_version: SCANNER_VERSION - 1,
+		};
+		expect(isCacheCompatible(index)).toBe(false);
+	});
+
+	test("returns false when scanner_version is newer (downgrade scenario)", () => {
+		// If a user ran a newer skilltree once, then downgraded, the cache
+		// fingerprint now claims a higher version than this build can speak.
+		// Treat that as incompatible too — same UX as "needs rebuild".
+		const index: RegistryIndex = {
+			registry: "vibes",
+			repo: "x",
+			updated_at: new Date().toISOString(),
+			entities: [],
+			scanner_version: SCANNER_VERSION + 1,
+		};
+		expect(isCacheCompatible(index)).toBe(false);
+	});
+});
+
+describe("loadFreshRegistryIndex", () => {
+	test("returns the index when scanner_version matches", async () => {
+		const dir = await setup();
+		const index: RegistryIndex = {
+			registry: "vibes",
+			repo: "x",
+			updated_at: new Date().toISOString(),
+			entities: [{ name: "foo", type: "skill", path: "skills/foo" }],
+		};
+		await writeRegistryIndex(index, dir);
+		const loaded = await loadFreshRegistryIndex("vibes", dir);
+		expect(loaded).not.toBeNull();
+		expect(loaded?.entities[0]?.name).toBe("foo");
+	});
+
+	test("returns null when index file is missing", async () => {
+		const dir = await setup();
+		const loaded = await loadFreshRegistryIndex("nonexistent", dir);
+		expect(loaded).toBeNull();
+	});
+
+	test("returns null for a corrupt JSON cache (truncated mid-write)", async () => {
+		// A torn write or hand-edit of index.json shouldn't crash consumers.
+		// The right remediation is identical to "missing" / "outdated":
+		// re-run `skilltree registry update`. So treat parse failures as null.
+		const dir = await setup();
+		const indexPath = getRegistryIndexPath("vibes", dir);
+		await mkdir(dirname(indexPath), { recursive: true });
+		await writeFile(indexPath, '{"registry":"vibes","entities":[', "utf-8");
+
+		const loaded = await loadFreshRegistryIndex("vibes", dir);
+		expect(loaded).toBeNull();
+	});
+
+	test("returns null when entities is the wrong shape (defensive against corrupt cache)", async () => {
+		// Even with a valid scanner_version, if `entities` isn't an array,
+		// every consumer (search/info/add) would crash on `.length` or
+		// iteration. Treat shape-violations the same as missing.
+		const dir = await setup();
+		const indexPath = getRegistryIndexPath("vibes", dir);
+		await mkdir(dirname(indexPath), { recursive: true });
+		await writeFile(
+			indexPath,
+			JSON.stringify({
+				registry: "vibes",
+				repo: "x",
+				updated_at: new Date().toISOString(),
+				scanner_version: SCANNER_VERSION,
+				entities: "not-an-array",
+			}),
+			"utf-8",
+		);
+
+		const loaded = await loadFreshRegistryIndex("vibes", dir);
+		expect(loaded).toBeNull();
+	});
+
+	test("returns null for a pre-#25 cache (no scanner_version)", async () => {
+		// Reproduces the issue #25 bug: a recently-generated but logically-stale
+		// index.json (produced by an older scanner) must NOT be served as fresh.
+		const dir = await setup();
+		const indexPath = getRegistryIndexPath("vibes", dir);
+		await mkdir(dirname(indexPath), { recursive: true });
+		const raw = {
+			registry: "vibes",
+			repo: "x",
+			updated_at: new Date().toISOString(), // recent — would pass the time-based check
+			entities: [{ name: "foo", type: "skill", path: "skills/foo" }],
+		};
+		await writeFile(indexPath, JSON.stringify(raw), "utf-8");
+
+		const loaded = await loadFreshRegistryIndex("vibes", dir);
+		expect(loaded).toBeNull();
+	});
+
+	test("returns null when scanner_version is older than current build", async () => {
+		const dir = await setup();
+		const indexPath = getRegistryIndexPath("vibes", dir);
+		await mkdir(dirname(indexPath), { recursive: true });
+		const raw = {
+			registry: "vibes",
+			repo: "x",
+			updated_at: new Date().toISOString(),
+			scanner_version: SCANNER_VERSION - 1,
+			entities: [],
+		};
+		await writeFile(indexPath, JSON.stringify(raw), "utf-8");
+
+		const loaded = await loadFreshRegistryIndex("vibes", dir);
+		expect(loaded).toBeNull();
 	});
 });
 

@@ -5,13 +5,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { addCommand } from "../../src/commands/add.js";
 import { infoCommand } from "../../src/commands/info.js";
 import { initCommand } from "../../src/commands/init.js";
 import { registryAddCommand } from "../../src/commands/registry.js";
 import { searchCommand } from "../../src/commands/search.js";
-import { writeRegistryIndex } from "../../src/core/registry-cache.js";
+import { getRegistryIndexPath, writeRegistryIndex } from "../../src/core/registry-cache.js";
 import { addRegistry, writeConfig } from "../../src/core/registry-config.js";
 import { dynamicScanRepo } from "../../src/core/registry-scanner.js";
 import { scoreEntity, searchRegistries } from "../../src/core/registry-search.js";
@@ -117,6 +117,63 @@ describe("Fix #6: search/info exit codes", () => {
 		await writeRegistryIndex(index, cacheDir);
 
 		await expect(infoCommand("nonexistent", {}, configPath, cacheDir)).rejects.toThrow("not found");
+	});
+
+	test("infoCommand directs user to 'registry update' when every cache is outdated (issue #25)", async () => {
+		// When ALL caches are fingerprint-incompatible, loadFreshRegistryIndex
+		// returns null for every registry. The error message must NOT claim the
+		// entity is absent — it should tell the user to refresh the cache,
+		// otherwise they get stuck in an info → "try search" → search →
+		// "run registry update" loop.
+		const dir = await setup();
+		const configPath = join(dir, "config.yaml");
+		const cacheDir = join(dir, "cache");
+		await writeConfig({ registries: [{ name: "r", repo: "x" }] }, configPath);
+
+		// Hand-write a pre-#25 cache (no scanner_version → incompatible).
+		const indexPath = getRegistryIndexPath("r", cacheDir);
+		await mkdir(dirname(indexPath), { recursive: true });
+		await writeFile(
+			indexPath,
+			JSON.stringify({
+				registry: "r",
+				repo: "x",
+				updated_at: new Date().toISOString(),
+				entities: [{ name: "python-coding", type: "skill", path: "skills/python-coding" }],
+			}),
+			"utf-8",
+		);
+
+		await expect(infoCommand("python-coding", {}, configPath, cacheDir)).rejects.toThrow(
+			"registry update",
+		);
+	});
+
+	test("infoCommand --json still throws on outdated caches (don't mask setup failure as empty result)", async () => {
+		// A scripted JSON consumer would otherwise see `[]` and treat it as
+		// "entity definitively absent". Setup failures must propagate as
+		// non-zero exits regardless of --json (matches search.ts behavior).
+		const dir = await setup();
+		const configPath = join(dir, "config.yaml");
+		const cacheDir = join(dir, "cache");
+		await writeConfig({ registries: [{ name: "r", repo: "x" }] }, configPath);
+
+		const indexPath = getRegistryIndexPath("r", cacheDir);
+		await mkdir(dirname(indexPath), { recursive: true });
+		await writeFile(
+			indexPath,
+			JSON.stringify({
+				registry: "r",
+				repo: "x",
+				updated_at: new Date().toISOString(),
+				entities: [{ name: "python-coding", type: "skill", path: "skills/python-coding" }],
+			}),
+			"utf-8",
+		);
+
+		await expect(
+			infoCommand("python-coding", { json: true }, configPath, cacheDir),
+		).rejects.toThrow("registry update");
 	});
 });
 

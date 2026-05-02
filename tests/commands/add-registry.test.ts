@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import YAML from "yaml";
 import { addCommand } from "../../src/commands/add.js";
 import { initCommand } from "../../src/commands/init.js";
-import { writeRegistryIndex } from "../../src/core/registry-cache.js";
+import { getRegistryIndexPath, writeRegistryIndex } from "../../src/core/registry-cache.js";
 import { writeConfig } from "../../src/core/registry-config.js";
 import {
 	isLocalDependency,
@@ -448,6 +448,37 @@ describe("glob-pattern add (Issue #14)", () => {
 		const dep = manifest.dependencies?.kubernetes;
 		expect(dep && isRemoteDependency(dep) && dep.repo).toBe("github.com/imarios/vibes");
 		expect(warnings.some((w) => w.includes("kubernetes") && w.includes("open-vibes"))).toBe(true);
+	});
+
+	test("glob add throws 'registry update' when caches are fingerprint-stale (issue #25)", async () => {
+		// Pre-#25 caches have no scanner_version; loadFreshRegistryIndex rejects
+		// them. Glob expansion must fail with the same registry-update guidance
+		// the single-name path emits, not silently expand against stale data.
+		const dir = await setup();
+		const configPath = join(dir, ".skilltree-config.yaml");
+		const cacheDir = join(dir, ".skilltree-cache");
+
+		await writeConfig(
+			{ registries: [{ name: "vibes", repo: "github.com/imarios/vibes" }] },
+			configPath,
+		);
+
+		const indexPath = getRegistryIndexPath("vibes", cacheDir);
+		await mkdir(dirname(indexPath), { recursive: true });
+		await writeFile(
+			indexPath,
+			JSON.stringify({
+				registry: "vibes",
+				repo: "github.com/imarios/vibes",
+				updated_at: new Date().toISOString(),
+				entities: [{ name: "kibana-search", type: "skill", path: "skills/kibana-search" }],
+			}),
+			"utf-8",
+		);
+
+		await expect(addCommand("kibana-*", { configPath, cacheDir, yes: true }, dir)).rejects.toThrow(
+			"registry update",
+		);
 	});
 
 	test("supports `?` as single-char glob", async () => {

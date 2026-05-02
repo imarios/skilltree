@@ -1,6 +1,6 @@
 import semver from "semver";
 import { listTags } from "../core/git.js";
-import { getRegistryRepoDir, readRegistryIndex } from "../core/registry-cache.js";
+import { getRegistryRepoDir, loadFreshRegistryIndex } from "../core/registry-cache.js";
 import { listRegistries } from "../core/registry-config.js";
 import { dim, label, pc } from "../core/ui.js";
 import type { IndexEntry } from "../types.js";
@@ -9,6 +9,17 @@ interface InfoMatch {
 	entity: IndexEntry;
 	registry: string;
 	repo: string;
+}
+
+interface FindMatchesResult {
+	matches: InfoMatch[];
+	/**
+	 * True iff at least one registry's cache loaded successfully. Distinguishes
+	 * "no usable indexes" (issue #25 — caches missing or fingerprint-stale)
+	 * from "indexes loaded but the entity isn't there" so the error message can
+	 * point the user at the right remediation.
+	 */
+	anyIndexLoaded: boolean;
 }
 
 export async function infoCommand(
@@ -23,7 +34,15 @@ export async function infoCommand(
 		throw new Error("No registries configured. Run 'skilltree registry add <url>' to add one.");
 	}
 
-	const matches = await findMatches(name, registries, cacheDir);
+	const { matches, anyIndexLoaded } = await findMatches(name, registries, cacheDir);
+
+	// Distinguish "no caches usable" (issue #25) from "entity truly absent" so
+	// the user — or a scripted JSON consumer — gets the right next step
+	// instead of bouncing through search or treating the empty result as
+	// definitive. Setup failures throw regardless of --json (matches search.ts).
+	if (!anyIndexLoaded) {
+		throw new Error("No registry indexes available. Run 'skilltree registry update' first.");
+	}
 
 	if (matches.length === 0) {
 		if (opts?.json) {
@@ -51,18 +70,21 @@ async function findMatches(
 	name: string,
 	registries: Array<{ name: string; repo: string }>,
 	cacheDir?: string,
-): Promise<InfoMatch[]> {
+): Promise<FindMatchesResult> {
 	const matches: InfoMatch[] = [];
+	let anyIndexLoaded = false;
 	for (const reg of registries) {
-		const index = await readRegistryIndex(reg.name, cacheDir);
+		// loadFreshRegistryIndex skips fingerprint-incompatible caches (issue #25).
+		const index = await loadFreshRegistryIndex(reg.name, cacheDir);
 		if (!index) continue;
+		anyIndexLoaded = true;
 		for (const entity of index.entities) {
 			if (entity.name === name) {
 				matches.push({ entity, registry: reg.name, repo: reg.repo });
 			}
 		}
 	}
-	return matches;
+	return { matches, anyIndexLoaded };
 }
 
 async function fetchVersions(registry: string, cacheDir?: string): Promise<string[]> {

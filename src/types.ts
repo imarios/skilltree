@@ -96,6 +96,14 @@ export interface RegistryIndex {
 	registry: string;
 	repo: string;
 	updated_at: string; // ISO 8601
+	/**
+	 * Bumped whenever `scanRegistry` semantics change in a way that makes
+	 * older cached indexes wrong (not just out-of-date). See
+	 * `SCANNER_VERSION` in `core/registry-cache.ts`.
+	 */
+	scanner_version?: number;
+	/** Running skilltree version that produced this cache (diagnostic). */
+	package_version?: string;
 	entities: IndexEntry[];
 }
 

@@ -2,6 +2,7 @@ import { cleanGitUrl, normalizeGitUrl } from "../core/git.js";
 import {
 	cleanRegistryCache,
 	ensureRegistryRepo,
+	isCacheCompatible,
 	readRegistryIndex,
 	writeRegistryIndex,
 } from "../core/registry-cache.js";
@@ -9,6 +10,13 @@ import { addRegistry, listRegistries, removeRegistry } from "../core/registry-co
 import { scanRegistry } from "../core/registry-scanner.js";
 import { dim, pc, success, warn } from "../core/ui.js";
 import type { RegistryEntry, RegistryIndex } from "../types.js";
+
+/**
+ * Suffix on `registry list`'s "Last Updated" column when a cache's
+ * `scanner_version` doesn't match the running build (issue #25). Tested
+ * against the same constant so the literal lives in one place.
+ */
+export const OUTDATED_SUFFIX = " (outdated)";
 
 /**
  * Curated default registries for `skilltree registry init`.
@@ -86,6 +94,9 @@ export async function registryListCommand(
 					repo: reg.repo,
 					entities: index.entities.length,
 					updated_at: index.updated_at,
+					// Issue #25: surface caches whose scanner_version doesn't match
+					// the running build so users know they need to refresh.
+					outdated: !isCacheCompatible(index),
 				};
 			}
 			return {
@@ -93,6 +104,7 @@ export async function registryListCommand(
 				repo: reg.repo,
 				entities: null as number | null,
 				updated_at: null as string | null,
+				outdated: false,
 			};
 		}),
 	);
@@ -103,12 +115,17 @@ export async function registryListCommand(
 	}
 
 	// Build display rows with formatted strings
-	const rows = rowData.map((r) => ({
-		name: r.name,
-		repo: r.repo,
-		entities: r.entities !== null ? r.entities.toString() : "--",
-		updated: r.updated_at ? formatTimeAgo(new Date(r.updated_at)) : "never",
-	}));
+	const rows = rowData.map((r) => {
+		const baseUpdated = r.updated_at ? formatTimeAgo(new Date(r.updated_at)) : "never";
+		// Surface incompatibility at a glance so users don't have to diff versions.
+		const updated = r.outdated ? `${baseUpdated}${OUTDATED_SUFFIX}` : baseUpdated;
+		return {
+			name: r.name,
+			repo: r.repo,
+			entities: r.entities !== null ? r.entities.toString() : "--",
+			updated,
+		};
+	});
 
 	// Calculate column widths
 	const nameW = Math.max(4, ...rows.map((r) => r.name.length));
