@@ -1,3 +1,9 @@
+## v0.22.0 (2026-05-02)
+
+### Feat
+
+- **scan**: detect slash-command references + command parity polish (#16)
+
 ## v0.21.0 (2026-05-02)
 
 ### Feat
