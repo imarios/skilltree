@@ -1,3 +1,9 @@
+## v0.21.0 (2026-05-02)
+
+### Feat
+
+- **commands**: add slash commands as a third resource type (#13)
+
 ## v0.20.0 (2026-04-29)
 
 ### Feat
