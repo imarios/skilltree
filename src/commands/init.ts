@@ -12,7 +12,7 @@ import { addGitignoreEntries, getSkillAgentIgnoreEntries } from "../core/gitigno
 import { serializeManifest, writeGlobalManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
 import { type LocalEntry, scanLocalRepo } from "../core/repo-scanner.js";
-import { dim, success, warn } from "../core/ui.js";
+import { dim, pluralize, success, warn } from "../core/ui.js";
 import type { Dependency, LocalDependency, Manifest } from "../types.js";
 
 export interface InitOptions {
@@ -220,8 +220,4 @@ export function parseSelectionAnswer(answer: string, entries: LocalEntry[]): Loc
 function toLocalPathValue(scanPath: string): string {
 	if (scanPath === "." || scanPath === "") return ".";
 	return scanPath.startsWith("./") ? scanPath : `./${scanPath}`;
-}
-
-function pluralize(word: string, n: number): string {
-	return n === 1 ? word : `${word}s`;
 }

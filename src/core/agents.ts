@@ -23,6 +23,21 @@ export const AGENT_REGISTRY: Record<string, AgentEntry> = {
 	windsurf: { dir: ".windsurf", globalHome: "~/.codeium/windsurf" },
 };
 
+/**
+ * Display labels for known agents — used in install output so users see
+ * "Claude Code" instead of the bare registry key "claude".
+ *
+ * Keep keys in sync with AGENT_REGISTRY.
+ */
+export const AGENT_LABELS: Record<string, string> = {
+	claude: "Claude Code",
+	codex: "Codex",
+	copilot: "GitHub Copilot",
+	cursor: "Cursor",
+	gemini: "Gemini CLI",
+	windsurf: "Windsurf",
+};
+
 function lookupAgent(target: string): AgentEntry {
 	const entry = AGENT_REGISTRY[target];
 	if (!entry) {
@@ -51,6 +66,16 @@ export function resolveTarget(target: string): string {
 export function resolveGlobalTarget(target: string): string {
 	if (isLocalSource(target)) return target;
 	return expandTilde(lookupAgent(target).globalHome);
+}
+
+/**
+ * Friendly display label for a target. Returns the label for known agent
+ * registry keys (e.g., "claude" → "Claude Code") and `null` for literal
+ * paths or unknown bare words — callers should fall back to the path.
+ */
+export function getAgentLabel(target: string): string | null {
+	if (isLocalSource(target)) return null;
+	return AGENT_LABELS[target] ?? null;
 }
 
 /**

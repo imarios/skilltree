@@ -27,6 +27,9 @@ export const tableHeader = (msg: string) => console.log(pc.bold(pc.underline(msg
 /** Blue for labels/keys in info displays */
 export const label = (msg: string) => pc.blue(msg);
 
+/** Naive English pluralizer: returns `word` for n=1, `${word}s` otherwise. */
+export const pluralize = (word: string, n: number): string => (n === 1 ? word : `${word}s`);
+
 /**
  * Print resolution warnings and throw if errors exist.
  * Used by install, installGlobal, and vendor commands.

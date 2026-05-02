@@ -19,6 +19,7 @@ import {
 	getInstallTargets,
 	loadManifestOrThrow,
 	validateManifestOrThrow,
+	warnLegacyInstallPath,
 	writeManifest,
 } from "../core/manifest.js";
 import { dim, header, pc, success, throwOnResolutionErrors, warn } from "../core/ui.js";
@@ -33,6 +34,7 @@ export interface VendorOptions {
 export async function vendorCommand(dir: string, options: VendorOptions): Promise<void> {
 	const manifest = await loadManifestOrThrow(dir);
 	validateManifestOrThrow(manifest);
+	warnLegacyInstallPath(manifest);
 
 	// Resolve vendor target — single target only
 	const targets = getInstallTargets(manifest);
