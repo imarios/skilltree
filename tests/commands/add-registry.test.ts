@@ -312,6 +312,23 @@ describe("glob-pattern add (Issue #14)", () => {
 		expect(manifest.dependencies?.["kibana-search"]).toBeDefined();
 	});
 
+	test("--global glob writes to the global manifest", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithKibanaIndex(dir);
+		const globalDir = join(dir, "global-config");
+		const { writeGlobalManifest, readGlobalManifest } = await import("../../src/core/manifest.js");
+		await writeGlobalManifest({ dependencies: {} }, globalDir);
+
+		await addCommand("kibana-*", { configPath, cacheDir, globalDir, global: true, yes: true }, dir);
+
+		const globalManifest = await readGlobalManifest(globalDir);
+		expect(globalManifest.dependencies?.["kibana-search"]).toBeDefined();
+		expect(globalManifest.dependencies?.["kibana-investigate"]).toBeDefined();
+		// Local manifest should be untouched.
+		const local = await readManifestRaw(dir);
+		expect(local.dependencies?.["kibana-search"]).toBeUndefined();
+	});
+
 	test("--yes skips the prompt even when interactive", async () => {
 		const dir = await setup();
 		const { configPath, cacheDir } = await setupWithKibanaIndex(dir);
