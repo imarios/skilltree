@@ -142,6 +142,28 @@ describe("searchCommand", () => {
 		);
 	});
 
+	test("search+--registry with empty registry list still names the typo'd flag (issue #42)", async () => {
+		const dir = await setup();
+		const configPath = join(dir, "config.yaml");
+		await writeConfig({ registries: [] }, configPath);
+
+		await expect(searchCommand("python", { registry: "ghost" }, configPath)).rejects.toThrow(
+			/Registry 'ghost' not found/,
+		);
+	});
+
+	test("search with unknown --registry names the registry (issue #42)", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithIndex(dir);
+
+		// "vibess" is a typo for the configured "vibes". Should NOT bottom out
+		// at "No registry indexes available" — the indexes are fine; the name
+		// is wrong.
+		const promise = searchCommand("python", { registry: "vibess" }, configPath, cacheDir);
+		await expect(promise).rejects.toThrow(/Registry 'vibess' not found/);
+		await expect(promise).rejects.toThrow(/Did you mean: vibes\?/);
+	});
+
 	test("ignores cached indexes that predate the scanner_version field (issue #25)", async () => {
 		// Repro: a build from before #25 wrote `index.json` without a
 		// `scanner_version` fingerprint. After upgrading skilltree, that cache

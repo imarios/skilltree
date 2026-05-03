@@ -116,6 +116,29 @@ describe("registry-assisted add", () => {
 		);
 	});
 
+	test("--registry with empty registry list still names the typo'd flag (issue #42)", async () => {
+		// Without the fix, this falls through to the generic "no registries
+		// configured" error and the typo'd --registry is invisible.
+		const dir = await setup();
+		const configPath = join(dir, ".skilltree-config.yaml");
+		await writeConfig({ registries: [] }, configPath);
+
+		await expect(
+			addCommand("python-coding", { configPath, registry: "ghost" }, dir),
+		).rejects.toThrow(/Registry 'ghost' not found/);
+	});
+
+	test("single-name with unknown --registry names the registry (issue #42)", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithRegistry(dir);
+
+		// "vibess" is a typo for "vibes". Without the fix this falls through
+		// to "not found in any registry" — never naming the typo'd flag.
+		const promise = addCommand("python-coding", { configPath, cacheDir, registry: "vibess" }, dir);
+		await expect(promise).rejects.toThrow(/Registry 'vibess' not found/);
+		await expect(promise).rejects.toThrow(/Did you mean: vibes\?/);
+	});
+
 	test("uses --registry flag to filter to one registry", async () => {
 		const dir = await setup();
 		const configPath = join(dir, ".skilltree-config.yaml");
@@ -251,6 +274,36 @@ describe("glob-pattern add (Issue #14)", () => {
 		await expect(
 			addCommand("kibana-*", { repo: "github.com/x/y", path: "skills/kibana" }, dir),
 		).rejects.toThrow(/glob/i);
+	});
+
+	test("glob+--repo error suggests --registry as the right scoping flag (issue #42)", async () => {
+		const dir = await setup();
+
+		await expect(addCommand("kibana-*", { repo: "github.com/x/y" }, dir)).rejects.toThrow(
+			/--registry/,
+		);
+	});
+
+	test("glob+--registry with empty registry list still names the typo'd flag (issue #42)", async () => {
+		const dir = await setup();
+		const configPath = join(dir, ".skilltree-config.yaml");
+		await writeConfig({ registries: [] }, configPath);
+
+		await expect(addCommand("kibana-*", { configPath, registry: "ghost" }, dir)).rejects.toThrow(
+			/Registry 'ghost' not found/,
+		);
+	});
+
+	test("glob with unknown --registry names the registry (issue #42)", async () => {
+		const dir = await setup();
+		const { configPath, cacheDir } = await setupWithKibanaIndex(dir);
+
+		// "vibess" is a typo for the configured "vibes". Should NOT bottom out
+		// at "No registry indexes available" — the indexes are fine; the name
+		// is wrong.
+		const promise = addCommand("kibana-*", { configPath, cacheDir, registry: "vibess" }, dir);
+		await expect(promise).rejects.toThrow(/Registry 'vibess' not found/);
+		await expect(promise).rejects.toThrow(/Did you mean: vibes\?/);
 	});
 
 	test("glob errors when combined with --local (single-source flag)", async () => {
