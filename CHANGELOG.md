@@ -1,3 +1,9 @@
+## v0.24.2 (2026-05-03)
+
+### Fix
+
+- **init**: resolve .gitignore entries through agent registry (#32) (#35)
+
 ## v0.24.1 (2026-05-02)
 
 ### Fix
