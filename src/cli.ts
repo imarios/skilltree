@@ -114,11 +114,13 @@ program
 	.description("Remove a dependency")
 	.option("-f, --force", "Skip confirmation")
 	.option("--keep-files", "Leave installed files in place")
+	.option("-n, --dry-run", "Preview the removal without changing anything")
 	.option("-g, --global", "Remove from global dependencies")
 	.action(async (name: string, opts) => {
 		await removeCommand(name, process.cwd(), {
 			force: opts.force,
 			keepFiles: opts.keepFiles,
+			dryRun: opts.dryRun,
 			global: opts.global,
 		});
 	});
@@ -182,8 +184,9 @@ program
 	.command("unvendor")
 	.description("Exit vendor mode, restore normal symlinked installs")
 	.option("-f, --force", "Discard modified vendored files")
+	.option("-n, --dry-run", "Show what would happen without making changes")
 	.action(async (opts) => {
-		await unvendorCommand(process.cwd(), { force: opts.force });
+		await unvendorCommand(process.cwd(), { force: opts.force, dryRun: opts.dryRun });
 	});
 
 const deps = program.command("deps").description("Dependency graph commands");

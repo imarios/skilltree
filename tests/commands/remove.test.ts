@@ -151,6 +151,71 @@ describe("removeCommand", () => {
 		expect(lockfile?.packages.grandchild).toBeUndefined();
 	});
 
+	test("--dry-run leaves manifest unchanged and previews what would be removed", async () => {
+		const dir = await setup();
+		await addCommand("my-skill", { repo: "github.com/user/repo", path: "skills/my-skill" }, dir);
+
+		const installDir = join(dir, ".claude", "skills", "my-skill");
+		await mkdir(installDir, { recursive: true });
+		await writeFile(join(installDir, "SKILL.md"), "# test\n");
+		await writeFile(
+			join(dir, "skilltree.lock"),
+			"lockfile_version: 1\npackages:\n  my-skill:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/my-skill\n    version: 1.0.0\n    commit: abc\n    dependencies: []\n",
+		);
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		try {
+			await removeCommand("my-skill", dir, { force: true, dryRun: true });
+		} finally {
+			console.log = originalLog;
+		}
+
+		// Manifest still has the dep
+		const manifest = await readManifest(dir);
+		expect(manifest.dependencies?.["my-skill"]).toBeDefined();
+
+		// Files still exist
+		const stats = await stat(installDir);
+		expect(stats.isDirectory()).toBe(true);
+
+		// Lockfile still has the entry
+		const lockfile = await readLockfile(dir);
+		expect(lockfile?.packages["my-skill"]).toBeDefined();
+
+		// Output advertises dry-run + names what would be touched
+		const output = logs.join("\n");
+		expect(output.toLowerCase()).toContain("dry run");
+		expect(output).toContain("my-skill");
+	});
+
+	test("--dry-run skips the dependents-confirmation prompt", async () => {
+		const dir = await setup();
+		await addCommand("base", { repo: "github.com/user/repo", path: "skills/base" }, dir);
+
+		// Lockfile makes "consumer" depend on "base" — without --force this would
+		// prompt. --dry-run should not prompt either (nothing to confirm in a
+		// preview).
+		await writeFile(
+			join(dir, "skilltree.lock"),
+			"lockfile_version: 1\npackages:\n  base:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/base\n    version: 1.0.0\n    commit: abc\n    dependencies: []\n  consumer:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/consumer\n    version: 1.0.0\n    commit: abc\n    dependencies:\n      - base\n",
+		);
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		try {
+			// No --force; if dry-run didn't bypass the prompt this would hang on stdin
+			await removeCommand("base", dir, { dryRun: true });
+		} finally {
+			console.log = originalLog;
+		}
+
+		const manifest = await readManifest(dir);
+		expect(manifest.dependencies?.base).toBeDefined();
+	});
+
 	test("orphan cleanup removes installed files of orphans", async () => {
 		const dir = await setup();
 		await addCommand("parent", { repo: "github.com/user/repo", path: "skills/parent" }, dir);
