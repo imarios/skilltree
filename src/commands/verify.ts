@@ -11,6 +11,7 @@ import { pc, warn } from "../core/ui.js";
 export interface VerifyOptions {
 	global?: boolean;
 	globalDir?: string; // test override
+	json?: boolean;
 }
 
 export async function verifyCommand(dir: string, opts?: VerifyOptions): Promise<void> {
@@ -41,6 +42,13 @@ export async function verifyCommand(dir: string, opts?: VerifyOptions): Promise<
 		integrityMap,
 		isGlobal ? globalDir : dir,
 	);
+
+	if (opts?.json) {
+		// Machine-readable shape: array of {name, status}. No diagnostics, no
+		// colors — consumers branch on `status` themselves.
+		console.log(JSON.stringify(statuses, null, 2));
+		return;
+	}
 
 	for (const status of statuses) {
 		console.log(`  ${status.name.padEnd(25)} ${formatStatusIcon(status.status)}`);

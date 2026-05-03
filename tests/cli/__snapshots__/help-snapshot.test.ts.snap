@@ -1,0 +1,471 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`CLI help snapshots top-level --help is stable 1`] = `
+"Usage: skilltree [options] [command]
+
+Dependency manager for AI agent skills
+
+Options:
+  -V, --version                 output the version number
+  -h, --help                    display help for command
+
+Commands:
+  init [options]                Initialize a new skilltree project
+
+  Related:
+    registry init   — seed popular community registries to install skills from
+    targets detect  — auto-discover installed coding agents on this machine
+  add [options] <name>          Add a dependency
+  install [options]             Resolve and install dependencies
+  update [options] [name]       Update dependencies to latest versions
+  remove [options] <name>       Remove a dependency
+  verify [options]              Verify installed dependencies against lockfile
+  list [options]                List installed dependencies
+  scan [options] <paths...>     Scan skills, agents, and commands for undeclared
+                                dependencies
+  teach [options]               Install the skilltree skill to all detected
+                                coding agents
+  vendor [options]              Copy all deps as real files for git commit
+                                (distribution mode)
+  unvendor [options]            Exit vendor mode, restore normal symlinked
+                                installs
+  deps                          Dependency graph commands
+  registry                      Registry management commands
+  search [options] <query>      Search registries for skills, agents, and
+                                commands
+  info [options] <name>         Show detailed information about a skill, agent,
+                                or command
+  completion [options] [shell]  Output shell completion script (zsh or bash)
+  targets                       Manage install targets (coding agents)
+  cache                         Cache management commands
+  help [command]                display help for command
+"
+`;
+
+exports[`CLI help snapshots \`init --help\` is stable 1`] = `
+"Usage: skilltree init [options]
+
+Initialize a new skilltree project
+
+Related:
+  registry init   — seed popular community registries to install skills from
+  targets detect  — auto-discover installed coding agents on this machine
+
+Options:
+  -g, --global  Initialize global dependencies
+  --scan        Scan the repo for existing skills, agents, and commands and
+                register them as local deps
+  -y, --yes     With --scan, include all discovered entries without prompting
+  -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`add --help\` is stable 1`] = `
+"Usage: skilltree add [options] <name>
+
+Add a dependency
+
+Options:
+  -r, --repo <url>            Git repository URL
+  --source <alias>            Source alias (from sources: map)
+  -p, --path <path>           Path within the repository
+  -v, --version <constraint>  Semver version constraint
+  -l, --local <path>          Local filesystem path
+  -D, --dev                   Add as dev dependency
+  -t, --type <type>           Entity type (skill, agent, or command)
+  --registry <name>           Resolve from this registry (when no --repo)
+  -g, --global                Add to global dependencies
+  -y, --yes                   Skip the glob-mode confirmation prompt
+  -h, --help                  display help for command
+"
+`;
+
+exports[`CLI help snapshots \`install --help\` is stable 1`] = `
+"Usage: skilltree install [options]
+
+Resolve and install dependencies
+
+Options:
+  --prod                 Install production dependencies only
+  --frozen               Use lockfile only, error if out of sync
+  -f, --force            Overwrite locally modified files
+  -n, --dry-run          Show plan without installing
+  --install-path <path>  Override install directory
+  -g, --global           Install global dependencies
+  -h, --help             display help for command
+"
+`;
+
+exports[`CLI help snapshots \`update --help\` is stable 1`] = `
+"Usage: skilltree update [options] [name]
+
+Update dependencies to latest versions
+
+Options:
+  -n, --dry-run  Preview version bumps without applying
+  -g, --global   Update global dependencies
+  -h, --help     display help for command
+"
+`;
+
+exports[`CLI help snapshots \`remove --help\` is stable 1`] = `
+"Usage: skilltree remove [options] <name>
+
+Remove a dependency
+
+Options:
+  -f, --force    Skip confirmation
+  --keep-files   Leave installed files in place
+  -n, --dry-run  Preview the removal without changing anything
+  -g, --global   Remove from global dependencies
+  -h, --help     display help for command
+"
+`;
+
+exports[`CLI help snapshots \`verify --help\` is stable 1`] = `
+"Usage: skilltree verify [options]
+
+Verify installed dependencies against lockfile
+
+Options:
+  --json        Output results as JSON
+  -g, --global  Verify global dependencies
+  -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`list --help\` is stable 1`] = `
+"Usage: skilltree list [options]
+
+List installed dependencies
+
+Options:
+  --json        Output results as JSON
+  -g, --global  List global dependencies
+  -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`scan --help\` is stable 1`] = `
+"Usage: skilltree scan [options] <paths...>
+
+Scan skills, agents, and commands for undeclared dependencies
+
+Options:
+  --check     Exit 1 if undeclared deps found (pre-commit mode)
+  --apply     Auto-update frontmatter with detected deps (regex only)
+  --llm       Use LLM for deep dependency detection (requires ANTHROPIC_API_KEY)
+  --json      Output results as JSON
+  -h, --help  display help for command
+"
+`;
+
+exports[`CLI help snapshots \`teach --help\` is stable 1`] = `
+"Usage: skilltree teach [options]
+
+Install the skilltree skill to all detected coding agents
+
+Options:
+  --agent <name>  Install to a specific agent only
+  -h, --help      display help for command
+"
+`;
+
+exports[`CLI help snapshots \`vendor --help\` is stable 1`] = `
+"Usage: skilltree vendor [options]
+
+Copy all deps as real files for git commit (distribution mode)
+
+Options:
+  --frozen       Use lockfile only, error if out of sync
+  -n, --dry-run  Show plan without making changes
+  -h, --help     display help for command
+"
+`;
+
+exports[`CLI help snapshots \`unvendor --help\` is stable 1`] = `
+"Usage: skilltree unvendor [options]
+
+Exit vendor mode, restore normal symlinked installs
+
+Options:
+  -f, --force    Discard modified vendored files
+  -n, --dry-run  Show what would happen without making changes
+  -h, --help     display help for command
+"
+`;
+
+exports[`CLI help snapshots \`deps --help\` is stable 1`] = `
+"Usage: skilltree deps [options] [command]
+
+Dependency graph commands
+
+Options:
+  -h, --help      display help for command
+
+Commands:
+  tree [options]  Show dependency tree
+  help [command]  display help for command
+"
+`;
+
+exports[`CLI help snapshots \`deps tree --help\` is stable 1`] = `
+"Usage: skilltree deps tree [options]
+
+Show dependency tree
+
+Options:
+  --json        Output tree as JSON
+  -g, --global  Show global dependency tree
+  -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`registry --help\` is stable 1`] = `
+"Usage: skilltree registry [options] [command]
+
+Registry management commands
+
+Options:
+  -h, --help               display help for command
+
+Commands:
+  init [options]           Seed popular community registries for skill discovery
+
+  Related:
+    init            — initialize a new skilltree project (run this first)
+    targets detect  — auto-discover installed coding agents on this machine
+  add [options] [url]      Register a git repo as a searchable registry
+
+  The URL can be passed positionally or via --repo (so muscle memory from \`add\` transfers).
+
+  Examples:
+    skilltree registry add github.com/VoltAgent/awesome-agent-skills
+    skilltree registry add --repo github.com/trailofbits/skills --name security
+  remove <name>            Remove a registered registry
+  list [options]           List all registered registries
+  update [options] [name]  Fetch registry repos and rebuild search indexes
+  index [options]          Generate skillkit-index.yaml for this repo
+  help [command]           display help for command
+"
+`;
+
+exports[`CLI help snapshots \`registry init --help\` is stable 1`] = `
+"Usage: skilltree registry init [options]
+
+Seed popular community registries for skill discovery
+
+Related:
+  init            — initialize a new skilltree project (run this first)
+  targets detect  — auto-discover installed coding agents on this machine
+
+Options:
+  --skip-update  Add registries without indexing
+  -h, --help     display help for command
+"
+`;
+
+exports[`CLI help snapshots \`registry add --help\` is stable 1`] = `
+"Usage: skilltree registry add [options] [url]
+
+Register a git repo as a searchable registry
+
+The URL can be passed positionally or via --repo (so muscle memory from \`add\`
+transfers).
+
+Examples:
+  skilltree registry add github.com/VoltAgent/awesome-agent-skills
+  skilltree registry add --repo github.com/trailofbits/skills --name security
+
+Options:
+  -r, --repo <url>  Git repository URL (alias for the positional <url>)
+  --name <alias>    Custom name for the registry
+  -h, --help        display help for command
+"
+`;
+
+exports[`CLI help snapshots \`registry remove --help\` is stable 1`] = `
+"Usage: skilltree registry remove [options] <name>
+
+Remove a registered registry
+
+Options:
+  -h, --help  display help for command
+"
+`;
+
+exports[`CLI help snapshots \`registry list --help\` is stable 1`] = `
+"Usage: skilltree registry list [options]
+
+List all registered registries
+
+Options:
+  --json      Output results as JSON
+  -h, --help  display help for command
+"
+`;
+
+exports[`CLI help snapshots \`registry update --help\` is stable 1`] = `
+"Usage: skilltree registry update [options] [name]
+
+Fetch registry repos and rebuild search indexes
+
+Options:
+  --json      Output results as JSON
+  -h, --help  display help for command
+"
+`;
+
+exports[`CLI help snapshots \`registry index --help\` is stable 1`] = `
+"Usage: skilltree registry index [options]
+
+Generate skillkit-index.yaml for this repo
+
+Options:
+  --check     Check if index is up to date (exit 1 if stale)
+  -h, --help  display help for command
+"
+`;
+
+exports[`CLI help snapshots \`search --help\` is stable 1`] = `
+"Usage: skilltree search [options] <query>
+
+Search registries for skills, agents, and commands
+
+Options:
+  --registry <name>  Search only one registry
+  -t, --type <type>  Filter by entity type (skill, agent, or command)
+  --json             Output results as JSON
+  -h, --help         display help for command
+"
+`;
+
+exports[`CLI help snapshots \`info --help\` is stable 1`] = `
+"Usage: skilltree info [options] <name>
+
+Show detailed information about a skill, agent, or command
+
+Options:
+  --json      Output results as JSON
+  -h, --help  display help for command
+"
+`;
+
+exports[`CLI help snapshots \`completion --help\` is stable 1`] = `
+"Usage: skilltree completion [options] [shell]
+
+Output shell completion script (zsh or bash)
+
+Options:
+  --install   Write the script to the conventional location instead of stdout
+  -h, --help  display help for command
+"
+`;
+
+exports[`CLI help snapshots \`targets --help\` is stable 1`] = `
+"Usage: skilltree targets [options] [command]
+
+Manage install targets (coding agents)
+
+Options:
+  -h, --help                 display help for command
+
+Commands:
+  list [options]             Show known agents with detected and configured
+                             status
+  add [options] <target>     Add an agent or path to install_targets
+  remove [options] <target>  Remove an agent or path from install_targets
+  detect [options]           Scan for installed agents and add missing ones
+
+  Related:
+    init            — initialize a new skilltree project (run this first)
+    registry init   — seed popular community registries to install skills from
+  migrate [options]          Convert dev_install_path to install_targets
+  help [command]             display help for command
+"
+`;
+
+exports[`CLI help snapshots \`targets list --help\` is stable 1`] = `
+"Usage: skilltree targets list [options]
+
+Show known agents with detected and configured status
+
+Options:
+  --json        Output results as JSON
+  -g, --global  Show global targets
+  -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`targets add --help\` is stable 1`] = `
+"Usage: skilltree targets add [options] <target>
+
+Add an agent or path to install_targets
+
+Options:
+  -g, --global  Add to global manifest
+  -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`targets remove --help\` is stable 1`] = `
+"Usage: skilltree targets remove [options] <target>
+
+Remove an agent or path from install_targets
+
+Options:
+  -g, --global  Remove from global manifest
+  -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`targets detect --help\` is stable 1`] = `
+"Usage: skilltree targets detect [options]
+
+Scan for installed agents and add missing ones
+
+Related:
+  init            — initialize a new skilltree project (run this first)
+  registry init   — seed popular community registries to install skills from
+
+Options:
+  -g, --global  Detect for global manifest
+  -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`targets migrate --help\` is stable 1`] = `
+"Usage: skilltree targets migrate [options]
+
+Convert dev_install_path to install_targets
+
+Options:
+  -g, --global  Migrate global manifest
+  -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`cache --help\` is stable 1`] = `
+"Usage: skilltree cache [options] [command]
+
+Cache management commands
+
+Options:
+  -h, --help       display help for command
+
+Commands:
+  clean [options]  Remove cached repositories
+  help [command]   display help for command
+"
+`;
+
+exports[`CLI help snapshots \`cache clean --help\` is stable 1`] = `
+"Usage: skilltree cache clean [options]
+
+Remove cached repositories
+
+Options:
+  --json      Output results as JSON
+  -h, --help  display help for command
+"
+`;

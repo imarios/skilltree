@@ -18,14 +18,15 @@ import {
 	writeManifest,
 } from "../core/manifest.js";
 import { getGlobalDir, getGlobalInstallBase } from "../core/paths.js";
-import { dim, success } from "../core/ui.js";
-import type { Lockfile } from "../types.js";
+import { dim, dryRunBanner, pc, success } from "../core/ui.js";
+import type { Lockfile, Manifest } from "../types.js";
 
 export interface RemoveOptions {
 	force?: boolean;
 	keepFiles?: boolean;
 	global?: boolean;
 	globalDir?: string; // test override
+	dryRun?: boolean;
 }
 
 export async function removeCommand(
@@ -45,6 +46,14 @@ export async function removeCommand(
 	const lockfile = isGlobal ? await readGlobalLockfile(globalDir) : await readLockfile(dir);
 
 	validateRemoveTarget(name, manifest, lockfile, isGlobal);
+
+	if (options.dryRun) {
+		// In a preview we deliberately do NOT prompt for confirmation — there is
+		// nothing to confirm and the user is just trying to see consequences.
+		await previewRemove(name, manifest, lockfile, isGlobal, dir, options.keepFiles);
+		return;
+	}
+
 	await confirmIfDependents(name, lockfile, options);
 
 	// Remove from manifest
@@ -68,6 +77,43 @@ export async function removeCommand(
 			await writeGlobalLockfile(lockfile, globalDir);
 		} else {
 			await writeLockfile(dir, lockfile);
+		}
+	}
+}
+
+async function previewRemove(
+	name: string,
+	manifest: Manifest,
+	lockfile: Lockfile | null,
+	isGlobal: boolean,
+	dir: string,
+	keepFiles?: boolean,
+): Promise<void> {
+	const manifestName = isGlobal ? GLOBAL_MANIFEST : MANIFEST_NEW;
+	dryRunBanner();
+	console.log(`Would remove ${pc.cyan(name)} from ${manifestName}`);
+
+	if (!lockfile) return;
+
+	const installBase = isGlobal ? getGlobalInstallBase() : join(dir, getDevInstallPath(manifest));
+
+	const entry = lockfile.packages[name];
+	if (entry && !keepFiles) {
+		const targetPath = getTargetPath({ name, type: entry.type }, installBase);
+		console.log(dim(`Would remove installed files at ${targetPath}`));
+	}
+
+	// Pure call — no clone needed. `excludeName` lets findOrphans answer
+	// "what would be orphaned IF we removed this dep?" without mutating state.
+	const orphans = findOrphans(lockfile, manifest, { excludeName: name });
+	for (const orphan of orphans) {
+		const orphanEntry = lockfile.packages[orphan];
+		if (!orphanEntry) continue;
+		if (keepFiles) {
+			console.log(dim(`Would drop orphaned transitive dependency: ${orphan} (files kept)`));
+		} else {
+			const targetPath = getTargetPath({ name: orphan, type: orphanEntry.type }, installBase);
+			console.log(dim(`Would remove orphaned transitive dependency: ${orphan} (${targetPath})`));
 		}
 	}
 }
@@ -191,11 +237,18 @@ function findOrphans(
 		dependencies?: Record<string, unknown>;
 		"dev-dependencies"?: Record<string, unknown>;
 	},
+	options?: { excludeName?: string },
 ): string[] {
+	// `excludeName` lets dry-run callers ask "what would be orphaned if we
+	// removed this name?" without mutating the manifest or lockfile. The
+	// excluded name is treated as both removed-from-manifest AND removed-as-
+	// reachable, so anything only kept alive by it surfaces as an orphan.
+	const exclude = options?.excludeName;
 	const manifestKeys = new Set([
 		...Object.keys(manifest.dependencies ?? {}),
 		...Object.keys(manifest["dev-dependencies"] ?? {}),
 	]);
+	if (exclude) manifestKeys.delete(exclude);
 
 	const reachable = new Set<string>();
 
@@ -216,7 +269,7 @@ function findOrphans(
 		}
 	}
 
-	return Object.keys(lockfile.packages).filter((key) => !reachable.has(key));
+	return Object.keys(lockfile.packages).filter((key) => !reachable.has(key) && key !== exclude);
 }
 
 async function promptYesNo(question: string): Promise<boolean> {

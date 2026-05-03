@@ -22,7 +22,15 @@ import {
 	warnLegacyInstallPath,
 	writeManifest,
 } from "../core/manifest.js";
-import { dim, header, pc, success, throwOnResolutionErrors, warn } from "../core/ui.js";
+import {
+	dim,
+	dryRunBanner,
+	header,
+	pc,
+	success,
+	throwOnResolutionErrors,
+	warn,
+} from "../core/ui.js";
 import type { Lockfile } from "../types.js";
 
 export interface VendorOptions {
@@ -122,7 +130,12 @@ export async function vendorCommand(dir: string, options: VendorOptions): Promis
 	);
 }
 
-export async function unvendorCommand(dir: string, options?: { force?: boolean }): Promise<void> {
+export interface UnvendorOptions {
+	force?: boolean;
+	dryRun?: boolean;
+}
+
+export async function unvendorCommand(dir: string, options?: UnvendorOptions): Promise<void> {
 	const manifest = await loadManifestOrThrow(dir);
 
 	if (!manifest.vendor) {
@@ -133,6 +146,31 @@ export async function unvendorCommand(dir: string, options?: { force?: boolean }
 	const devInstallPath = getDevInstallPath(manifest);
 	const installBase = join(dir, devInstallPath);
 	const lockfile = await readLockfile(dir);
+
+	if (options?.dryRun) {
+		// Always surface modified files in dry-run, even with --force — the
+		// user is asking "what would happen?", and showing what --force is
+		// silently overriding is exactly that. Without --force we phrase it
+		// as "would abort"; with --force we phrase it as "would discard".
+		dryRunBanner();
+		if (lockfile) {
+			const modified = await getModifiedVendoredFiles(lockfile, installBase);
+			if (modified.length > 0) {
+				const list = modified.join(", ");
+				const count = `${modified.length} vendored file${modified.length > 1 ? "s" : ""}`;
+				if (options?.force) {
+					warn(`Would discard modifications to ${count}: ${list}`);
+				} else {
+					warn(`Real run would abort: ${count} modified: ${list}`);
+				}
+			}
+			console.log(dim(`Would delete vendored files from ${devInstallPath}/`));
+		}
+		console.log(dim(`Would update ${MANIFEST_NEW} (vendor: false)`));
+		const ignoreEntries = getSkillAgentIgnoreEntries(devInstallPath);
+		console.log(dim(`Would re-add .gitignore entries: ${ignoreEntries.join(", ")}`));
+		return;
+	}
 
 	if (lockfile) {
 		if (!options?.force) {
@@ -155,7 +193,15 @@ export async function unvendorCommand(dir: string, options?: { force?: boolean }
 	success(`Unvendored. Run ${pc.cyan("`skilltree install`")} to restore normal mode.`);
 }
 
-async function checkModifiedVendoredFiles(lockfile: Lockfile, installBase: string): Promise<void> {
+/**
+ * Compare each vendored entry's on-disk integrity against the lockfile.
+ * Pure: returns the list of modified entry names, mutates nothing, throws
+ * nothing. Both `unvendor` (real run) and `unvendor --dry-run` consume this.
+ */
+async function getModifiedVendoredFiles(
+	lockfile: Lockfile,
+	installBase: string,
+): Promise<string[]> {
 	const modified: string[] = [];
 	for (const [key, entry] of Object.entries(lockfile.packages)) {
 		if (!entry.integrity) continue;
@@ -170,7 +216,11 @@ async function checkModifiedVendoredFiles(lockfile: Lockfile, installBase: strin
 			// Missing file — not modified, just gone
 		}
 	}
+	return modified;
+}
 
+async function checkModifiedVendoredFiles(lockfile: Lockfile, installBase: string): Promise<void> {
+	const modified = await getModifiedVendoredFiles(lockfile, installBase);
 	if (modified.length > 0) {
 		throw new Error(
 			`${modified.length} vendored file${modified.length > 1 ? "s" : ""} modified: ${modified.join(", ")}\nRun \`skilltree vendor\` to overwrite with fresh copies, or \`skilltree unvendor --force\` to discard changes.`,

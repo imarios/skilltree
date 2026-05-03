@@ -156,6 +156,110 @@ describe("deps tree rendering", () => {
 		expect(lines[1]).toBe("└── child@2.0.0 (skill)");
 	});
 
+	test("--json emits a nested object tree per root", async () => {
+		const dir = await makeTempDir();
+
+		await createLocalSkill(join(dir, "skills"), "leaf");
+		await createLocalSkill(join(dir, "skills"), "mid", ["leaf"]);
+		await createLocalSkill(join(dir, "skills"), "top", ["mid"]);
+
+		await writeManifest(
+			dir,
+			"dependencies:\n  top:\n    local: ./skills/top\n  mid:\n    local: ./skills/mid\n  leaf:\n    local: ./skills/leaf\n",
+		);
+
+		await installCommand(dir, {});
+
+		const lines: string[] = [];
+		const original = console.log;
+		console.log = (...args: unknown[]) => lines.push(args.join(" "));
+		try {
+			await depsTreeCommand(dir, { json: true });
+		} finally {
+			console.log = original;
+		}
+
+		// Single JSON line — array of root entries
+		expect(lines).toHaveLength(1);
+		const parsed = JSON.parse(lines[0] ?? "");
+		expect(Array.isArray(parsed)).toBe(true);
+
+		// "top" is a root and should have a nested "mid → leaf" subtree
+		const topRoot = parsed.find((r: { name: string }) => r.name === "top");
+		expect(topRoot).toBeDefined();
+		expect(topRoot.type).toBe("skill");
+		expect(topRoot.source).toBe("local");
+		expect(Array.isArray(topRoot.dependencies)).toBe(true);
+		expect(topRoot.dependencies).toHaveLength(1);
+		expect(topRoot.dependencies[0].name).toBe("mid");
+		expect(topRoot.dependencies[0].dependencies[0].name).toBe("leaf");
+	});
+
+	test("--json emits [] for an empty manifest", async () => {
+		const dir = await makeTempDir();
+		await writeManifest(dir, "dependencies: {}\n");
+		await installCommand(dir, {});
+
+		const lines: string[] = [];
+		const original = console.log;
+		console.log = (...args: unknown[]) => lines.push(args.join(" "));
+		try {
+			await depsTreeCommand(dir, { json: true });
+		} finally {
+			console.log = original;
+		}
+
+		expect(lines).toHaveLength(1);
+		expect(JSON.parse(lines[0] ?? "")).toEqual([]);
+	});
+
+	test("--json marks deduped entries", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "shared");
+		await createLocalSkill(join(dir, "skills"), "left", ["shared"]);
+		await createLocalSkill(join(dir, "skills"), "right", ["shared"]);
+		await createLocalSkill(join(dir, "skills"), "root", ["left", "right"]);
+
+		await writeManifest(
+			dir,
+			"dependencies:\n  root:\n    local: ./skills/root\n  left:\n    local: ./skills/left\n  right:\n    local: ./skills/right\n  shared:\n    local: ./skills/shared\n",
+		);
+
+		await installCommand(dir, {});
+
+		const lines: string[] = [];
+		const original = console.log;
+		console.log = (...args: unknown[]) => lines.push(args.join(" "));
+		try {
+			await depsTreeCommand(dir, { json: true });
+		} finally {
+			console.log = original;
+		}
+
+		const parsed = JSON.parse(lines[0] ?? "");
+		// Find any "shared" appearance below the first one — it should be marked deduped
+		const findShared = (
+			node: { name: string; deduped?: boolean; dependencies: unknown[] },
+			seen: { count: number },
+		): boolean => {
+			if (node.name === "shared") {
+				seen.count += 1;
+				if (seen.count > 1 && node.deduped !== true) return false;
+			}
+			for (const child of node.dependencies as Array<{
+				name: string;
+				deduped?: boolean;
+				dependencies: unknown[];
+			}>) {
+				if (!findShared(child, seen)) return false;
+			}
+			return true;
+		};
+		const seen = { count: 0 };
+		for (const root of parsed) findShared(root, seen);
+		expect(seen.count).toBeGreaterThanOrEqual(2);
+	});
+
 	test("renders │ continuation for non-last children with subtrees", async () => {
 		const dir = await makeTempDir();
 

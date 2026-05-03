@@ -21,6 +21,9 @@ export const cmd = (msg: string) => pc.cyan(msg);
 /** Format a section header */
 export const header = (msg: string) => console.log(pc.bold(msg));
 
+/** Standard banner printed at the top of any command's --dry-run output. */
+export const dryRunBanner = () => console.log(pc.yellow("Dry run — no changes will be made.\n"));
+
 /** Styled table header row (bold + underline) */
 export const tableHeader = (msg: string) => console.log(pc.bold(pc.underline(msg)));
 

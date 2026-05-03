@@ -130,4 +130,34 @@ describe("verifyCommand", () => {
 			verifyCommand(dir, { global: true, globalDir: join(dir, "nonexistent") }),
 		).rejects.toThrow("No global manifest");
 	});
+
+	test("--json emits an array of {name, status} rows", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "skill-a");
+		await createLocalSkill(join(dir, "skills"), "skill-b");
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			"dependencies:\n  skill-a:\n    local: ./skills/skill-a\n  skill-b:\n    local: ./skills/skill-b\n",
+		);
+		await installCommand(dir, {});
+
+		const { logs, restore } = captureConsole();
+		try {
+			await verifyCommand(dir, { json: true });
+		} finally {
+			restore();
+		}
+
+		// Single JSON line
+		expect(logs).toHaveLength(1);
+		const parsed = JSON.parse(logs[0] ?? "");
+		expect(Array.isArray(parsed)).toBe(true);
+		expect(parsed).toHaveLength(2);
+		const names = parsed.map((r: { name: string }) => r.name).sort();
+		expect(names).toEqual(["skill-a", "skill-b"]);
+		for (const row of parsed) {
+			expect(typeof row.name).toBe("string");
+			expect(typeof row.status).toBe("string");
+		}
+	});
 });

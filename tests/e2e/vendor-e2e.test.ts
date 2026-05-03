@@ -150,6 +150,42 @@ describe("vendor e2e", () => {
 		expect(gitignore).toContain(".claude/agents/");
 	});
 
+	test("unvendor --dry-run leaves vendored files, manifest, and gitignore untouched", async () => {
+		const dir = await makeTempDir();
+		await setupProject(dir);
+
+		// Vendor first
+		await vendorCommand(dir, {});
+
+		const skillPath = join(dir, ".claude", "skills", "my-skill");
+		expect(existsSync(skillPath)).toBe(true);
+		const gitignoreBefore = await readFile(join(dir, ".gitignore"), "utf-8");
+
+		// Capture stdout so we can assert dry-run advertised itself
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		try {
+			await unvendorCommand(dir, { dryRun: true });
+		} finally {
+			console.log = originalLog;
+		}
+
+		// Files still present
+		expect(existsSync(skillPath)).toBe(true);
+
+		// Manifest still in vendor mode
+		const manifest = await readManifest(dir);
+		expect(manifest.vendor).toBe(true);
+
+		// .gitignore unchanged
+		const gitignoreAfter = await readFile(join(dir, ".gitignore"), "utf-8");
+		expect(gitignoreAfter).toBe(gitignoreBefore);
+
+		const output = logs.join("\n");
+		expect(output.toLowerCase()).toContain("dry run");
+	});
+
 	test("unvendor when not vendored warns and does nothing", async () => {
 		const dir = await makeTempDir();
 		await setupProject(dir);

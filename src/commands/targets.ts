@@ -12,6 +12,8 @@ interface TargetsOpts {
 	global?: boolean;
 	globalDir?: string;
 	homeDir?: string;
+	/** Only honoured by `targetsListCommand`. Other targets verbs ignore it. */
+	json?: boolean;
 }
 
 /**
@@ -37,29 +39,61 @@ function ensureInstallTargets(manifest: Manifest): string[] {
 	return manifest.install_targets;
 }
 
+interface TargetsListRow {
+	name: string;
+	path: string;
+	detected: boolean;
+	configured: boolean;
+}
+
+function buildTargetsListRows(
+	targets: string[],
+	detected: string[],
+	knownAgents: string[],
+): TargetsListRow[] {
+	const rows: TargetsListRow[] = [];
+	// Known agents — always listed so consumers see "available but not configured" too
+	for (const name of knownAgents) {
+		rows.push({
+			name,
+			path: resolveTarget(name),
+			detected: detected.includes(name),
+			configured: targets.includes(name),
+		});
+	}
+	// Custom (non-agent) entries from install_targets — paths configured by
+	// the user. Dedupe by name so a hand-edited manifest with repeated paths
+	// doesn't produce duplicate rows; `targetsAddCommand` already guards on
+	// insert, but we can't trust that for arbitrary YAML edits.
+	const seen = new Set<string>(knownAgents);
+	for (const target of targets) {
+		if (seen.has(target)) continue;
+		seen.add(target);
+		rows.push({ name: target, path: target, detected: false, configured: true });
+	}
+	return rows;
+}
+
 export async function targetsListCommand(dir: string, opts?: TargetsOpts): Promise<void> {
 	const manifest = await loadManifestOrThrow(dir, opts);
 	const targets = manifest.install_targets ?? [];
 	const detected = await detectInstalledAgents(opts?.homeDir);
 	const knownAgents = getKnownAgentNames();
 
-	console.log("Detected     In targets   Name        Path");
+	const rows = buildTargetsListRows(targets, detected, knownAgents);
 
-	// Show known agents
-	for (const name of knownAgents) {
-		const isDetected = detected.includes(name);
-		const isTarget = targets.includes(name);
-		const dir = resolveTarget(name);
-		const detectedCol = isDetected ? "  ✔" : "   ";
-		const targetCol = isTarget ? "  ✔" : "   ";
-		console.log(`${detectedCol.padEnd(13)}${targetCol.padEnd(13)}${name.padEnd(12)}${dir}`);
+	if (opts?.json) {
+		console.log(JSON.stringify(rows, null, 2));
+		return;
 	}
 
-	// Show custom paths
-	for (const target of targets) {
-		if (!knownAgents.includes(target)) {
-			console.log(`${"   ".padEnd(13)}${"  ✔".padEnd(13)}${target.padEnd(12)}${target}`);
-		}
+	console.log("Detected     In targets   Name        Path");
+	for (const row of rows) {
+		const detectedCol = row.detected ? "  ✔" : "   ";
+		const targetCol = row.configured ? "  ✔" : "   ";
+		console.log(
+			`${detectedCol.padEnd(13)}${targetCol.padEnd(13)}${row.name.padEnd(12)}${row.path}`,
+		);
 	}
 }
 
