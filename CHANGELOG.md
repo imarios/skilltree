@@ -1,3 +1,9 @@
+## v0.24.8 (2026-05-03)
+
+### Fix
+
+- **deps,lockfile**: preserve tree topology under duplicates; reject cyclic lockfiles (#47) (#48)
+
 ## v0.24.7 (2026-05-03)
 
 ### Fix
