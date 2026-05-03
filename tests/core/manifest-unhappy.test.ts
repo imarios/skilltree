@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { validateGlobalManifest, validateManifest } from "../../src/core/manifest.js";
+import {
+	parseManifest,
+	validateGlobalManifest,
+	validateManifest,
+} from "../../src/core/manifest.js";
 import type { Dependency, Manifest } from "../../src/types.js";
 
 describe("global manifest validation", () => {
@@ -93,5 +97,99 @@ describe("manifest missing fields", () => {
 		};
 		const errors = validateManifest(manifest);
 		expect(errors).toEqual([]);
+	});
+});
+
+describe("sources map shape", () => {
+	test("accepts plain-string source values", () => {
+		const yaml = `
+sources:
+  vibes: ~/Projects/vibes
+  shared: github.com/acme/shared
+`;
+		const manifest = parseManifest(yaml);
+		expect(manifest.sources?.vibes).toBe("~/Projects/vibes");
+		expect(manifest.sources?.shared).toBe("github.com/acme/shared");
+	});
+
+	test("accepts nested local source value", () => {
+		const yaml = `
+sources:
+  vibes:
+    local: ~/Projects/vibes
+`;
+		const manifest = parseManifest(yaml);
+		expect(manifest.sources?.vibes).toBe("~/Projects/vibes");
+	});
+
+	test("accepts nested repo source value", () => {
+		const yaml = `
+sources:
+  shared:
+    repo: github.com/acme/shared
+`;
+		const manifest = parseManifest(yaml);
+		expect(manifest.sources?.shared).toBe("github.com/acme/shared");
+	});
+
+	test("accepts a mix of flat and nested source values", () => {
+		const yaml = `
+sources:
+  vibes:
+    local: ~/Projects/vibes
+  shared: github.com/acme/shared
+  pinned:
+    repo: github.com/acme/pinned
+`;
+		const manifest = parseManifest(yaml);
+		expect(manifest.sources?.vibes).toBe("~/Projects/vibes");
+		expect(manifest.sources?.shared).toBe("github.com/acme/shared");
+		expect(manifest.sources?.pinned).toBe("github.com/acme/pinned");
+	});
+
+	test("rejects nested form with both local and repo", () => {
+		const yaml = `
+sources:
+  bad:
+    local: ~/foo
+    repo: github.com/x/y
+`;
+		expect(() => parseManifest(yaml)).toThrow(/sources\.bad/);
+		expect(() => parseManifest(yaml)).toThrow(/mutually exclusive/);
+	});
+
+	test("rejects empty nested form", () => {
+		const yaml = `
+sources:
+  bad: {}
+`;
+		expect(() => parseManifest(yaml)).toThrow(/sources\.bad/);
+		expect(() => parseManifest(yaml)).toThrow(/local.*repo/);
+	});
+
+	test("rejects nested form with unknown key", () => {
+		const yaml = `
+sources:
+  bad:
+    source: other
+`;
+		expect(() => parseManifest(yaml)).toThrow(/sources\.bad/);
+	});
+
+	test("rejects non-string scalar source value", () => {
+		const yaml = `
+sources:
+  weird: 42
+`;
+		expect(() => parseManifest(yaml)).toThrow(/sources\.weird/);
+	});
+
+	test("rejects nested form with non-string inner value", () => {
+		const yaml = `
+sources:
+  bad:
+    local: 42
+`;
+		expect(() => parseManifest(yaml)).toThrow(/sources\.bad/);
 	});
 });
