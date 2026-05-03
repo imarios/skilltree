@@ -4,6 +4,11 @@ import {
 	pathToAgentName,
 	resolveTarget,
 } from "../core/agents.js";
+import {
+	addGitignoreEntries,
+	getSkillAgentIgnoreEntriesForTarget,
+	removeGitignoreEntries,
+} from "../core/gitignore.js";
 import { loadManifestOrThrow, writeManifest } from "../core/manifest.js";
 import { success, warn } from "../core/ui.js";
 import type { Manifest } from "../types.js";
@@ -116,7 +121,16 @@ export async function targetsAddCommand(
 
 	targets.push(target);
 	await writeManifest(dir, manifest);
+
+	// Keep .gitignore in sync — installer writes to the new target's dir, so
+	// it must be ignored. Fixes #33: previously only `init` touched gitignore,
+	// leaving anything added later un-ignored. `addGitignoreEntries` is a no-op
+	// for entries that already exist, so re-adding is safe.
+	const added = await addGitignoreEntries(dir, getSkillAgentIgnoreEntriesForTarget(target));
 	success(`Added ${target} to install_targets.`);
+	if (added.length > 0) {
+		success(`Updated .gitignore (added ${added.join(", ")})`);
+	}
 }
 
 export async function targetsRemoveCommand(
@@ -140,7 +154,23 @@ export async function targetsRemoveCommand(
 
 	targets.splice(idx, 1);
 	await writeManifest(dir, manifest);
+
+	// Keep .gitignore in sync — but only remove entries that no remaining
+	// target still needs. Two targets can resolve to the same install dir
+	// (e.g., a literal path that aliases a known agent), so we compute the
+	// set still in use and subtract. Fixes #33.
+	const stillNeeded = new Set<string>();
+	for (const remaining of targets) {
+		for (const entry of getSkillAgentIgnoreEntriesForTarget(remaining)) {
+			stillNeeded.add(entry);
+		}
+	}
+	const candidates = getSkillAgentIgnoreEntriesForTarget(target).filter((e) => !stillNeeded.has(e));
+	const removed = await removeGitignoreEntries(dir, candidates);
 	success(`Removed ${target} from install_targets.`);
+	if (removed.length > 0) {
+		success(`Updated .gitignore (removed ${removed.join(", ")})`);
+	}
 }
 
 export async function targetsDetectCommand(dir: string, opts?: TargetsOpts): Promise<void> {
@@ -149,18 +179,24 @@ export async function targetsDetectCommand(dir: string, opts?: TargetsOpts): Pro
 
 	const detected = await detectInstalledAgents(opts?.homeDir);
 	const targets = ensureInstallTargets(manifest);
-	let added = 0;
+	const newlyAdded: string[] = [];
 
 	for (const agent of detected) {
 		if (!targets.includes(agent)) {
 			targets.push(agent);
-			added++;
+			newlyAdded.push(agent);
 		}
 	}
 
-	if (added > 0) {
+	if (newlyAdded.length > 0) {
 		await writeManifest(dir, manifest);
-		success(`Added ${added} agent(s) to install_targets.`);
+		// Same #33 fix: keep .gitignore in sync for every newly added agent.
+		const ignoreEntries = newlyAdded.flatMap((t) => getSkillAgentIgnoreEntriesForTarget(t));
+		const addedToIgnore = await addGitignoreEntries(dir, ignoreEntries);
+		success(`Added ${newlyAdded.length} agent(s) to install_targets.`);
+		if (addedToIgnore.length > 0) {
+			success(`Updated .gitignore (added ${addedToIgnore.join(", ")})`);
+		}
 	} else {
 		console.log("All detected agents already in install_targets.");
 	}
