@@ -1,6 +1,6 @@
 {
   "name": "skilltree-pm",
-  "version": "0.24.8",
+  "version": "0.25.0",
   "description": "Dependency manager for AI agent skills",
   "type": "module",
   "license": "MIT",

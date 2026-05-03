@@ -1,3 +1,9 @@
+## v0.25.0 (2026-05-03)
+
+### Feat
+
+- **manifest**: accept nested form for sources map (#50)
+
 ## v0.24.8 (2026-05-03)
 
 ### Fix
