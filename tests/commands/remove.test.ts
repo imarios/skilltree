@@ -216,6 +216,96 @@ describe("removeCommand", () => {
 		expect(manifest.dependencies?.base).toBeDefined();
 	});
 
+	test("removes installed files from every install_targets directory", async () => {
+		// Regression: `remove` previously cleaned only the first/default install
+		// path, leaving orphan copies in other configured targets (e.g.
+		// .agents/, .cursor/, .gemini/) when install_targets had >1 entry.
+		const dir = await setup();
+		// Manually write a multi-target manifest (initCommand writes a fresh one)
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			[
+				"name: multi",
+				"install_targets:",
+				"  - claude",
+				"  - codex",
+				"  - cursor",
+				"  - gemini",
+				"dependencies:",
+				"  my-skill:",
+				"    repo: github.com/user/repo",
+				"    version: '*'",
+				"    path: skills/my-skill",
+				"dev-dependencies: {}",
+				"",
+			].join("\n"),
+		);
+
+		// Simulate `install` by placing files in every target directory
+		const targets = [".claude", ".agents", ".cursor", ".gemini"];
+		for (const t of targets) {
+			const installDir = join(dir, t, "skills", "my-skill");
+			await mkdir(installDir, { recursive: true });
+			await writeFile(join(installDir, "SKILL.md"), "# test\n");
+		}
+
+		await writeFile(
+			join(dir, "skilltree.lock"),
+			"lockfile_version: 1\npackages:\n  my-skill:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/my-skill\n    version: 1.0.0\n    commit: abc\n    dependencies: []\n",
+		);
+
+		await removeCommand("my-skill", dir, { force: true });
+
+		// All four target directories should no longer contain the skill
+		for (const t of targets) {
+			await expect(stat(join(dir, t, "skills", "my-skill"))).rejects.toThrow();
+		}
+	});
+
+	test("orphan cleanup removes installed files of orphans across all targets", async () => {
+		// Regression: orphan cleanup must also iterate every install target.
+		const dir = await setup();
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			[
+				"name: multi-orphan",
+				"install_targets:",
+				"  - claude",
+				"  - codex",
+				"dependencies:",
+				"  parent:",
+				"    repo: github.com/user/repo",
+				"    version: '*'",
+				"    path: skills/parent",
+				"dev-dependencies: {}",
+				"",
+			].join("\n"),
+		);
+
+		// Simulate install of parent + transitive child in both targets
+		const targets = [".claude", ".agents"];
+		for (const t of targets) {
+			for (const name of ["parent", "child"]) {
+				const installDir = join(dir, t, "skills", name);
+				await mkdir(installDir, { recursive: true });
+				await writeFile(join(installDir, "SKILL.md"), `# ${name}\n`);
+			}
+		}
+
+		await writeFile(
+			join(dir, "skilltree.lock"),
+			"lockfile_version: 1\npackages:\n  parent:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/parent\n    version: 1.0.0\n    commit: abc\n    dependencies:\n      - child\n  child:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/child\n    version: 1.0.0\n    commit: abc\n    dependencies: []\n",
+		);
+
+		await removeCommand("parent", dir, { force: true });
+
+		// Both parent and orphan child files should be gone in every target
+		for (const t of targets) {
+			await expect(stat(join(dir, t, "skills", "parent"))).rejects.toThrow();
+			await expect(stat(join(dir, t, "skills", "child"))).rejects.toThrow();
+		}
+	});
+
 	test("orphan cleanup removes installed files of orphans", async () => {
 		const dir = await setup();
 		await addCommand("parent", { repo: "github.com/user/repo", path: "skills/parent" }, dir);
