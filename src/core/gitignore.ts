@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { resolveTarget } from "./agents.js";
 
 /**
  * Add entries to .gitignore (deduplication: skips entries that already exist).
@@ -65,4 +66,17 @@ export async function removeGitignoreEntries(dir: string, entries: string[]): Pr
 export function getSkillAgentIgnoreEntries(installPath: string): string[] {
 	const base = installPath.replace(/\/$/, "");
 	return [`${base}/skills/`, `${base}/agents/`, `${base}/commands/`];
+}
+
+/**
+ * Get the gitignore entries for an install target (agent name or literal path).
+ *
+ * Resolves the target through the agent registry — the same helper the
+ * installer uses — so gitignore can never drift from the actual install
+ * directory. For agents whose registered `dir` differs from `.${name}`
+ * (e.g., codex → .agents, copilot → .github), this is the only correct
+ * way to compute gitignore entries. Regression guard for #32.
+ */
+export function getSkillAgentIgnoreEntriesForTarget(target: string): string[] {
+	return getSkillAgentIgnoreEntries(resolveTarget(target));
 }
