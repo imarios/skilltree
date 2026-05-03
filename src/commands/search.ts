@@ -1,5 +1,5 @@
 import { DEFAULT_TTL_MS, loadFreshRegistryIndex } from "../core/registry-cache.js";
-import { listRegistries } from "../core/registry-config.js";
+import { assertKnownRegistry, listRegistries } from "../core/registry-config.js";
 import { searchRegistries } from "../core/registry-search.js";
 import { dim, pc, warn } from "../core/ui.js";
 import type { EntityType, RegistryIndex } from "../types.js";
@@ -21,6 +21,11 @@ export async function searchCommand(
 ): Promise<void> {
 	const registries = await listRegistries(configPath);
 
+	// Validate the registry name before the empty-list check so a typo'd
+	// --registry surfaces as "registry 'X' not found" (which itself reports
+	// the empty-list case) rather than the generic "no registries
+	// configured" — the typo'd flag is the more precise signal.
+	assertKnownRegistry(opts.registry, registries);
 	if (registries.length === 0) {
 		throw new Error("No registries configured. Run 'skilltree registry add <url>' to add one.");
 	}

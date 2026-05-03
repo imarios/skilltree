@@ -6,7 +6,7 @@ import { MANIFEST_NEW } from "../core/filenames.js";
 import { loadManifestOrThrow, writeGlobalManifest, writeManifest } from "../core/manifest.js";
 import { collapseTilde, expandTilde, getGlobalDir } from "../core/paths.js";
 import { loadFreshRegistryIndex } from "../core/registry-cache.js";
-import { listRegistries } from "../core/registry-config.js";
+import { assertKnownRegistry, listRegistries } from "../core/registry-config.js";
 import { dim, pc, success, warn } from "../core/ui.js";
 import type {
 	Dependency,
@@ -106,7 +106,8 @@ function globToRegex(pattern: string): RegExp {
 async function addGlobCommand(pattern: string, opts: AddOptions, dir: string): Promise<void> {
 	if (opts.repo || opts.source || opts.local || opts.path) {
 		throw new Error(
-			`Glob patterns (e.g. "${pattern}") are only supported for registry-resolved adds. Drop --repo/--source/--local/--path to expand from registries.`,
+			`Glob patterns (e.g. "${pattern}") are only supported for registry-resolved adds. ` +
+				`Drop --repo/--source/--local/--path to expand from registries, or use --registry <name> to scope expansion to one registry.`,
 		);
 	}
 	validateAddFlags(opts);
@@ -261,12 +262,17 @@ interface RegistryEntity {
  */
 async function loadRegistryEntities(opts: AddOptions): Promise<RegistryEntity[]> {
 	const registries = await listRegistries(opts.configPath);
+	// Validate the registry name before the empty-list check so a typo'd
+	// --registry surfaces as "registry 'X' not found" (which itself reports
+	// the empty-list case in its own wording) rather than the generic
+	// "no registries configured" — the typo'd flag is the more precise
+	// signal of what went wrong.
+	assertKnownRegistry(opts.registry, registries);
 	if (registries.length === 0) {
 		throw new Error(
 			`No location specified and no registries configured.\nEither specify --repo and --path, or run 'skilltree registry add <url>' first.`,
 		);
 	}
-
 	const targets = opts.registry ? registries.filter((r) => r.name === opts.registry) : registries;
 	const loaded = await Promise.all(
 		// loadFreshRegistryIndex skips fingerprint-incompatible caches (issue #25),
@@ -449,6 +455,11 @@ function checkOtherGroup(
  * (skill vs command) are unresolvable without it.
  */
 async function resolveFromRegistries(name: string, opts: AddOptions): Promise<Dependency> {
+	// Validate --registry separately because we strip it below to load all
+	// registries (so the "found in: X, Y" hint can surface name matches in
+	// other registries). Without this, a typo'd --registry would fall through
+	// to "not found in any registry" and never name the bad flag.
+	assertKnownRegistry(opts.registry, await listRegistries(opts.configPath));
 	const allEntities = await loadRegistryEntities({ ...opts, registry: undefined });
 	const nameMatches = allEntities.filter((m) => m.entity.name === name);
 	const byRegistry = opts.registry
