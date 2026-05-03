@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
 	targetsAddCommand,
 	targetsDetectCommand,
+	targetsListCommand,
 	targetsMigrateCommand,
 	targetsRemoveCommand,
 } from "../../src/commands/targets.js";
@@ -149,6 +150,93 @@ describe("targetsDetectCommand", () => {
 		await writeManifestFile(dir, "dev_install_path: .claude\ndependencies: {}\n");
 
 		await expect(targetsDetectCommand(dir)).rejects.toThrow("targets migrate");
+	});
+});
+
+describe("targetsListCommand", () => {
+	test("--json emits an array of {name, path, detected, configured} rows", async () => {
+		const dir = await makeTempDir();
+		await writeManifestFile(dir, "install_targets:\n  - claude\ndependencies: {}\n");
+
+		// Empty fake home so nothing is "detected"
+		const fakeHome = join(dir, "fake-home");
+		await mkdir(fakeHome, { recursive: true });
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		try {
+			await targetsListCommand(dir, { json: true, homeDir: fakeHome });
+		} finally {
+			console.log = originalLog;
+		}
+
+		expect(logs).toHaveLength(1);
+		const parsed = JSON.parse(logs[0] ?? "");
+		expect(Array.isArray(parsed)).toBe(true);
+		// Should include at least claude (configured) and any other known agents (not configured)
+		const claude = parsed.find((r: { name: string }) => r.name === "claude");
+		expect(claude).toBeDefined();
+		expect(claude.configured).toBe(true);
+		expect(claude.detected).toBe(false);
+		expect(typeof claude.path).toBe("string");
+		// Every row has the four fields with the right types
+		for (const row of parsed) {
+			expect(typeof row.name).toBe("string");
+			expect(typeof row.path).toBe("string");
+			expect(typeof row.detected).toBe("boolean");
+			expect(typeof row.configured).toBe("boolean");
+		}
+	});
+
+	test("--json dedupes hand-edited duplicate custom paths", async () => {
+		const dir = await makeTempDir();
+		// User-authored manifest with a repeated custom path. `targetsAddCommand`
+		// rejects this on insert, but a manually-edited YAML file can still
+		// reach the list path — the renderer must not double-emit.
+		await writeManifestFile(
+			dir,
+			"install_targets:\n  - claude\n  - ./custom-a\n  - ./custom-a\ndependencies: {}\n",
+		);
+		const fakeHome = join(dir, "fake-home");
+		await mkdir(fakeHome, { recursive: true });
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		try {
+			await targetsListCommand(dir, { json: true, homeDir: fakeHome });
+		} finally {
+			console.log = originalLog;
+		}
+
+		const parsed = JSON.parse(logs[0] ?? "");
+		const customRows = parsed.filter((r: { name: string }) => r.name === "./custom-a");
+		expect(customRows).toHaveLength(1);
+	});
+
+	test("--json includes custom path targets", async () => {
+		const dir = await makeTempDir();
+		await writeManifestFile(
+			dir,
+			"install_targets:\n  - claude\n  - ./my-custom\ndependencies: {}\n",
+		);
+		const fakeHome = join(dir, "fake-home");
+		await mkdir(fakeHome, { recursive: true });
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		try {
+			await targetsListCommand(dir, { json: true, homeDir: fakeHome });
+		} finally {
+			console.log = originalLog;
+		}
+
+		const parsed = JSON.parse(logs[0] ?? "");
+		const custom = parsed.find((r: { name: string }) => r.name === "./my-custom");
+		expect(custom).toBeDefined();
+		expect(custom.configured).toBe(true);
 	});
 });
 

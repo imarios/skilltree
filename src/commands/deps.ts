@@ -2,10 +2,21 @@ import { readGlobalLockfile, readLockfile } from "../core/lockfile.js";
 import { readGlobalManifest, readManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
 import { dim, pc } from "../core/ui.js";
+import type { EntityType, Lockfile, LockfileEntry } from "../types.js";
 
 export interface DepsOptions {
 	global?: boolean;
 	globalDir?: string; // test override
+	json?: boolean;
+}
+
+interface JsonTreeNode {
+	name: string;
+	type: EntityType;
+	version?: string;
+	source?: string;
+	deduped?: boolean;
+	dependencies: JsonTreeNode[];
 }
 
 export async function depsTreeCommand(dir: string, opts?: DepsOptions): Promise<void> {
@@ -27,6 +38,18 @@ export async function depsTreeCommand(dir: string, opts?: DepsOptions): Promise<
 		...Object.keys(manifest["dev-dependencies"] ?? {}),
 	]);
 
+	if (opts?.json) {
+		const printedJson = new Set<string>();
+		const tree: JsonTreeNode[] = [];
+		for (const root of roots) {
+			const entry = lockfile.packages[root];
+			if (!entry) continue;
+			tree.push(buildJsonTree(root, entry, lockfile, printedJson));
+		}
+		console.log(JSON.stringify(tree, null, 2));
+		return;
+	}
+
 	const printed = new Set<string>();
 
 	for (const root of roots) {
@@ -34,6 +57,36 @@ export async function depsTreeCommand(dir: string, opts?: DepsOptions): Promise<
 		if (!entry) continue;
 		printTree(root, entry, lockfile, "", true, true, printed);
 	}
+}
+
+function buildJsonTree(
+	name: string,
+	entry: LockfileEntry,
+	lockfile: Lockfile,
+	printed: Set<string>,
+): JsonTreeNode {
+	const node: JsonTreeNode = {
+		name,
+		type: entry.type,
+		dependencies: [],
+	};
+	if (entry.version) node.version = entry.version;
+	if (entry.source) node.source = entry.source;
+
+	if (printed.has(name)) {
+		// Mirror the human renderer: don't recurse into already-printed subtrees.
+		// Consumers walk on `deduped` instead of duplicating the whole subtree.
+		node.deduped = true;
+		return node;
+	}
+	printed.add(name);
+
+	for (const depName of entry.dependencies) {
+		const depEntry = lockfile.packages[depName];
+		if (!depEntry) continue;
+		node.dependencies.push(buildJsonTree(depName, depEntry, lockfile, printed));
+	}
+	return node;
 }
 
 function printTree(

@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import simpleGit from "simple-git";
 import {
 	DEFAULT_REGISTRIES,
 	inferRegistryName,
@@ -11,10 +12,12 @@ import {
 	registryInitCommand,
 	registryListCommand,
 	registryRemoveCommand,
+	registryUpdateCommand,
 } from "../../src/commands/registry.js";
 import { getRegistryIndexPath, writeRegistryIndex } from "../../src/core/registry-cache.js";
 import { readConfig, writeConfig } from "../../src/core/registry-config.js";
 import type { RegistryIndex } from "../../src/types.js";
+import { createTestRepo } from "../helpers/git-fixtures.js";
 
 let tempDir: string;
 
@@ -249,6 +252,68 @@ describe("registryListCommand", () => {
 
 		const output = logs.join("\n");
 		expect(output.toLowerCase()).toContain("no registries");
+	});
+});
+
+describe("registryUpdateCommand", () => {
+	test("--json emits a result array per touched registry", async () => {
+		const dir = await setup();
+		const configPath = join(dir, "config.yaml");
+		const cacheDir = join(dir, "cache");
+
+		// Build a real local repo and bare clone of it
+		const repoDir = await createTestRepo(dir, "repo", [
+			{ path: "skills/a", name: "a" },
+			{ path: "skills/b", name: "b" },
+			{ path: "agents/x.md", name: "x", isAgent: true },
+		]);
+		const bareDir = join(dir, "bare.git");
+		await simpleGit().clone(repoDir, bareDir, ["--bare"]);
+
+		await writeConfig({ registries: [{ name: "fixture", repo: `file://${bareDir}` }] }, configPath);
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		const originalWrite = process.stdout.write;
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		process.stdout.write = () => true;
+		try {
+			await registryUpdateCommand(undefined, configPath, cacheDir, { json: true });
+		} finally {
+			console.log = originalLog;
+			process.stdout.write = originalWrite;
+		}
+
+		expect(logs).toHaveLength(1);
+		const parsed = JSON.parse(logs[0] ?? "");
+		expect(Array.isArray(parsed)).toBe(true);
+		expect(parsed).toHaveLength(1);
+		const result = parsed[0];
+		expect(result.name).toBe("fixture");
+		expect(result.repo).toBe(`file://${bareDir}`);
+		expect(typeof result.entities).toBe("number");
+		expect(result.entities).toBe(3);
+		expect(result.skills).toBe(2);
+		expect(result.agents).toBe(1);
+		expect(result.commands).toBe(0);
+	});
+
+	test("--json emits [] when no registries configured", async () => {
+		const dir = await setup();
+		const configPath = join(dir, "config.yaml");
+		await writeConfig({ registries: [] }, configPath);
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		try {
+			await registryUpdateCommand(undefined, configPath, undefined, { json: true });
+		} finally {
+			console.log = originalLog;
+		}
+
+		expect(logs).toHaveLength(1);
+		expect(JSON.parse(logs[0] ?? "")).toEqual([]);
 	});
 });
 

@@ -126,9 +126,10 @@ program
 program
 	.command("verify")
 	.description("Verify installed dependencies against lockfile")
+	.option("--json", "Output results as JSON")
 	.option("-g, --global", "Verify global dependencies")
 	.action(async (opts) => {
-		await verifyCommand(process.cwd(), { global: opts.global });
+		await verifyCommand(process.cwd(), { global: opts.global, json: opts.json });
 	});
 
 program
@@ -190,9 +191,10 @@ const deps = program.command("deps").description("Dependency graph commands");
 deps
 	.command("tree")
 	.description("Show dependency tree")
+	.option("--json", "Output tree as JSON")
 	.option("-g, --global", "Show global dependency tree")
 	.action(async (opts) => {
-		await depsTreeCommand(process.cwd(), { global: opts.global });
+		await depsTreeCommand(process.cwd(), { global: opts.global, json: opts.json });
 	});
 
 const registry = program.command("registry").description("Registry management commands");
@@ -233,8 +235,9 @@ registry
 registry
 	.command("update [name]")
 	.description("Fetch registry repos and rebuild search indexes")
-	.action(async (name?: string) => {
-		await registryUpdateCommand(name);
+	.option("--json", "Output results as JSON")
+	.action(async (name: string | undefined, opts) => {
+		await registryUpdateCommand(name, undefined, undefined, { json: opts.json });
 	});
 
 registry
@@ -291,9 +294,10 @@ const targets = program.command("targets").description("Manage install targets (
 targets
 	.command("list")
 	.description("Show known agents with detected and configured status")
+	.option("--json", "Output results as JSON")
 	.option("-g, --global", "Show global targets")
 	.action(async (opts) => {
-		await targetsListCommand(process.cwd(), { global: opts.global });
+		await targetsListCommand(process.cwd(), { global: opts.global, json: opts.json });
 	});
 
 targets
@@ -333,8 +337,9 @@ const cache = program.command("cache").description("Cache management commands");
 cache
 	.command("clean")
 	.description("Remove cached repositories")
-	.action(async () => {
-		await cacheCleanCommand();
+	.option("--json", "Output results as JSON")
+	.action(async (opts) => {
+		await cacheCleanCommand({ json: opts.json });
 	});
 
 // Global error handler: print clean error messages, no stack traces

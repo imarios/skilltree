@@ -146,14 +146,32 @@ export async function registryListCommand(
 	}
 }
 
+export interface RegistryUpdateOptions {
+	json?: boolean;
+}
+
+interface RegistryUpdateResult {
+	name: string;
+	repo: string;
+	entities: number;
+	skills: number;
+	agents: number;
+	commands: number;
+}
+
 export async function registryUpdateCommand(
 	name?: string,
 	configPath?: string,
 	cacheDir?: string,
+	opts?: RegistryUpdateOptions,
 ): Promise<void> {
 	const registries = await listRegistries(configPath);
 
 	if (registries.length === 0) {
+		if (opts?.json) {
+			console.log("[]");
+			return;
+		}
 		console.log("No registries configured. Run 'skilltree registry add <url>' to add one.");
 		return;
 	}
@@ -164,8 +182,12 @@ export async function registryUpdateCommand(
 		throw new Error(`Registry "${name}" not found`);
 	}
 
+	const results: RegistryUpdateResult[] = [];
+
 	for (const reg of targets) {
-		process.stdout.write(`Updating ${pc.cyan(reg.name)}... `);
+		// Suppress per-registry chatter in JSON mode so stdout stays a single
+		// parseable document.
+		if (!opts?.json) process.stdout.write(`Updating ${pc.cyan(reg.name)}... `);
 		const repoDir = await ensureRegistryRepo(reg.name, reg.repo, cacheDir);
 		const entities = await scanRegistry(repoDir);
 
@@ -181,9 +203,24 @@ export async function registryUpdateCommand(
 		};
 		await writeRegistryIndex(index, cacheDir);
 
-		const breakdown = [`${skills} skills`, `${agents} agents`];
-		if (commands > 0) breakdown.push(`${commands} commands`);
-		console.log(pc.green(`${entities.length} entities`) + dim(` (${breakdown.join(", ")})`));
+		results.push({
+			name: reg.name,
+			repo: reg.repo,
+			entities: entities.length,
+			skills,
+			agents,
+			commands,
+		});
+
+		if (!opts?.json) {
+			const breakdown = [`${skills} skills`, `${agents} agents`];
+			if (commands > 0) breakdown.push(`${commands} commands`);
+			console.log(pc.green(`${entities.length} entities`) + dim(` (${breakdown.join(", ")})`));
+		}
+	}
+
+	if (opts?.json) {
+		console.log(JSON.stringify(results, null, 2));
 	}
 }
 
