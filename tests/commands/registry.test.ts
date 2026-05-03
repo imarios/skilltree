@@ -13,6 +13,7 @@ import {
 	registryListCommand,
 	registryRemoveCommand,
 	registryUpdateCommand,
+	resolveRegistryAddUrl,
 } from "../../src/commands/registry.js";
 import { getRegistryIndexPath, writeRegistryIndex } from "../../src/core/registry-cache.js";
 import { readConfig, writeConfig } from "../../src/core/registry-config.js";
@@ -125,6 +126,48 @@ describe("registryAddCommand", () => {
 		await expect(registryAddCommand("github.com/other/vibes", {}, configPath)).rejects.toThrow(
 			"--name",
 		);
+	});
+});
+
+/**
+ * The `--repo` alias for the positional URL is wired in `src/cli.ts` (the
+ * function still takes a single URL parameter — the CLI layer collapses
+ * positional + `--repo` into one). These tests cover the resolver function
+ * exposed alongside `registryAddCommand` so the alias logic is unit-testable
+ * without spinning up Commander.
+ */
+describe("resolveRegistryAddUrl", () => {
+	test("accepts positional URL only", () => {
+		expect(resolveRegistryAddUrl("github.com/foo/bar", undefined)).toBe("github.com/foo/bar");
+	});
+
+	test("accepts --repo only", () => {
+		expect(resolveRegistryAddUrl(undefined, "github.com/foo/bar")).toBe("github.com/foo/bar");
+	});
+
+	test("accepts both when they match exactly (idempotent)", () => {
+		expect(resolveRegistryAddUrl("github.com/foo/bar", "github.com/foo/bar")).toBe(
+			"github.com/foo/bar",
+		);
+	});
+
+	test("errors when neither positional nor --repo is provided", () => {
+		expect(() => resolveRegistryAddUrl(undefined, undefined)).toThrow(/required/i);
+	});
+
+	test("errors when positional and --repo conflict", () => {
+		expect(() => resolveRegistryAddUrl("github.com/foo/bar", "github.com/baz/qux")).toThrow(
+			/conflict/i,
+		);
+	});
+
+	test("treats empty string as missing (not silently truthy-skip)", () => {
+		// Honours CLAUDE.md "presence check ≠ value check" pattern. A user
+		// passing `--repo ""` deserves an explicit error, not a silent fall-
+		// through to a positional that wasn't provided.
+		expect(() => resolveRegistryAddUrl(undefined, "")).toThrow(/required/i);
+		expect(() => resolveRegistryAddUrl("", undefined)).toThrow(/required/i);
+		expect(() => resolveRegistryAddUrl("", "")).toThrow(/required/i);
 	});
 });
 

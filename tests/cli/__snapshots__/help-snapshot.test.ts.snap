@@ -11,6 +11,10 @@ Options:
 
 Commands:
   init [options]                Initialize a new skilltree project
+
+  Related:
+    registry init   — seed popular community registries to install skills from
+    targets detect  — auto-discover installed coding agents on this machine
   add [options] <name>          Add a dependency
   install [options]             Resolve and install dependencies
   update [options] [name]       Update dependencies to latest versions
@@ -42,6 +46,10 @@ exports[`CLI help snapshots \`init --help\` is stable 1`] = `
 "Usage: skilltree init [options]
 
 Initialize a new skilltree project
+
+Related:
+  registry init   — seed popular community registries to install skills from
+  targets detect  — auto-discover installed coding agents on this machine
 
 Options:
   -g, --global  Initialize global dependencies
@@ -223,11 +231,17 @@ Options:
 
 Commands:
   init [options]           Seed popular community registries for skill discovery
-  add [options] <url>      Register a git repo as a searchable registry
+
+  Related:
+    init            — initialize a new skilltree project (run this first)
+    targets detect  — auto-discover installed coding agents on this machine
+  add [options] [url]      Register a git repo as a searchable registry
+
+  The URL can be passed positionally or via --repo (so muscle memory from \`add\` transfers).
 
   Examples:
     skilltree registry add github.com/VoltAgent/awesome-agent-skills
-    skilltree registry add github.com/trailofbits/skills --name security
+    skilltree registry add --repo github.com/trailofbits/skills --name security
   remove <name>            Remove a registered registry
   list [options]           List all registered registries
   update [options] [name]  Fetch registry repos and rebuild search indexes
@@ -241,6 +255,10 @@ exports[`CLI help snapshots \`registry init --help\` is stable 1`] = `
 
 Seed popular community registries for skill discovery
 
+Related:
+  init            — initialize a new skilltree project (run this first)
+  targets detect  — auto-discover installed coding agents on this machine
+
 Options:
   --skip-update  Add registries without indexing
   -h, --help     display help for command
@@ -248,17 +266,21 @@ Options:
 `;
 
 exports[`CLI help snapshots \`registry add --help\` is stable 1`] = `
-"Usage: skilltree registry add [options] <url>
+"Usage: skilltree registry add [options] [url]
 
 Register a git repo as a searchable registry
 
+The URL can be passed positionally or via --repo (so muscle memory from \`add\`
+transfers).
+
 Examples:
   skilltree registry add github.com/VoltAgent/awesome-agent-skills
-  skilltree registry add github.com/trailofbits/skills --name security
+  skilltree registry add --repo github.com/trailofbits/skills --name security
 
 Options:
-  --name <alias>  Custom name for the registry
-  -h, --help      display help for command
+  -r, --repo <url>  Git repository URL (alias for the positional <url>)
+  --name <alias>    Custom name for the registry
+  -h, --help        display help for command
 "
 `;
 
@@ -354,6 +376,10 @@ Commands:
   add [options] <target>     Add an agent or path to install_targets
   remove [options] <target>  Remove an agent or path from install_targets
   detect [options]           Scan for installed agents and add missing ones
+
+  Related:
+    init            — initialize a new skilltree project (run this first)
+    registry init   — seed popular community registries to install skills from
   migrate [options]          Convert dev_install_path to install_targets
   help [command]             display help for command
 "
@@ -397,6 +423,10 @@ exports[`CLI help snapshots \`targets detect --help\` is stable 1`] = `
 "Usage: skilltree targets detect [options]
 
 Scan for installed agents and add missing ones
+
+Related:
+  init            — initialize a new skilltree project (run this first)
+  registry init   — seed popular community registries to install skills from
 
 Options:
   -g, --global  Detect for global manifest

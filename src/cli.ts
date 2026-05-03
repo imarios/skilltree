@@ -17,6 +17,7 @@ import {
 	registryListCommand,
 	registryRemoveCommand,
 	registryUpdateCommand,
+	resolveRegistryAddUrl,
 } from "./commands/registry.js";
 import { removeCommand } from "./commands/remove.js";
 import { scanCommand } from "./commands/scan.js";
@@ -51,7 +52,9 @@ export function buildProgram(): Command {
 
 	program
 		.command("init")
-		.description("Initialize a new skilltree project")
+		.description(
+			"Initialize a new skilltree project\n\nRelated:\n  registry init   — seed popular community registries to install skills from\n  targets detect  — auto-discover installed coding agents on this machine",
+		)
 		.option("-g, --global", "Initialize global dependencies")
 		.option(
 			"--scan",
@@ -210,20 +213,24 @@ export function buildProgram(): Command {
 
 	registry
 		.command("init")
-		.description("Seed popular community registries for skill discovery")
+		.description(
+			"Seed popular community registries for skill discovery\n\nRelated:\n  init            — initialize a new skilltree project (run this first)\n  targets detect  — auto-discover installed coding agents on this machine",
+		)
 		.option("--skip-update", "Add registries without indexing")
 		.action(async (opts) => {
 			await registryInitCommand({ skipUpdate: opts.skipUpdate });
 		});
 
 	registry
-		.command("add <url>")
+		.command("add [url]")
 		.description(
-			"Register a git repo as a searchable registry\n\nExamples:\n  skilltree registry add github.com/VoltAgent/awesome-agent-skills\n  skilltree registry add github.com/trailofbits/skills --name security",
+			"Register a git repo as a searchable registry\n\nThe URL can be passed positionally or via --repo (so muscle memory from `add` transfers).\n\nExamples:\n  skilltree registry add github.com/VoltAgent/awesome-agent-skills\n  skilltree registry add --repo github.com/trailofbits/skills --name security",
 		)
+		.option("-r, --repo <url>", "Git repository URL (alias for the positional <url>)")
 		.option("--name <alias>", "Custom name for the registry")
-		.action(async (url: string, opts) => {
-			await registryAddCommand(url, { name: opts.name });
+		.action(async (url: string | undefined, opts) => {
+			const resolvedUrl = resolveRegistryAddUrl(url, opts.repo);
+			await registryAddCommand(resolvedUrl, { name: opts.name });
 		});
 
 	registry
@@ -327,7 +334,9 @@ export function buildProgram(): Command {
 
 	targets
 		.command("detect")
-		.description("Scan for installed agents and add missing ones")
+		.description(
+			"Scan for installed agents and add missing ones\n\nRelated:\n  init            — initialize a new skilltree project (run this first)\n  registry init   — seed popular community registries to install skills from",
+		)
 		.option("-g, --global", "Detect for global manifest")
 		.action(async (opts) => {
 			await targetsDetectCommand(process.cwd(), { global: opts.global });

@@ -32,6 +32,39 @@ export interface RegistryAddOptions {
 }
 
 /**
+ * `registry add` accepts the URL either positionally or via `--repo` (alias)
+ * so muscle memory transfers from the regular `add` command. This helper is
+ * the single source of truth for that resolution: it returns the URL,
+ * throws if neither was provided, and throws if both were given with
+ * different values. Identical values are accepted (idempotent).
+ *
+ * Uses presence checks (=== undefined) rather than truthy checks to honour
+ * the CLAUDE.md hardening pattern: a user passing `--repo ""` should get
+ * "URL required" not silently lose the flag to a `??` shortcut.
+ */
+export function resolveRegistryAddUrl(
+	positional: string | undefined,
+	repoFlag: string | undefined,
+): string {
+	const hasPositional = positional !== undefined;
+	const hasFlag = repoFlag !== undefined;
+
+	if (hasPositional && hasFlag && positional !== repoFlag) {
+		throw new Error(
+			`conflicting URLs: positional "${positional}" vs --repo "${repoFlag}". Pass only one.`,
+		);
+	}
+
+	const url = hasPositional ? positional : repoFlag;
+	if (url === undefined || url === "") {
+		throw new Error(
+			"a registry URL is required. Pass it positionally (`registry add <url>`) or via --repo.",
+		);
+	}
+	return url;
+}
+
+/**
  * Infer a registry name from a git URL.
  * Uses the last path segment of the normalized URL.
  */
