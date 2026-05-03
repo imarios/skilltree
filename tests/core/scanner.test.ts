@@ -276,6 +276,95 @@ describe("scanFile", () => {
 	});
 });
 
+describe("scanFile — XML / call-form Skill references (issue #34)", () => {
+	test('detects XML self-closing form: <Skill name="foo"/>', async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeSkill(
+			dir,
+			"my-skill",
+			'For containers, see <Skill name="docker-dev"/>.',
+		);
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).toContain("docker-dev");
+		expect(result?.undeclared).toContain("docker-dev");
+	});
+
+	test('detects XML open/close form: <Skill name="foo"></Skill>', async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeSkill(
+			dir,
+			"my-skill",
+			'See <Skill name="docker-dev"></Skill> for details.',
+		);
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).toContain("docker-dev");
+	});
+
+	test("detects single-quoted XML form: <Skill name='foo'/>", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeSkill(dir, "my-skill", "See <Skill name='docker-dev'/> for setup.");
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).toContain("docker-dev");
+	});
+
+	test("detects XML form with extra attributes (attribute order tolerant)", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeSkill(
+			dir,
+			"my-skill",
+			'See <Skill type="skill" name="docker-dev" version="1.0" /> for setup.',
+		);
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).toContain("docker-dev");
+	});
+
+	test('detects call form: Skill(name="foo")', async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeSkill(
+			dir,
+			"my-skill",
+			'Invoke via Skill(name="docker-dev") to bootstrap.',
+		);
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).toContain("docker-dev");
+	});
+
+	test("does not match unrelated XML tags with name= attribute", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeSkill(
+			dir,
+			"my-skill",
+			'A <Section name="docker-dev"/> in the doc, <Component name="other-thing"/>.',
+		);
+
+		const result = await scanFile(filePath);
+		// Only `<Skill name=...>` should be picked up — unrelated tags must not
+		// match. (The other regex patterns may still match natural-language
+		// references in the same doc; this test isolates the XML pattern by
+		// using nothing else suggestive.)
+		expect(result?.detected).not.toContain("docker-dev");
+		expect(result?.detected).not.toContain("other-thing");
+	});
+
+	test("respects declared deps with XML-only references", async () => {
+		// Regression for #34: with the new XML pattern, declared deps must still
+		// be honored (no false-positive undeclared on a properly declared XML ref).
+		const dir = await makeTempDir();
+		const filePath = await writeSkill(dir, "my-skill", 'See <Skill name="docker-dev"/>.', [
+			"docker-dev",
+		]);
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).toContain("docker-dev");
+		expect(result?.undeclared).not.toContain("docker-dev");
+	});
+});
+
 describe("scanFile — slash-command references", () => {
 	async function writeCommand(
 		dir: string,

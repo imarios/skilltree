@@ -131,6 +131,29 @@ describe("scanCommand", () => {
 		}
 	});
 
+	test("--check exits 1 when only XML-form Skill references are present (issue #34)", async () => {
+		// Regression for #34: `<Skill name="..."/>` content used to slip past
+		// the regex scanner, giving false-confidence green from --check.
+		const dir = await makeTempDir();
+		await createSkill(dir, "my-skill", [], 'See <Skill name="docker-dev"/> for setup.');
+
+		let exitCode: number | undefined;
+		const originalExit = process.exit;
+		process.exit = ((code: number) => {
+			exitCode = code;
+			throw new Error(`exit ${code}`);
+		}) as typeof process.exit;
+
+		try {
+			await scanCommand([join(dir, "my-skill")], { check: true });
+		} catch {
+			// Expected — our mock throws to stop execution
+		} finally {
+			process.exit = originalExit;
+		}
+		expect(exitCode).toBe(1);
+	});
+
 	test("--apply updates frontmatter with undeclared deps", async () => {
 		const dir = await makeTempDir();
 		const skillDir = await createSkill(dir, "my-skill", [], "Use the `testing` skill.");
