@@ -1,3 +1,9 @@
+## v0.24.5 (2026-05-03)
+
+### Fix
+
+- **remove**: clean files from all install_targets, not just the first (#41)
+
 ## v0.24.4 (2026-05-03)
 
 ### Fix
