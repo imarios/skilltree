@@ -15,8 +15,6 @@
  *  - repo and registry scanners label discovered files correctly
  *  - the gitignore helper covers `commands/` alongside skills+agents
  *  - lockfile round-trip preserves `type: command`
- *  - skills cannot depend on commands (extends the existing
- *    skill→agent invariant)
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
@@ -242,12 +240,14 @@ describe("lockfile round-trip for commands", () => {
 	});
 });
 
-describe("graph type-constraint extends to commands", () => {
-	test("a skill that depends on a command produces a clear type-constraint error", async () => {
+describe("skill→command dependencies are allowed (issue #45)", () => {
+	test("a skill can declare a slash command as a dependency", async () => {
+		// The development-methodology skill prescribes running
+		// /code-refinement-with-hypothesis as part of PatchMode. That kind
+		// of dependency is real — slash commands are reusable workflows
+		// that skills naturally compose.
 		const dir = await makeTempDir("skilltree-cmd-deps-");
 
-		// Build a local skill that declares a command as a dependency.
-		// The resolver should refuse: skills can only depend on skills.
 		await mkdir(join(dir, "my-skill"), { recursive: true });
 		await writeFile(
 			join(dir, "my-skill", "SKILL.md"),
@@ -266,10 +266,64 @@ describe("graph type-constraint extends to commands", () => {
 			dir,
 		);
 
-		const errorText = result.errors.join("\n");
-		expect(errorText).toContain("skill:my-skill");
-		expect(errorText).toContain("command:review");
-		expect(errorText).toContain("Skills can only depend on other skills");
+		expect(result.errors).toEqual([]);
+		expect(result.entities.get("skill:my-skill")).toBeDefined();
+		expect(result.entities.get("command:review")).toBeDefined();
+	});
+
+	test("skill → command → command transitive chain resolves (issue #45 motivating case)", async () => {
+		// Mirrors the real chain that surfaced the bug:
+		//   development-methodology (skill)
+		//     └── code-refinement-with-hypothesis (command)
+		//           └── hypothesis (command)
+		// The skill must be able to depend on a command, AND that command's
+		// own frontmatter `dependencies:` (a skilltree extension) must be
+		// followed transitively. Both edges used to fail the type check.
+		const dir = await makeTempDir("skilltree-skill-cmd-cmd-");
+
+		await mkdir(join(dir, "dev-methodology"), { recursive: true });
+		await writeFile(
+			join(dir, "dev-methodology", "SKILL.md"),
+			"---\nname: dev-methodology\ndependencies:\n  - refine-with-hypothesis\n---\nUse /refine-with-hypothesis as a harden step.\n",
+		);
+		await mkdir(join(dir, "commands"), { recursive: true });
+		await writeFile(
+			join(dir, "commands", "refine-with-hypothesis.md"),
+			"---\nname: refine-with-hypothesis\ndependencies:\n  - hypothesize\n---\nLoop /hypothesize until clean.\n",
+		);
+		await writeFile(
+			join(dir, "commands", "hypothesize.md"),
+			"---\nname: hypothesize\n---\nGenerate hypotheses.\n",
+		);
+
+		const result = await resolveAll(
+			{
+				dependencies: {
+					"dev-methodology": { local: "./dev-methodology" },
+					"refine-with-hypothesis": {
+						local: "./commands/refine-with-hypothesis.md",
+						type: "command",
+					},
+					hypothesize: { local: "./commands/hypothesize.md", type: "command" },
+				},
+			},
+			dir,
+		);
+
+		expect(result.errors).toEqual([]);
+		expect(result.entities.get("skill:dev-methodology")).toBeDefined();
+		expect(result.entities.get("command:refine-with-hypothesis")).toBeDefined();
+		expect(result.entities.get("command:hypothesize")).toBeDefined();
+
+		// Topological order: transitive `hypothesize` must precede its
+		// parent `refine-with-hypothesis`, which must precede `dev-methodology`.
+		const order = result.installOrder;
+		expect(order.indexOf("command:hypothesize")).toBeLessThan(
+			order.indexOf("command:refine-with-hypothesis"),
+		);
+		expect(order.indexOf("command:refine-with-hypothesis")).toBeLessThan(
+			order.indexOf("skill:dev-methodology"),
+		);
 	});
 });
 

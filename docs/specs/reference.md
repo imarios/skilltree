@@ -348,15 +348,6 @@ Fix: Remove one of these dependency edges in the skill frontmatter.
 ```
 
 ```
-Error: Invalid dependency type
-
-  skill:api-development cannot depend on agent:backend-developer.
-  Skills can only depend on other skills.
-
-Fix: Remove backend-developer from api-development's dependencies.
-```
-
-```
 Error: Duplicate entity resolution
 
   Both "workflow-builder" and "another-skill" resolve to skill:workflow-builder.

@@ -183,9 +183,11 @@ describe("same-origin resolution for local sources", () => {
 
 		const result = await resolveAll(manifest, projectDir);
 
-		// Skills can't depend on agents — should get type constraint error
-		// This is correct behavior per spec
-		expect(result.errors.some((e) => e.includes("Invalid dependency type"))).toBe(true);
+		// Skill→agent is allowed (issue #45). The transitive agent must
+		// resolve from the same local source via the candidate probe.
+		expect(result.errors).toEqual([]);
+		expect(result.entities.get("skill:python-coding")).toBeDefined();
+		expect(result.entities.get("agent:code-reviewer")).toBeDefined();
 	});
 
 	test("same-origin works with tilde-expanded paths", async () => {

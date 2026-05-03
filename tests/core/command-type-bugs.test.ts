@@ -152,42 +152,6 @@ describe("H2: same-name skill + command collision", () => {
 });
 
 /**
- * H3 — The skill→non-skill type-constraint error is pushed from two
- * places: `checkExistingResolution` (transitive path) and
- * `validateTypeConstraints` (post-pass). validateTypeConstraints has a
- * `state.errors.includes(errMsg)` dedup guard. checkExistingResolution
- * doesn't. Confirm whether the same edge produces one error or two.
- */
-describe("H3: type-constraint error duplication", () => {
-	test("a skill→command edge produces exactly one error message", async () => {
-		const dir = await makeTempDir("skilltree-h3-");
-		await mkdir(join(dir, "my-skill"), { recursive: true });
-		await writeFile(
-			join(dir, "my-skill", "SKILL.md"),
-			"---\nname: my-skill\ndependencies:\n  - review\n---\nBody\n",
-		);
-		await mkdir(join(dir, "commands"), { recursive: true });
-		await writeFile(join(dir, "commands", "review.md"), "---\nname: review\n---\nBody\n");
-
-		const result = await resolveAll(
-			{
-				dependencies: {
-					"my-skill": { local: "./my-skill" },
-					review: { local: "./commands/review.md", type: "command" },
-				},
-			},
-			dir,
-		);
-
-		// Count how many error strings mention the same edge.
-		const edgeErrors = result.errors.filter(
-			(e) => e.includes("skill:my-skill") && e.includes("command:review"),
-		);
-		expect(edgeErrors.length).toBe(1);
-	});
-});
-
-/**
  * H6 — `--scan` (scanLocalRepo) must not pick up installed artifacts
  * under `.claude/commands/` as if they were sources. The walker skips
  * hidden directories; verify that property still holds for the new

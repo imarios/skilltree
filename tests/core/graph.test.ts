@@ -337,24 +337,85 @@ describe("resolveAll with local deps", () => {
 		expect(shared?.group).toBe("prod");
 	});
 
-	test("type constraint: skill cannot depend on agent", async () => {
+	test("dev→prod promotion is type-agnostic: a command first reached via dev gets promoted (issue #45)", async () => {
+		// useExistingResolution does not branch on entity type when promoting
+		// a transitive dep from dev to prod — verify that holds for commands
+		// now that skill→command is allowed.
 		const dir = await makeTempDir();
-		// Create an agent file
 		const { mkdir: mkdirFs } = await import("node:fs/promises");
-		await mkdirFs(join(dir, "agents"), { recursive: true });
-		await writeFile(join(dir, "agents", "my-agent.md"), "---\nname: my-agent\n---\n\n# Agent\n");
-		// Create a skill that depends on the agent
-		await createLocalSkill(join(dir, "skills"), "bad-skill", ["my-agent"]);
+		await createLocalSkill(join(dir, "skills"), "prod-user", ["shared-cmd"]);
+		await createLocalSkill(join(dir, "skills"), "dev-user", ["shared-cmd"]);
+		await mkdirFs(join(dir, "commands"), { recursive: true });
+		await writeFile(join(dir, "commands", "shared-cmd.md"), "---\nname: shared-cmd\n---\nBody\n");
+
+		// Order matters: dev-dependencies process AFTER dependencies in
+		// resolveAll. Put the dev parent first to make sure the command
+		// is reached *first* via dev — the prod sweep then promotes it.
+		const manifest: Manifest = {
+			dependencies: {
+				"prod-user": { local: "./skills/prod-user" },
+			},
+			"dev-dependencies": {
+				"dev-user": { local: "./skills/dev-user" },
+				"shared-cmd": { local: "./commands/shared-cmd.md", type: "command" },
+			},
+		};
+
+		const result = await resolveAll(manifest, dir);
+		expect(result.errors).toEqual([]);
+		expect(result.entities.get("command:shared-cmd")?.group).toBe("prod");
+	});
+
+	test("same-name skill+command: a transitive `foo` resolves to the skill, not the command (issue #45)", async () => {
+		// With skill→command now allowed, a manifest can legitimately declare
+		// both `skill:foo` and `command:foo`. Decision #7 says skill wins for
+		// disambiguation; the registerEntity skill-priority guard enforces it
+		// regardless of registration order.
+		const dir = await makeTempDir();
+		const { mkdir: mkdirFs } = await import("node:fs/promises");
+		await createLocalSkill(join(dir, "skills"), "parent", ["foo"]);
+		await createLocalSkill(join(dir, "skills"), "foo");
+		await mkdirFs(join(dir, "commands"), { recursive: true });
+		await writeFile(join(dir, "commands", "foo.md"), "---\nname: foo\n---\nBody\n");
 
 		const manifest: Manifest = {
 			dependencies: {
-				"bad-skill": { local: "./skills/bad-skill" },
+				parent: { local: "./skills/parent" },
+				foo: { local: "./skills/foo" },
+				"foo-cmd": { local: "./commands/foo.md", type: "command", name: "foo" },
+			},
+		};
+
+		const result = await resolveAll(manifest, dir);
+		expect(result.errors).toEqual([]);
+		// parent's transitive `foo` must hit the skill, not the command —
+		// proven by the skill being in the install order ahead of parent.
+		const order = result.installOrder;
+		expect(order).toContain("skill:foo");
+		expect(order).toContain("command:foo");
+		expect(order.indexOf("skill:foo")).toBeLessThan(order.indexOf("skill:parent"));
+	});
+
+	test("skill can depend on agent (issue #45)", async () => {
+		// Slash commands and agents are reusable, composable workflows; a
+		// skill that prescribes a workflow naturally references them.
+		const dir = await makeTempDir();
+		const { mkdir: mkdirFs } = await import("node:fs/promises");
+		await mkdirFs(join(dir, "agents"), { recursive: true });
+		await writeFile(join(dir, "agents", "my-agent.md"), "---\nname: my-agent\n---\n\n# Agent\n");
+		await createLocalSkill(join(dir, "skills"), "my-skill", ["my-agent"]);
+
+		const manifest: Manifest = {
+			dependencies: {
+				"my-skill": { local: "./skills/my-skill" },
 				"my-agent": { local: "./agents/my-agent.md", type: "agent" },
 			},
 		};
 
 		const result = await resolveAll(manifest, dir);
-		expect(result.errors.some((e) => e.includes("cannot depend on agent"))).toBe(true);
+		expect(result.errors).toEqual([]);
+		expect(result.entities.get("skill:my-skill")).toBeDefined();
+		expect(result.entities.get("agent:my-agent")).toBeDefined();
 	});
 });
 

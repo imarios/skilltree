@@ -27,12 +27,12 @@ YAML keys must be unique, but a skill and agent can share a name (e.g., `workflo
 
 - No filesystem collision: skills install to `skills/`, agents to `agents/`, commands to `commands/`
 - Frontmatter `dependencies` use actual names, not aliases
-- Disambiguation in frontmatter: `dependencies: [workflow-builder]` **always resolves to the skill** when both skill and agent share the name. Skills can only depend on skills (type constraint forces it). Agents default to skill (common pattern).
+- Disambiguation in frontmatter: `dependencies: [workflow-builder]` **always resolves to the skill** when both skill and agent share the name. The probe order in same-origin/same-repo lookup checks `skills/` first, then `agents/`, then `commands/`, so the skill wins.
 - **Known limitation:** There is no frontmatter syntax to target a same-name agent. If an agent needs to depend on another agent that shares a name with a skill, the agent must be renamed to have a unique name. This is an acceptable constraint -- the collision is rare (1 in 42 entities in the real codebase), and renaming is a one-time fix.
 - Resolution context registers entities under actual name + type
 
 **Test scenarios that must pass:**
-- Skill depending on `workflow-builder` resolves to the skill (type constraint)
+- Skill depending on `workflow-builder` resolves to the skill (probe order: `skills/` checked before `agents/`)
 - Agent depending on `workflow-builder` resolves to the skill (precedence rule)
 - Agent depending on a dep that only the agent (not the skill) provides still works correctly
 - `deps tree` shows both entities correctly with their types

@@ -95,7 +95,6 @@ export async function resolveAll(
 	await checkStaleTagManifests(state);
 	await processDeps(expanded.dependencies, "prod", state);
 	await processDeps(expanded["dev-dependencies"], "dev", state);
-	validateTypeConstraints(state);
 
 	const installOrder = topologicalSort(state.entities, state.resolutionContext, state.errors);
 
@@ -309,7 +308,7 @@ async function resolveLocalEntity(
 	registerEntity(entity, state);
 
 	for (const transDepName of frontmatterDeps) {
-		await resolveTransitive(transDepName, type, group, compositeKey, state);
+		await resolveTransitive(transDepName, group, compositeKey, state);
 	}
 }
 
@@ -413,18 +412,17 @@ async function resolveRemoteEntity(
 	registerEntity(entity, state);
 
 	for (const transDepName of frontmatterDeps) {
-		await resolveTransitive(transDepName, type, group, compositeKey, state);
+		await resolveTransitive(transDepName, group, compositeKey, state);
 	}
 }
 
 async function resolveTransitive(
 	depName: string,
-	parentType: EntityType,
 	parentGroup: DependencyGroup,
 	parentCompositeKey: string,
 	state: ResolutionState,
 ): Promise<void> {
-	if (checkExistingResolution(depName, parentType, parentGroup, parentCompositeKey, state)) return;
+	if (useExistingResolution(depName, parentGroup, state)) return;
 	if (await tryResolveFromManifest(depName, parentGroup, state)) return;
 	if (await tryResolveFromLocalSource(depName, parentGroup, parentCompositeKey, state)) return;
 	if (await tryResolveFromOriginManifest(depName, parentGroup, parentCompositeKey, state)) return;
@@ -432,27 +430,22 @@ async function resolveTransitive(
 	addUnresolvedError(depName, parentCompositeKey, state);
 }
 
-function checkExistingResolution(
+/**
+ * If `depName` is already resolved, promote it from `dev` to `prod` when the
+ * current parent reaches it through `prod`, and signal "skip further
+ * resolution" via `true`. Decision #11 (group assignment) — a transitive dep
+ * reachable from both groups is `prod`.
+ */
+function useExistingResolution(
 	depName: string,
-	parentType: EntityType,
 	parentGroup: DependencyGroup,
-	parentCompositeKey: string,
 	state: ResolutionState,
 ): boolean {
 	if (!state.resolutionContext.has(depName)) return false;
-
 	const existingKey = state.resolutionContext.get(depName);
-	if (existingKey) {
-		const existing = state.entities.get(existingKey);
-		if (existing && parentGroup === "prod" && existing.group === "dev") {
-			existing.group = "prod";
-		}
-		if (parentType === "skill" && existing && existing.type !== "skill") {
-			const parentName = state.entities.get(parentCompositeKey)?.name;
-			state.errors.push(
-				`Error: Invalid dependency type\n\n  skill:${parentName} cannot depend on ${existing.type}:${depName}.\n  Skills can only depend on other skills.\n\nFix: Remove ${depName} from ${parentName}'s dependencies.`,
-			);
-		}
+	const existing = existingKey ? state.entities.get(existingKey) : undefined;
+	if (existing && parentGroup === "prod" && existing.group === "dev") {
+		existing.group = "prod";
 	}
 	return true;
 }
@@ -891,23 +884,6 @@ async function resolveFromLocalSource(
 		}
 	}
 	return false;
-}
-
-function validateTypeConstraints(state: ResolutionState): void {
-	for (const [, entity] of state.entities) {
-		if (entity.type !== "skill") continue;
-		for (const depName of entity.dependencies) {
-			const depKey = state.resolutionContext.get(depName);
-			if (!depKey) continue;
-			const dep = state.entities.get(depKey);
-			if (dep && dep.type !== "skill") {
-				const errMsg = `Error: Invalid dependency type\n\n  skill:${entity.name} cannot depend on ${dep.type}:${depName}.\n  Skills can only depend on other skills.\n\nFix: Remove ${depName} from ${entity.name}'s dependencies.`;
-				if (!state.errors.includes(errMsg)) {
-					state.errors.push(errMsg);
-				}
-			}
-		}
-	}
 }
 
 export function topologicalSort(
