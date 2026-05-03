@@ -127,4 +127,28 @@ describe("parseLockfile", () => {
 			"Unsupported lockfile version",
 		);
 	});
+
+	test("rejects a lockfile with a dependency cycle (issue #47)", () => {
+		// The resolver rejects cycles, so any cycle in a lockfile is corruption.
+		// Validate at read time so all consumers (deps tree, install --frozen)
+		// surface a clear error instead of silently mishandling the bad data.
+		const cyclic = [
+			"lockfile_version: 1",
+			"packages:",
+			"  a: {type: skill, group: prod, source: local, path: ./a, commit: HEAD, dependencies: [b]}",
+			"  b: {type: skill, group: prod, source: local, path: ./b, commit: HEAD, dependencies: [a]}",
+			"",
+		].join("\n");
+		expect(() => parseLockfile(cyclic)).toThrow(/cycle detected.*a → b → a/);
+	});
+
+	test("self-cycle is rejected (issue #47)", () => {
+		const selfCycle = [
+			"lockfile_version: 1",
+			"packages:",
+			"  a: {type: skill, group: prod, source: local, path: ./a, commit: HEAD, dependencies: [a]}",
+			"",
+		].join("\n");
+		expect(() => parseLockfile(selfCycle)).toThrow(/cycle detected.*a → a/);
+	});
 });

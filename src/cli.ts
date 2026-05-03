@@ -205,8 +205,16 @@ export function buildProgram(): Command {
 		.description("Show dependency tree")
 		.option("--json", "Output tree as JSON")
 		.option("-g, --global", "Show global dependency tree")
+		.option(
+			"--dedupe",
+			"Stop recursion under already-printed subtrees (terse, cargo-tree default style)",
+		)
 		.action(async (opts) => {
-			await depsTreeCommand(process.cwd(), { global: opts.global, json: opts.json });
+			await depsTreeCommand(process.cwd(), {
+				global: opts.global,
+				json: opts.json,
+				dedupe: opts.dedupe,
+			});
 		});
 
 	const registry = program.command("registry").description("Registry management commands");
