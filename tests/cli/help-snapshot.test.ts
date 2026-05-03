@@ -40,9 +40,21 @@ function* walkCommands(
 /**
  * Capture a command's help text. Uses Commander's helpInformation() which
  * is a pure string-returning API — no stdout writes, no spawning.
+ *
+ * Per-line trailing whitespace is stripped: Commander column-aligns
+ * multi-line descriptions with ~33 spaces of left padding, which means
+ * blank "continuation" lines arrive whitespace-padded. The repo's
+ * `trailing-whitespace` pre-commit hook then trims those at commit time,
+ * so the snapshot file on disk and CI's freshly-generated output diverge
+ * by whitespace only. Normalize at snapshot time to keep both sides
+ * byte-identical.
  */
 function helpText(command: Command): string {
-	return command.helpInformation();
+	return command
+		.helpInformation()
+		.split("\n")
+		.map((line) => line.replace(/[ \t]+$/, ""))
+		.join("\n");
 }
 
 describe("CLI help snapshots", () => {
