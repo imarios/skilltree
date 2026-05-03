@@ -26,6 +26,15 @@ const PATTERNS = [
 	// or a quoting/bracketing character — not a word/identifier character or another
 	// `/`. Lookahead `(?!/)` blocks multi-segment paths like /usr/local/share.
 	/(?<![/\w])\/([a-z][a-z0-9-]+)\b(?!\/)/g,
+	// XML-style Skill tag: <Skill name="foo"/>, <Skill name="foo"></Skill>,
+	// <Skill name='foo'>, and attribute-order-tolerant forms like
+	// <Skill type="skill" name="foo" version="1.0" />. Anchored on the literal
+	// tag name `Skill` so unrelated tags with a `name=` attribute don't match.
+	// Issue #34.
+	/<Skill\s+[^>]*?\bname=["']([a-z0-9][a-z0-9-]*)["'][^>]*?>/gi,
+	// Call-form invocation: Skill(name="foo") / Skill( name = 'foo' ).
+	// Issue #34.
+	/\bSkill\s*\(\s*name\s*=\s*["']([a-z0-9][a-z0-9-]*)["']\s*\)/g,
 ];
 
 /**
