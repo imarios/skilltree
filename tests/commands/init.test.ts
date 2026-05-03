@@ -44,6 +44,40 @@ describe("initCommand", () => {
 		expect(content).toContain(".claude/agents/");
 	});
 
+	test("codex target writes .agents/ entries (not .codex/)", async () => {
+		// Regression for #32: init was string-prefixing a dot to the target name
+		// (".codex"), but the codex install dir is actually ".agents". The
+		// resulting .gitignore protected the wrong directory and let installed
+		// artifacts leak into git.
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "home");
+		await mkdir(join(fakeHome, ".codex"), { recursive: true });
+
+		await initCommand(dir, { homeDir: fakeHome });
+
+		const content = await readFile(join(dir, ".gitignore"), "utf-8");
+		expect(content).toContain(".agents/skills/");
+		expect(content).toContain(".agents/agents/");
+		expect(content).toContain(".agents/commands/");
+		expect(content).not.toContain(".codex/skills/");
+	});
+
+	test("copilot target writes .github/ entries (not .copilot/)", async () => {
+		// Regression for #32: same root cause — copilot's install dir is
+		// ".github", but init was writing ".copilot/skills/" to gitignore.
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "home");
+		await mkdir(join(fakeHome, ".copilot"), { recursive: true });
+
+		await initCommand(dir, { homeDir: fakeHome });
+
+		const content = await readFile(join(dir, ".gitignore"), "utf-8");
+		expect(content).toContain(".github/skills/");
+		expect(content).toContain(".github/agents/");
+		expect(content).toContain(".github/commands/");
+		expect(content).not.toContain(".copilot/skills/");
+	});
+
 	test("appends to existing .gitignore without duplicating entries", async () => {
 		const dir = await makeTempDir();
 		const fakeHome = join(dir, "empty-home");

@@ -8,7 +8,7 @@ import {
 	GLOBAL_MANIFEST,
 	MANIFEST_NEW,
 } from "../core/filenames.js";
-import { addGitignoreEntries, getSkillAgentIgnoreEntries } from "../core/gitignore.js";
+import { addGitignoreEntries, getSkillAgentIgnoreEntriesForTarget } from "../core/gitignore.js";
 import { serializeManifest, writeGlobalManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
 import { type LocalEntry, scanLocalRepo } from "../core/repo-scanner.js";
@@ -84,11 +84,13 @@ export async function initCommand(dir: string, options?: InitOptions): Promise<v
 	await writeFile(manifestPath, serializeManifest(manifest), "utf-8");
 	success(`Created ${MANIFEST_NEW}`);
 
-	// Update .gitignore for all targets
+	// Update .gitignore for all targets. Resolve through the agent registry
+	// (`getSkillAgentIgnoreEntriesForTarget`) so codex/copilot — whose install
+	// dirs (`.agents`, `.github`) differ from `.${name}` — get the right
+	// entries. Regression guard for #32.
 	const ignoreEntries: string[] = [];
 	for (const target of installTargets) {
-		const resolvedDir = target.startsWith(".") || target.startsWith("/") ? target : `.${target}`;
-		ignoreEntries.push(...getSkillAgentIgnoreEntries(resolvedDir));
+		ignoreEntries.push(...getSkillAgentIgnoreEntriesForTarget(target));
 	}
 	// Deduplicate
 	const uniqueEntries = [...new Set(ignoreEntries)];
