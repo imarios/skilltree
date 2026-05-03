@@ -1,3 +1,9 @@
+## v0.24.3 (2026-05-03)
+
+### Fix
+
+- **targets**: keep .gitignore in sync on add/remove/detect (#33) (#38)
+
 ## v0.24.2 (2026-05-03)
 
 ### Fix
