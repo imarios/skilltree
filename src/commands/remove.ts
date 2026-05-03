@@ -10,7 +10,7 @@ import {
 	writeLockfile,
 } from "../core/lockfile.js";
 import {
-	getDevInstallPath,
+	getInstallTargets,
 	loadManifestOrThrow,
 	validateManifestOrThrow,
 	warnLegacyInstallPath,
@@ -66,12 +66,12 @@ export async function removeCommand(
 	}
 	success(`Removed ${name} from ${isGlobal ? GLOBAL_MANIFEST : MANIFEST_NEW}`);
 
-	const installBase = isGlobal ? getGlobalInstallBase() : join(dir, getDevInstallPath(manifest));
+	const installBases = resolveInstallBases(manifest, dir, isGlobal);
 
 	// Remove installed files + orphans
 	if (lockfile) {
-		await deleteEntityFiles(name, lockfile, installBase, options.keepFiles);
-		await cleanOrphans(lockfile, manifest, installBase, options.keepFiles);
+		await deleteEntityFiles(name, lockfile, installBases, options.keepFiles);
+		await cleanOrphans(lockfile, manifest, installBases, options.keepFiles);
 
 		if (isGlobal) {
 			await writeGlobalLockfile(lockfile, globalDir);
@@ -79,6 +79,21 @@ export async function removeCommand(
 			await writeLockfile(dir, lockfile);
 		}
 	}
+}
+
+/**
+ * All install base directories (absolute paths) configured by the manifest.
+ *
+ * `remove` must clean files from EVERY configured target, not just the first
+ * one — otherwise non-default targets (.agents/, .cursor/, .gemini/, ...) keep
+ * orphan copies of the removed dep.
+ */
+function resolveInstallBases(manifest: Manifest, dir: string, isGlobal: boolean): string[] {
+	if (isGlobal) {
+		const targets = getInstallTargets(manifest, { global: true });
+		return targets.length > 0 ? targets : [getGlobalInstallBase()];
+	}
+	return getInstallTargets(manifest).map((t) => join(dir, t));
 }
 
 async function previewRemove(
@@ -95,12 +110,16 @@ async function previewRemove(
 
 	if (!lockfile) return;
 
-	const installBase = isGlobal ? getGlobalInstallBase() : join(dir, getDevInstallPath(manifest));
+	// Mirror the live path: preview every configured install target so users
+	// see all the dirs that would be touched, not just `.claude/`.
+	const installBases = resolveInstallBases(manifest, dir, isGlobal);
 
 	const entry = lockfile.packages[name];
 	if (entry && !keepFiles) {
-		const targetPath = getTargetPath({ name, type: entry.type }, installBase);
-		console.log(dim(`Would remove installed files at ${targetPath}`));
+		for (const installBase of installBases) {
+			const targetPath = getTargetPath({ name, type: entry.type }, installBase);
+			console.log(dim(`Would remove installed files at ${targetPath}`));
+		}
 	}
 
 	// Pure call — no clone needed. `excludeName` lets findOrphans answer
@@ -112,8 +131,10 @@ async function previewRemove(
 		if (keepFiles) {
 			console.log(dim(`Would drop orphaned transitive dependency: ${orphan} (files kept)`));
 		} else {
-			const targetPath = getTargetPath({ name: orphan, type: orphanEntry.type }, installBase);
-			console.log(dim(`Would remove orphaned transitive dependency: ${orphan} (${targetPath})`));
+			for (const installBase of installBases) {
+				const targetPath = getTargetPath({ name: orphan, type: orphanEntry.type }, installBase);
+				console.log(dim(`Would remove orphaned transitive dependency: ${orphan} (${targetPath})`));
+			}
 		}
 	}
 }
@@ -179,7 +200,7 @@ function removeFromManifest(
 async function deleteEntityFiles(
 	name: string,
 	lockfile: Lockfile,
-	installBase: string,
+	installBases: string[],
 	keepFiles?: boolean,
 ): Promise<void> {
 	if (keepFiles) return;
@@ -187,12 +208,14 @@ async function deleteEntityFiles(
 	if (!entry) return;
 
 	delete lockfile.packages[name];
-	const targetPath = getTargetPath({ name, type: entry.type }, installBase);
-	try {
-		await rm(targetPath, { recursive: true });
-		console.log(dim(`Removed installed files at ${targetPath}`));
-	} catch {
-		// Already removed
+	for (const installBase of installBases) {
+		const targetPath = getTargetPath({ name, type: entry.type }, installBase);
+		try {
+			await rm(targetPath, { recursive: true });
+			console.log(dim(`Removed installed files at ${targetPath}`));
+		} catch {
+			// Already removed
+		}
 	}
 }
 
@@ -202,7 +225,7 @@ async function cleanOrphans(
 		dependencies?: Record<string, unknown>;
 		"dev-dependencies"?: Record<string, unknown>;
 	},
-	installBase: string,
+	installBases: string[],
 	keepFiles?: boolean,
 ): Promise<void> {
 	const orphans = findOrphans(lockfile, manifest);
@@ -210,11 +233,13 @@ async function cleanOrphans(
 		const entry = lockfile.packages[orphan];
 		delete lockfile.packages[orphan];
 		if (!keepFiles && entry) {
-			const targetPath = getTargetPath({ name: orphan, type: entry.type }, installBase);
-			try {
-				await rm(targetPath, { recursive: true });
-			} catch {
-				// Already removed
+			for (const installBase of installBases) {
+				const targetPath = getTargetPath({ name: orphan, type: entry.type }, installBase);
+				try {
+					await rm(targetPath, { recursive: true });
+				} catch {
+					// Already removed
+				}
 			}
 			console.log(dim(`Removed orphaned transitive dependency: ${orphan}`));
 		}
