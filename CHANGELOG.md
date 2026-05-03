@@ -1,3 +1,9 @@
+## v0.24.7 (2026-05-03)
+
+### Fix
+
+- **graph**: allow skill → command and skill → agent dependencies (#45) (#46)
+
 ## v0.24.6 (2026-05-03)
 
 ### Fix
