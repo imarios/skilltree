@@ -12,6 +12,7 @@ demo/*.mp4
 .claude/agents/
 .claude/commands/
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 test
 package-lock.json
 .playwright-cli/
