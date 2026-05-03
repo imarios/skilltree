@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -302,5 +302,171 @@ describe("targetsMigrateCommand", () => {
 		// Manifest unchanged
 		const manifest = await readManifest(dir);
 		expect(manifest.install_targets).toEqual(["claude"]);
+	});
+});
+
+describe("targets ↔ .gitignore sync (issue #33)", () => {
+	async function readGitignore(dir: string): Promise<string> {
+		return readFile(join(dir, ".gitignore"), "utf-8");
+	}
+
+	async function gitignoreExists(dir: string): Promise<boolean> {
+		try {
+			await stat(join(dir, ".gitignore"));
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	describe("targetsAddCommand", () => {
+		test("adds the new target's entries to .gitignore (codex → .agents/)", async () => {
+			// Regression: targets add was disconnected from gitignore, so files
+			// installed under the new target's dir got committed.
+			const dir = await makeTempDir();
+			await writeManifestFile(dir, "install_targets:\n  - claude\ndependencies: {}\n");
+			await writeFile(
+				join(dir, ".gitignore"),
+				".claude/skills/\n.claude/agents/\n.claude/commands/\n",
+			);
+
+			await targetsAddCommand("codex", dir);
+
+			const content = await readGitignore(dir);
+			expect(content).toContain(".agents/skills/");
+			expect(content).toContain(".agents/agents/");
+			expect(content).toContain(".agents/commands/");
+		});
+
+		test("adds a literal-path target's entries to .gitignore", async () => {
+			const dir = await makeTempDir();
+			await writeManifestFile(dir, "install_targets:\n  - claude\ndependencies: {}\n");
+			await writeFile(join(dir, ".gitignore"), ".claude/skills/\n");
+
+			await targetsAddCommand("./custom", dir);
+
+			const content = await readGitignore(dir);
+			expect(content).toContain("./custom/skills/");
+			expect(content).toContain("./custom/agents/");
+			expect(content).toContain("./custom/commands/");
+		});
+
+		test("creates .gitignore if absent", async () => {
+			const dir = await makeTempDir();
+			await writeManifestFile(dir, "install_targets:\n  - claude\ndependencies: {}\n");
+			expect(await gitignoreExists(dir)).toBe(false);
+
+			await targetsAddCommand("codex", dir);
+
+			expect(await gitignoreExists(dir)).toBe(true);
+			const content = await readGitignore(dir);
+			expect(content).toContain(".agents/skills/");
+		});
+
+		test("idempotent: re-adding a target after remove does not duplicate gitignore lines", async () => {
+			const dir = await makeTempDir();
+			await writeManifestFile(dir, "install_targets:\n  - claude\n  - codex\ndependencies: {}\n");
+			await writeFile(
+				join(dir, ".gitignore"),
+				".claude/skills/\n.claude/agents/\n.claude/commands/\n.agents/skills/\n.agents/agents/\n.agents/commands/\n",
+			);
+
+			await targetsRemoveCommand("codex", dir);
+			await targetsAddCommand("codex", dir);
+
+			const content = await readGitignore(dir);
+			const matches = content.match(/^\.agents\/skills\/$/gm);
+			expect(matches?.length).toBe(1);
+		});
+	});
+
+	describe("targetsRemoveCommand", () => {
+		test("removes the target's entries from .gitignore", async () => {
+			const dir = await makeTempDir();
+			await writeManifestFile(dir, "install_targets:\n  - claude\n  - codex\ndependencies: {}\n");
+			await writeFile(
+				join(dir, ".gitignore"),
+				".claude/skills/\n.claude/agents/\n.claude/commands/\n.agents/skills/\n.agents/agents/\n.agents/commands/\n",
+			);
+
+			await targetsRemoveCommand("codex", dir);
+
+			const content = await readGitignore(dir);
+			expect(content).not.toContain(".agents/skills/");
+			expect(content).not.toContain(".agents/agents/");
+			expect(content).not.toContain(".agents/commands/");
+			// claude entries preserved
+			expect(content).toContain(".claude/skills/");
+		});
+
+		test("preserves entries still owned by another remaining target", async () => {
+			// If a literal path target happens to point at the same dir as a
+			// known agent (e.g., user added `./.claude` plus `claude`), removing
+			// one must NOT yank the entry the other still needs.
+			const dir = await makeTempDir();
+			await writeManifestFile(
+				dir,
+				"install_targets:\n  - claude\n  - ./.claude\ndependencies: {}\n",
+			);
+			await writeFile(
+				join(dir, ".gitignore"),
+				".claude/skills/\n.claude/agents/\n.claude/commands/\n",
+			);
+
+			await targetsRemoveCommand("./.claude", dir);
+
+			const content = await readGitignore(dir);
+			// Still owned by `claude`
+			expect(content).toContain(".claude/skills/");
+		});
+
+		test("does not create .gitignore if absent (no-op when the file isn't there)", async () => {
+			const dir = await makeTempDir();
+			await writeManifestFile(dir, "install_targets:\n  - claude\n  - codex\ndependencies: {}\n");
+			// No .gitignore file exists
+			expect(await gitignoreExists(dir)).toBe(false);
+
+			await targetsRemoveCommand("codex", dir);
+
+			expect(await gitignoreExists(dir)).toBe(false);
+		});
+
+		test("no-op for gitignore when target's entries aren't present", async () => {
+			// User hand-edited .gitignore and removed the codex entries already.
+			// Removing codex from manifest must not error or scramble the file.
+			const dir = await makeTempDir();
+			await writeManifestFile(dir, "install_targets:\n  - claude\n  - codex\ndependencies: {}\n");
+			const initial = ".claude/skills/\n.claude/agents/\n.claude/commands/\n";
+			await writeFile(join(dir, ".gitignore"), initial);
+
+			await targetsRemoveCommand("codex", dir);
+
+			const content = await readGitignore(dir);
+			expect(content).toBe(initial);
+		});
+	});
+
+	describe("targetsDetectCommand", () => {
+		test("adds gitignore entries for newly detected agents", async () => {
+			// Same root cause as add/remove: detect was mutating install_targets
+			// without ever touching .gitignore.
+			const dir = await makeTempDir();
+			await writeManifestFile(dir, "install_targets:\n  - claude\ndependencies: {}\n");
+			await writeFile(
+				join(dir, ".gitignore"),
+				".claude/skills/\n.claude/agents/\n.claude/commands/\n",
+			);
+
+			const fakeHome = join(dir, "fake-home");
+			await mkdir(join(fakeHome, ".claude"), { recursive: true });
+			await mkdir(join(fakeHome, ".codex"), { recursive: true });
+
+			await targetsDetectCommand(dir, { homeDir: fakeHome });
+
+			const content = await readGitignore(dir);
+			expect(content).toContain(".agents/skills/");
+			expect(content).toContain(".agents/agents/");
+			expect(content).toContain(".agents/commands/");
+		});
 	});
 });
