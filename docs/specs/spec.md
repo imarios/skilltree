@@ -157,11 +157,17 @@ install location.
 | Agent | Single `.md` file with YAML frontmatter | `.claude/agents/{name}.md` |
 | Command | Single `.md` file with YAML frontmatter (Claude Code slash commands) | `.claude/commands/{name}.md` |
 
-**Type constraint:** Skills can only depend on skills. Agents can depend
-on skills (and other agents). Commands can depend on skills (same
-relaxation as agents). Agents and commands have the same on-disk shape
-(single `.md`); the difference is install location and how Claude Code
-loads them — slash commands are user-invoked via `/<name>`.
+**Cross-type dependencies:** Any entity may depend on any other entity.
+Skills, agents, and commands install to disjoint trees (`skills/`,
+`agents/`, `commands/`), so there is no filesystem-collision concern.
+Cycles are detected by topological sort and rejected separately.
+Slash commands are reusable workflows, so a skill that prescribes a
+workflow can legitimately declare the command(s) it invokes —
+e.g. `development-methodology` referencing `/code-refinement-with-hypothesis`.
+
+Agents and commands have the same on-disk shape (single `.md`); the
+difference is install location and how Claude Code loads them — slash
+commands are user-invoked via `/<name>`.
 
 ### Dependencies: Remote vs Local
 
@@ -292,7 +298,7 @@ workflow-builder-agent:         # YAML key = alias
 
 No filesystem collision (skills, agents, and commands install to different directories).
 
-**Frontmatter disambiguation:** When `dependencies: [workflow-builder]` appears in frontmatter and both a skill and agent match, **skill always takes precedence** (skills depending on skills is the only option; agents depending on skills is the common pattern). There is no frontmatter syntax to target a same-name agent -- this is a known limitation. If an agent needs to depend on another agent that shares a name with a skill, the agent must be renamed to have a unique name. See [decisions.md](decisions.md) #7 for full rules and test scenarios.
+**Frontmatter disambiguation:** When `dependencies: [workflow-builder]` appears in frontmatter and both a skill and agent match, **skill always takes precedence**. The probe order in same-origin/same-repo lookup checks `skills/` first, then `agents/`, then `commands/`, so a same-named skill always wins. There is no frontmatter syntax to target a same-name agent -- this is a known limitation. If an agent needs to depend on another agent that shares a name with a skill, the agent must be renamed to have a unique name. See [decisions.md](decisions.md) #7 for full rules and test scenarios.
 
 ## Commands
 
@@ -481,7 +487,7 @@ Plugins coexist without conflict (different namespaces, different storage). For 
 - Git operations with bare repo caching
 - Tag listing, semver resolution, constraint intersection
 - Dependency graph with composite keys + growing resolution context
-- Topological sort (Kahn's), cycle detection, chain health, type constraints
+- Topological sort (Kahn's), cycle detection, chain health
 - `skilltree.lock` generation
 
 ### Phase 3: Installation

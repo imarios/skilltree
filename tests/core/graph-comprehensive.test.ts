@@ -184,22 +184,24 @@ describe("resolveAll: same-repo transitive resolution for remote deps", () => {
 	});
 });
 
-describe("resolveAll: type constraints", () => {
-	test("skill depending on agent produces error", async () => {
+describe("resolveAll: cross-type dependencies (issue #45)", () => {
+	test("skill depending on agent resolves cleanly", async () => {
 		const dir = await makeTempDir();
-		await createLocalSkill(join(dir, "skills"), "bad-skill", ["my-agent"]);
+		await createLocalSkill(join(dir, "skills"), "my-skill", ["my-agent"]);
 		await mkdir(join(dir, "agents"), { recursive: true });
 		await writeFile(join(dir, "agents", "my-agent.md"), "---\nname: my-agent\n---\n\n# Agent\n");
 
 		const manifest: Manifest = {
 			dependencies: {
-				"bad-skill": { local: "./skills/bad-skill" },
+				"my-skill": { local: "./skills/my-skill" },
 				"my-agent": { local: "./agents/my-agent.md", type: "agent" },
 			},
 		};
 
 		const result = await resolveAll(manifest, dir);
-		expect(result.errors.some((e) => e.includes("cannot depend on agent"))).toBe(true);
+		expect(result.errors).toEqual([]);
+		expect(result.entities.get("skill:my-skill")).toBeDefined();
+		expect(result.entities.get("agent:my-agent")).toBeDefined();
 	});
 
 	test("agent depending on skill is valid", async () => {
