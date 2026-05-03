@@ -1,3 +1,9 @@
+## v0.24.4 (2026-05-03)
+
+### Fix
+
+- **scan**: detect XML and call-form Skill references (#34) (#37)
+
 ## v0.24.3 (2026-05-03)
 
 ### Fix
