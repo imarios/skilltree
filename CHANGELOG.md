@@ -1,3 +1,9 @@
+## v0.24.6 (2026-05-03)
+
+### Fix
+
+- **add,search**: name typo'd --registry instead of misleading downstream errors (#42) (#44)
+
 ## v0.24.5 (2026-05-03)
 
 ### Fix
