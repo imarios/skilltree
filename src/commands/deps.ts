@@ -8,6 +8,14 @@ export interface DepsOptions {
 	global?: boolean;
 	globalDir?: string; // test override
 	json?: boolean;
+	/**
+	 * Suppress recursion under already-printed subtrees. The legacy "stop on
+	 * duplicate" behavior (cargo tree's default). Default `false` — every
+	 * top-level subtree is rendered self-contained, with duplicates marked
+	 * `(*)` (cli) or `deduped: true` (json) but their `dependencies` still
+	 * populated. (Issue #47)
+	 */
+	dedupe?: boolean;
 }
 
 interface JsonTreeNode {
@@ -18,6 +26,10 @@ interface JsonTreeNode {
 	deduped?: boolean;
 	dependencies: JsonTreeNode[];
 }
+
+/** cargo-tree convention: marks a node whose canonical print is elsewhere. */
+const DUPLICATE_MARKER = "(*)";
+const DEDUPED_LABEL = "deduped";
 
 export async function depsTreeCommand(dir: string, opts?: DepsOptions): Promise<void> {
 	const isGlobal = !!opts?.global;
@@ -38,13 +50,15 @@ export async function depsTreeCommand(dir: string, opts?: DepsOptions): Promise<
 		...Object.keys(manifest["dev-dependencies"] ?? {}),
 	]);
 
+	const dedupe = opts?.dedupe === true;
+
 	if (opts?.json) {
 		const printedJson = new Set<string>();
 		const tree: JsonTreeNode[] = [];
 		for (const root of roots) {
 			const entry = lockfile.packages[root];
 			if (!entry) continue;
-			tree.push(buildJsonTree(root, entry, lockfile, printedJson));
+			tree.push(buildJsonTree(root, entry, lockfile, printedJson, true, dedupe));
 		}
 		console.log(JSON.stringify(tree, null, 2));
 		return;
@@ -55,7 +69,7 @@ export async function depsTreeCommand(dir: string, opts?: DepsOptions): Promise<
 	for (const root of roots) {
 		const entry = lockfile.packages[root];
 		if (!entry) continue;
-		printTree(root, entry, lockfile, "", true, true, printed);
+		printTree(root, entry, lockfile, "", true, true, printed, dedupe);
 	}
 }
 
@@ -64,6 +78,8 @@ function buildJsonTree(
 	entry: LockfileEntry,
 	lockfile: Lockfile,
 	printed: Set<string>,
+	isRoot: boolean,
+	dedupe: boolean,
 ): JsonTreeNode {
 	const node: JsonTreeNode = {
 		name,
@@ -73,18 +89,21 @@ function buildJsonTree(
 	if (entry.version) node.version = entry.version;
 	if (entry.source) node.source = entry.source;
 
-	if (printed.has(name)) {
-		// Mirror the human renderer: don't recurse into already-printed subtrees.
-		// Consumers walk on `deduped` instead of duplicating the whole subtree.
+	const alreadyPrinted = printed.has(name);
+	// Top-level entries are direct project deps; never mark them deduped
+	// regardless of whether they were already printed transitively.
+	if (alreadyPrinted && !isRoot) {
 		node.deduped = true;
-		return node;
+		// `--dedupe`: stop here so consumers walk on `deduped`. Default keeps
+		// recursing so each subtree is structurally complete.
+		if (dedupe) return node;
 	}
 	printed.add(name);
 
 	for (const depName of entry.dependencies) {
 		const depEntry = lockfile.packages[depName];
 		if (!depEntry) continue;
-		node.dependencies.push(buildJsonTree(depName, depEntry, lockfile, printed));
+		node.dependencies.push(buildJsonTree(depName, depEntry, lockfile, printed, false, dedupe));
 	}
 	return node;
 }
@@ -102,18 +121,25 @@ function printTree(
 	isRoot: boolean,
 	isLast: boolean,
 	printed: Set<string>,
+	dedupe: boolean,
 ): void {
 	const connector = isRoot ? "" : isLast ? "└── " : "├── ";
 	const version = entry.version ? `@${entry.version}` : "";
 	const source = entry.source === "local" ? "local" : "";
+	const alreadyPrinted = printed.has(name);
 
-	if (printed.has(name)) {
-		console.log(`${prefix}${connector}${dim(`${name} (${entry.type}, deduped)`)}`);
+	if (alreadyPrinted && !isRoot && dedupe) {
+		console.log(`${prefix}${connector}${dim(`${name} (${entry.type}, ${DEDUPED_LABEL})`)}`);
 		return;
 	}
 
+	// Top-level entries (isRoot) are canonical project declarations and never
+	// carry the (*) marker, even if their name was already printed transitively
+	// in an earlier root's subtree. The marker only signals "this transitive
+	// occurrence has been shown above; nothing new will appear below."
+	const marker = alreadyPrinted && !isRoot ? ` ${dim(DUPLICATE_MARKER)}` : "";
 	console.log(
-		`${prefix}${connector}${pc.cyan(name)}${version ? pc.green(version) : ""} ${dim(`(${entry.type}${source ? `, ${source}` : ""})`)}`,
+		`${prefix}${connector}${pc.cyan(name)}${version ? pc.green(version) : ""} ${dim(`(${entry.type}${source ? `, ${source}` : ""})`)}${marker}`,
 	);
 	printed.add(name);
 
@@ -124,6 +150,15 @@ function printTree(
 		const depEntry = lockfile.packages[depName];
 		if (!depEntry) continue;
 		const childPrefix = isRoot ? "" : prefix + (isLast ? "    " : "│   ");
-		printTree(depName, depEntry, lockfile, childPrefix, false, i === deps.length - 1, printed);
+		printTree(
+			depName,
+			depEntry,
+			lockfile,
+			childPrefix,
+			false,
+			i === deps.length - 1,
+			printed,
+			dedupe,
+		);
 	}
 }

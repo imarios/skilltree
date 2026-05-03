@@ -1,11 +1,43 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import simpleGit from "simple-git";
 import { depsTreeCommand } from "../../src/commands/deps.js";
 import { installCommand } from "../../src/commands/install.js";
 import { createLocalSkill, createTestRepo } from "../helpers/git-fixtures.js";
+
+/**
+ * Build the synthetic skill→command→command chain that mirrors the
+ * real-world chain (development-methodology → code-refinement-with-hypothesis
+ * → hypothesis) used to motivate issues #45 and #47. All three entities are
+ * also top-level deps so the duplicate-suppression code paths fire.
+ */
+async function setupDeepChain(dir: string): Promise<void> {
+	await mkdir(join(dir, "commands"), { recursive: true });
+	await writeFile(join(dir, "commands", "hypothesize.md"), "---\nname: hypothesize\n---\nBody\n");
+	await writeFile(
+		join(dir, "commands", "refine.md"),
+		"---\nname: refine\ndependencies:\n  - hypothesize\n---\nBody\n",
+	);
+	await createLocalSkill(join(dir, "skills"), "methodology", ["refine"]);
+	await writeFile(
+		join(dir, "skilltree.yml"),
+		[
+			"dependencies:",
+			"  refine:",
+			"    local: ./commands/refine.md",
+			"    type: command",
+			"  hypothesize:",
+			"    local: ./commands/hypothesize.md",
+			"    type: command",
+			"  methodology:",
+			"    local: ./skills/methodology",
+			"",
+		].join("\n"),
+	);
+	await installCommand(dir, {});
+}
 
 let tempDir: string;
 
@@ -49,7 +81,14 @@ function captureConsole(fn: () => Promise<void>): Promise<string[]> {
 			// This filters out noise from parallel tests bleeding into the capture.
 			return lines
 				.map(stripAnsi)
-				.filter((l) => /\(skill[,)]/.test(l) || /\(agent[,)]/.test(l) || l.includes("deduped)"));
+				.filter(
+					(l) =>
+						/\(skill[,)]/.test(l) ||
+						/\(agent[,)]/.test(l) ||
+						/\(command[,)]/.test(l) ||
+						l.includes("deduped)") ||
+						l.includes("(*)"),
+				);
 		})
 		.finally(() => {
 			console.log = original;
@@ -103,7 +142,7 @@ describe("deps tree rendering", () => {
 		expect(lines[2]).toBe("    └── leaf (skill, local)");
 	});
 
-	test("renders deduped entries correctly", async () => {
+	test("default: diamond shows full topology with (*) marker on transitive duplicates (issue #47)", async () => {
 		const dir = await makeTempDir();
 
 		// Diamond: A→B, A→C, B→D, C→D
@@ -121,12 +160,71 @@ describe("deps tree rendering", () => {
 
 		const lines = await captureConsole(() => depsTreeCommand(dir));
 
-		// shared should appear once fully, rest as deduped
-		// (once under left's subtree, then deduped under right and as root entry)
-		const fullShared = lines.filter((l) => l.includes("shared (skill, local)"));
+		// `shared` appears unmarked under its first transitive site (left's
+		// subtree) AND at top-level (top-level entries are always canonical).
+		// At the second transitive site (right's subtree), `(*)` marks it.
+		const dupShared = lines.filter((l) => l.includes("shared") && l.includes("(*)"));
+		expect(dupShared.length).toBeGreaterThanOrEqual(1);
+
+		// "deduped" wording is gone in the default output — that lives on --dedupe.
+		expect(lines.some((l) => l.includes("deduped)"))).toBe(false);
+	});
+
+	test("default: deep chain duplicated under multiple parents shows full topology (issue #47)", async () => {
+		const dir = await makeTempDir();
+		await setupDeepChain(dir);
+
+		const lines = await captureConsole(() => depsTreeCommand(dir));
+
+		const startIdx = lines.findIndex((l) => l.startsWith("methodology"));
+		expect(startIdx).toBeGreaterThanOrEqual(0);
+		const subtree = lines.slice(startIdx);
+		const subtreeRefine = subtree.filter((l) => l.includes("refine") && l.includes("(*)"));
+		const subtreeHypo = subtree.filter((l) => l.includes("hypothesize") && l.includes("(*)"));
+		expect(subtreeRefine.length).toBe(1);
+		expect(subtreeHypo.length).toBe(1);
+	});
+
+	test("top-level entry is canonical even when already printed as a transitive (issue #47)", async () => {
+		// Iteration order: refine, then hypothesize (which was already printed
+		// as refine's transitive), then methodology. The top-level hypothesize
+		// line must be canonical — it's a direct project dep, not a duplicate.
+		// The marker only belongs on transitive occurrences.
+		const dir = await makeTempDir();
+		await setupDeepChain(dir);
+
+		const lines = await captureConsole(() => depsTreeCommand(dir));
+
+		// The top-level `hypothesize` line (no leading connector — root-level)
+		// must NOT carry the (*) marker.
+		const topLevelHypo = lines.find((l) => l.startsWith("hypothesize") && l.includes("(command"));
+		expect(topLevelHypo).toBeDefined();
+		expect(topLevelHypo).not.toContain("(*)");
+	});
+
+	test("--dedupe preserves the legacy terse view (issue #47)", async () => {
+		const dir = await makeTempDir();
+
+		await createLocalSkill(join(dir, "skills"), "shared");
+		await createLocalSkill(join(dir, "skills"), "left", ["shared"]);
+		await createLocalSkill(join(dir, "skills"), "right", ["shared"]);
+		await createLocalSkill(join(dir, "skills"), "root", ["left", "right"]);
+
+		await writeManifest(
+			dir,
+			"dependencies:\n  root:\n    local: ./skills/root\n  left:\n    local: ./skills/left\n  right:\n    local: ./skills/right\n  shared:\n    local: ./skills/shared\n",
+		);
+
+		await installCommand(dir, {});
+
+		const lines = await captureConsole(() => depsTreeCommand(dir, { dedupe: true }));
+
+		// With --dedupe, the duplicate carries the legacy "deduped" wording AND
+		// no children are rendered below it.
 		const dedupedShared = lines.filter((l) => l.includes("shared (skill, deduped)"));
-		expect(fullShared.length).toBe(1);
 		expect(dedupedShared.length).toBeGreaterThanOrEqual(1);
+		// Sanity: (*) marker should not appear under --dedupe.
+		expect(lines.some((l) => l.includes("(*)"))).toBe(false);
 	});
 
 	test("renders remote deps with version", async () => {
@@ -213,7 +311,33 @@ describe("deps tree rendering", () => {
 		expect(JSON.parse(lines[0] ?? "")).toEqual([]);
 	});
 
-	test("--json marks deduped entries", async () => {
+	test("--json default: deduped nodes still carry populated `dependencies` (issue #47)", async () => {
+		const dir = await makeTempDir();
+		await setupDeepChain(dir);
+
+		const lines: string[] = [];
+		const original = console.log;
+		console.log = (...args: unknown[]) => lines.push(args.join(" "));
+		try {
+			await depsTreeCommand(dir, { json: true });
+		} finally {
+			console.log = original;
+		}
+
+		const parsed = JSON.parse(lines[0] ?? "");
+		const methodology = parsed.find((r: { name: string }) => r.name === "methodology");
+		expect(methodology).toBeDefined();
+		const refineUnderMeth = methodology.dependencies.find(
+			(d: { name: string }) => d.name === "refine",
+		);
+		expect(refineUnderMeth).toBeDefined();
+		expect(refineUnderMeth.deduped).toBe(true);
+		expect(refineUnderMeth.dependencies.length).toBe(1);
+		expect(refineUnderMeth.dependencies[0].name).toBe("hypothesize");
+		expect(refineUnderMeth.dependencies[0].deduped).toBe(true);
+	});
+
+	test("--json --dedupe: deduped nodes have empty `dependencies` (legacy view)", async () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "shared");
 		await createLocalSkill(join(dir, "skills"), "left", ["shared"]);
@@ -231,33 +355,66 @@ describe("deps tree rendering", () => {
 		const original = console.log;
 		console.log = (...args: unknown[]) => lines.push(args.join(" "));
 		try {
-			await depsTreeCommand(dir, { json: true });
+			await depsTreeCommand(dir, { json: true, dedupe: true });
 		} finally {
 			console.log = original;
 		}
 
 		const parsed = JSON.parse(lines[0] ?? "");
-		// Find any "shared" appearance below the first one — it should be marked deduped
-		const findShared = (
+		// At least one duplicate occurrence of `shared` should carry
+		// deduped: true AND an empty dependencies array (legacy view).
+		const findDeduped = (
 			node: { name: string; deduped?: boolean; dependencies: unknown[] },
-			seen: { count: number },
-		): boolean => {
-			if (node.name === "shared") {
-				seen.count += 1;
-				if (seen.count > 1 && node.deduped !== true) return false;
+			results: Array<{ deduped: boolean; depsCount: number }>,
+		): void => {
+			if (node.name === "shared" && node.deduped === true) {
+				results.push({ deduped: true, depsCount: node.dependencies.length });
 			}
 			for (const child of node.dependencies as Array<{
 				name: string;
 				deduped?: boolean;
 				dependencies: unknown[];
 			}>) {
-				if (!findShared(child, seen)) return false;
+				findDeduped(child, results);
 			}
-			return true;
 		};
-		const seen = { count: 0 };
-		for (const root of parsed) findShared(root, seen);
-		expect(seen.count).toBeGreaterThanOrEqual(2);
+		const results: Array<{ deduped: boolean; depsCount: number }> = [];
+		for (const root of parsed) findDeduped(root, results);
+		expect(results.length).toBeGreaterThanOrEqual(1);
+		expect(results.every((r) => r.depsCount === 0)).toBe(true);
+	});
+
+	test("a cyclic lockfile is rejected at read time with a clear error (issue #47)", async () => {
+		// The resolver rejects cycles before writing a lockfile, so a cycle
+		// here means corruption (hand-edit, future serialization bug). Surface
+		// it as a load-time error rather than letting deps tree silently render
+		// a partial graph.
+		const dir = await makeTempDir();
+		await writeManifest(dir, "dependencies:\n  a:\n    local: ./skills/a\n");
+		await writeFile(
+			join(dir, "skilltree.lock"),
+			[
+				"lockfile_version: 1",
+				"packages:",
+				"  a:",
+				"    type: skill",
+				"    group: prod",
+				"    source: local",
+				"    path: ./skills/a",
+				"    commit: HEAD",
+				"    dependencies: [b]",
+				"  b:",
+				"    type: skill",
+				"    group: prod",
+				"    source: local",
+				"    path: ./skills/b",
+				"    commit: HEAD",
+				"    dependencies: [a]",
+				"",
+			].join("\n"),
+		);
+
+		await expect(depsTreeCommand(dir)).rejects.toThrow(/cycle detected/);
 	});
 
 	test("renders │ continuation for non-last children with subtrees", async () => {

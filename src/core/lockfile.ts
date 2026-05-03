@@ -90,20 +90,76 @@ export function parseLockfile(content: string): Lockfile {
 		throw new Error(`Unsupported lockfile version: ${raw.lockfile_version}`);
 	}
 
+	assertAcyclic(raw);
 	return raw;
 }
 
 /**
- * Read a lockfile from disk.
+ * The resolver rejects cycles via topological sort before writing a lockfile,
+ * so any cycle in `packages` indicates corruption (hand-edit, future
+ * skilltree version with a serialization bug, etc.). Validate once on read so
+ * downstream consumers (deps tree, install --frozen) can trust acyclicity
+ * without re-checking.
+ */
+function assertAcyclic(lockfile: Lockfile): void {
+	const WHITE = 0;
+	const GREY = 1;
+	const BLACK = 2;
+	const color = new Map<string, number>();
+	for (const name of Object.keys(lockfile.packages)) color.set(name, WHITE);
+
+	// Iterative DFS to keep stack depth bounded on deep graphs.
+	for (const start of color.keys()) {
+		if (color.get(start) !== WHITE) continue;
+		// Each frame: [name, indexOfNextChildToVisit]
+		const stack: Array<[string, number]> = [[start, 0]];
+		color.set(start, GREY);
+		while (stack.length > 0) {
+			const top = stack[stack.length - 1];
+			if (!top) break;
+			const [name, idx] = top;
+			const deps = lockfile.packages[name]?.dependencies ?? [];
+			if (idx >= deps.length) {
+				color.set(name, BLACK);
+				stack.pop();
+				continue;
+			}
+			top[1] = idx + 1;
+			const child = deps[idx];
+			if (!child || !lockfile.packages[child]) continue;
+			const c = color.get(child);
+			if (c === GREY) {
+				const cycle = [
+					...stack.map(([n]) => n).slice(stack.findIndex(([n]) => n === child)),
+					child,
+				];
+				throw new Error(
+					`Lockfile is corrupt: dependency cycle detected: ${cycle.join(" → ")}. The resolver rejects cycles, so this lockfile was hand-edited or written by an incompatible tool. Run 'skilltree install' to regenerate.`,
+				);
+			}
+			if (c === WHITE) {
+				color.set(child, GREY);
+				stack.push([child, 0]);
+			}
+		}
+	}
+}
+
+/**
+ * Read a lockfile from disk. Returns `null` only when the file is absent.
+ * Parse errors (corruption, unsupported version, dependency cycle) propagate
+ * so callers don't silently fall through to "no lockfile" remediation.
  */
 export async function readLockfile(dir: string): Promise<Lockfile | null> {
+	const { path } = resolveLockfilePath(dir);
+	let content: string;
 	try {
-		const { path } = resolveLockfilePath(dir);
-		const content = await readFile(path, "utf-8");
-		return parseLockfile(content);
-	} catch {
-		return null;
+		content = await readFile(path, "utf-8");
+	} catch (err: unknown) {
+		if (err instanceof Error && "code" in err && err.code === "ENOENT") return null;
+		throw err;
 	}
+	return parseLockfile(content);
 }
 
 /**
@@ -117,13 +173,15 @@ export async function writeLockfile(dir: string, lockfile: Lockfile): Promise<vo
 // --- Global lockfile ---
 
 export async function readGlobalLockfile(globalDir?: string): Promise<Lockfile | null> {
+	const { path } = resolveGlobalLockfilePath(globalDir);
+	let content: string;
 	try {
-		const { path } = resolveGlobalLockfilePath(globalDir);
-		const content = await readFile(path, "utf-8");
-		return parseLockfile(content);
-	} catch {
-		return null;
+		content = await readFile(path, "utf-8");
+	} catch (err: unknown) {
+		if (err instanceof Error && "code" in err && err.code === "ENOENT") return null;
+		throw err;
 	}
+	return parseLockfile(content);
 }
 
 export async function writeGlobalLockfile(lockfile: Lockfile, globalDir?: string): Promise<void> {

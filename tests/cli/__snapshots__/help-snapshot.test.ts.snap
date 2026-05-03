@@ -217,6 +217,8 @@ Show dependency tree
 Options:
   --json        Output tree as JSON
   -g, --global  Show global dependency tree
+  --dedupe      Stop recursion under already-printed subtrees (terse, cargo-tree
+                default style)
   -h, --help    display help for command
 "
 `;
