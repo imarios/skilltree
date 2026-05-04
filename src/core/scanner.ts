@@ -43,6 +43,52 @@ const PATTERNS = [
 const MIN_NAME_LENGTH = 2;
 
 /**
+ * Claude Code's built-in slash commands. They ship with the harness, are not
+ * packaged as registry skills/commands, and cannot be declared in
+ * `dependencies:` — so the regex scan must drop them from the "undeclared"
+ * set rather than ask the author to declare them. Issue #43.
+ *
+ * Match is exact (no prefix matching), so registry commands like `loop-runner`
+ * are still detected normally.
+ */
+export const BUILTIN_HARNESS_COMMANDS = new Set([
+	// Scheduling & loops
+	"loop",
+	"schedule",
+	// Code workflows
+	"simplify",
+	"review",
+	"security-review",
+	// Model / mode toggles
+	"fast",
+	"model",
+	// Harness control
+	"help",
+	"clear",
+	"config",
+	"init",
+	"compact",
+	"resume",
+	"upgrade",
+	"exit",
+	// Config UIs
+	"agents",
+	"mcp",
+	"hooks",
+	"permissions",
+	// Diagnostics / account
+	"ide",
+	"cost",
+	"release-notes",
+	"login",
+	"logout",
+	"memory",
+	"status",
+	"bug",
+	"doctor",
+]);
+
+/**
  * Common English words that appear before "skill" in prose but are not skill
  * names (e.g., "a companion skill", "the expected skill"). Matched only for
  * single-token captures — hyphenated names like "python-coding" are never
@@ -111,6 +157,21 @@ export interface ScanResult {
 }
 
 /**
+ * Whether a regex-captured token survives the post-match filters and counts as
+ * a real entity reference. Drops sub-minimum-length tokens, self-references,
+ * single-word English stopwords ("companion skill"), and Claude Code's
+ * built-in slash commands (issue #43). Hyphenated tokens bypass the stopword
+ * check since real skill IDs are conventionally hyphenated.
+ */
+function isCandidateRef(depName: string, selfName: string): boolean {
+	if (depName.length < MIN_NAME_LENGTH) return false;
+	if (depName === selfName) return false;
+	if (!depName.includes("-") && STOPWORDS.has(depName.toLowerCase())) return false;
+	if (BUILTIN_HARNESS_COMMANDS.has(depName)) return false;
+	return true;
+}
+
+/**
  * Scan a single SKILL.md, agent .md, or command .md file for undeclared
  * dependencies.
  */
@@ -144,11 +205,7 @@ export async function scanFile(filePath: string): Promise<ScanResult | null> {
 			const match = pattern.exec(body);
 			if (match === null) break;
 			const depName = match[1];
-			if (depName && depName.length >= MIN_NAME_LENGTH) {
-				// Filter self-references and common English stopwords (false positives
-				// like "a companion skill"). Hyphenated names bypass the stopword check.
-				if (depName === name) continue;
-				if (!depName.includes("-") && STOPWORDS.has(depName.toLowerCase())) continue;
+			if (depName && isCandidateRef(depName, name)) {
 				detected.add(depName);
 			}
 		}

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyToFrontmatter, scanFile } from "../../src/core/scanner.js";
+import { applyToFrontmatter, BUILTIN_HARNESS_COMMANDS, scanFile } from "../../src/core/scanner.js";
 
 let tempDir: string;
 
@@ -386,12 +386,12 @@ describe("scanFile — slash-command references", () => {
 		const filePath = await writeCommand(
 			dir,
 			"code-refinement-with-hypothesis",
-			"Use /loop 1m /hypothesis to run iteratively.",
+			"Use /task-builder /hypothesis to run iteratively.",
 		);
 
 		const result = await scanFile(filePath);
 		expect(result?.detected).toContain("hypothesis");
-		expect(result?.detected).toContain("loop");
+		expect(result?.detected).toContain("task-builder");
 		expect(result?.undeclared).toContain("hypothesis");
 	});
 
@@ -439,6 +439,69 @@ describe("scanFile — slash-command references", () => {
 
 		const result = await scanFile(filePath);
 		expect(result?.detected).toContain("hypothesis");
+	});
+
+	test("ignores Claude Code built-in slash commands (issue #43)", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeCommand(
+			dir,
+			"my-cmd",
+			"Run `/loop` and `/simplify`, then `/help`. Also see /clear and /compact.",
+		);
+
+		const result = await scanFile(filePath);
+		// None of the built-in harness commands should leak into detected/undeclared
+		for (const builtin of ["loop", "simplify", "help", "clear", "compact"]) {
+			expect(result?.detected).not.toContain(builtin);
+			expect(result?.undeclared).not.toContain(builtin);
+		}
+	});
+
+	test("does not ignore registry commands that share a prefix with builtins", async () => {
+		// "loop" is a builtin, but "loop-runner" is a hypothetical registry command
+		// — only exact matches should be filtered.
+		const dir = await makeTempDir();
+		const filePath = await writeCommand(dir, "my-cmd", "Use /loop-runner each round.");
+
+		const result = await scanFile(filePath);
+		expect(result?.detected).toContain("loop-runner");
+		expect(result?.undeclared).toContain("loop-runner");
+	});
+
+	test("BUILTIN_HARNESS_COMMANDS includes the commands enumerated in issue #43", () => {
+		// Sanity-check the seed list. Update as Anthropic adds new built-ins.
+		for (const name of [
+			"loop",
+			"schedule",
+			"simplify",
+			"fast",
+			"help",
+			"clear",
+			"config",
+			"init",
+			"review",
+			"agents",
+			"mcp",
+			"hooks",
+			"permissions",
+			"security-review",
+			"ide",
+			"cost",
+			"release-notes",
+			"login",
+			"logout",
+			"model",
+			"memory",
+			"status",
+			"compact",
+			"resume",
+			"upgrade",
+			"exit",
+			"bug",
+			"doctor",
+		]) {
+			expect(BUILTIN_HARNESS_COMMANDS.has(name)).toBe(true);
+		}
 	});
 
 	test("filters self-reference by filename when no name: in frontmatter", async () => {
