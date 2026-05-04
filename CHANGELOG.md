@@ -1,3 +1,9 @@
+## v0.25.1 (2026-05-04)
+
+### Fix
+
+- **scan**: ignore Claude Code built-in slash commands (#51)
+
 ## v0.25.0 (2026-05-03)
 
 ### Feat
