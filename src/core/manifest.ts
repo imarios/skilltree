@@ -70,38 +70,48 @@ export function parseManifest(content: string): Manifest {
 function parseSources(raw: Record<string, unknown>): Record<string, string> {
 	const sources: Record<string, string> = {};
 	for (const [alias, value] of Object.entries(raw)) {
-		if (typeof value === "string") {
-			sources[alias] = value;
-			continue;
-		}
-		if (value && typeof value === "object" && !Array.isArray(value)) {
-			const obj = value as Record<string, unknown>;
-			const hasLocal = "local" in obj;
-			const hasRepo = "repo" in obj;
-			if (hasLocal && hasRepo) {
-				throw new Error(
-					`Invalid manifest: sources.${alias} has both "local" and "repo" — they are mutually exclusive.`,
-				);
-			}
-			if (!hasLocal && !hasRepo) {
-				throw new Error(
-					`Invalid manifest: sources.${alias} must specify either "local" or "repo" (got: ${Object.keys(obj).join(", ") || "empty"}).`,
-				);
-			}
-			const inner = hasLocal ? obj.local : obj.repo;
-			if (typeof inner !== "string") {
-				throw new Error(
-					`Invalid manifest: sources.${alias}.${hasLocal ? "local" : "repo"} must be a string, got ${inner === null ? "null" : typeof inner}.`,
-				);
-			}
-			sources[alias] = inner;
-			continue;
-		}
+		sources[alias] = parseSourceEntry(alias, value);
+	}
+	return sources;
+}
+
+/**
+ * Resolve a single `sources:` entry to its underlying URL/path string.
+ * Accepts either a flat string or a nested `{ local | repo }` mapping.
+ * Throws with the original error wording on any shape violation — the
+ * messages are part of the user-visible contract and several tests pin them.
+ */
+function parseSourceEntry(alias: string, value: unknown): string {
+	if (typeof value === "string") return value;
+
+	if (!value || typeof value !== "object" || Array.isArray(value)) {
 		throw new Error(
 			`Invalid manifest: sources.${alias} must be a string (a git URL or filesystem path) or a mapping with \`local:\` or \`repo:\`, got ${value === null ? "null" : typeof value}.`,
 		);
 	}
-	return sources;
+
+	const obj = value as Record<string, unknown>;
+	const hasLocal = "local" in obj;
+	const hasRepo = "repo" in obj;
+	if (hasLocal && hasRepo) {
+		throw new Error(
+			`Invalid manifest: sources.${alias} has both "local" and "repo" — they are mutually exclusive.`,
+		);
+	}
+	if (!hasLocal && !hasRepo) {
+		throw new Error(
+			`Invalid manifest: sources.${alias} must specify either "local" or "repo" (got: ${Object.keys(obj).join(", ") || "empty"}).`,
+		);
+	}
+
+	const innerKey = hasLocal ? "local" : "repo";
+	const inner = obj[innerKey];
+	if (typeof inner !== "string") {
+		throw new Error(
+			`Invalid manifest: sources.${alias}.${innerKey} must be a string, got ${inner === null ? "null" : typeof inner}.`,
+		);
+	}
+	return inner;
 }
 
 export function serializeManifest(manifest: Manifest): string {
