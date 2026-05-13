@@ -1,3 +1,9 @@
+## v0.26.0 (2026-05-13)
+
+### Feat
+
+- **scan**: user-extensible ignore list via scan.ignore (#60)
+
 ## v0.25.4 (2026-05-13)
 
 ### Fix
