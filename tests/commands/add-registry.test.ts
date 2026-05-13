@@ -149,7 +149,7 @@ describe("registry-assisted add", () => {
 			{
 				registries: [
 					{ name: "vibes", repo: "github.com/imarios/vibes" },
-					{ name: "community", repo: "github.com/skillkit/community" },
+					{ name: "community", repo: "github.com/skilltree/community" },
 				],
 			},
 			configPath,
@@ -165,7 +165,7 @@ describe("registry-assisted add", () => {
 
 		const communityIndex: RegistryIndex = {
 			registry: "community",
-			repo: "github.com/skillkit/community",
+			repo: "github.com/skilltree/community",
 			updated_at: new Date().toISOString(),
 			entities: [{ name: "python-coding", type: "skill", path: "skills/python-coding" }],
 		};

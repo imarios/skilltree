@@ -47,14 +47,14 @@ describe("readConfig", () => {
   - name: vibes
     repo: github.com/imarios/vibes
   - name: community
-    repo: github.com/skillkit/community-skills
+    repo: github.com/skilltree/community-skills
 `,
 			"utf-8",
 		);
 		const config = await readConfig(configPath);
 		expect(config.registries).toEqual([
 			{ name: "vibes", repo: "github.com/imarios/vibes" },
-			{ name: "community", repo: "github.com/skillkit/community-skills" },
+			{ name: "community", repo: "github.com/skilltree/community-skills" },
 		]);
 	});
 
@@ -113,12 +113,12 @@ describe("addRegistry", () => {
 			{ registries: [{ name: "vibes", repo: "github.com/imarios/vibes" }] },
 			configPath,
 		);
-		await addRegistry("community", "github.com/skillkit/community-skills", configPath);
+		await addRegistry("community", "github.com/skilltree/community-skills", configPath);
 		const config = await readConfig(configPath);
 		expect(config.registries).toHaveLength(2);
 		expect(config.registries[1]).toEqual({
 			name: "community",
-			repo: "github.com/skillkit/community-skills",
+			repo: "github.com/skilltree/community-skills",
 		});
 	});
 
@@ -148,7 +148,7 @@ describe("removeRegistry", () => {
 			{
 				registries: [
 					{ name: "vibes", repo: "github.com/imarios/vibes" },
-					{ name: "community", repo: "github.com/skillkit/community-skills" },
+					{ name: "community", repo: "github.com/skilltree/community-skills" },
 				],
 			},
 			configPath,

@@ -253,7 +253,7 @@ Shows entity type, registry, path, description, tags, available versions, and a 
 
 ## `skilltree registry index`
 
-Generate `skillkit-index.yaml` for a skill repo. For repo maintainers.
+Generate `skilltree-index.yml` for a skill repo. For repo maintainers. Repos that still have a legacy `skillkit-index.yaml` are migrated automatically — the new file replaces the old one and a deprecation warning is emitted on read until you regenerate.
 
 ```bash
 skilltree registry index           # Generate index

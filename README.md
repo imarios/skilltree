@@ -303,7 +303,7 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `skilltree registry remove <name>` | Remove a registered registry |
 | `skilltree registry list` | List registered registries |
 | `skilltree registry update [name]` | Fetch repos and rebuild search indexes |
-| `skilltree registry index` | Generate `skillkit-index.yaml` for a skill repo |
+| `skilltree registry index` | Generate `skilltree-index.yml` for a skill repo |
 | `skilltree completion [shell]` | Output shell completion script (zsh/bash) |
 | `skilltree cache clean` | Remove cached repositories |
 
