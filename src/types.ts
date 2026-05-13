@@ -31,6 +31,20 @@ export interface LocalDependency {
 
 export type Dependency = RemoteDependency | SourceDependency | LocalDependency;
 
+/**
+ * Configuration for `skilltree scan`. Authoring-only — never consulted in the
+ * install path. See `docs/specs/reference.md` for full semantics. Issue #52.
+ */
+export interface ScanConfig {
+	/**
+	 * Additional names the scanner should treat as already-known (in addition
+	 * to the hardcoded `BUILTIN_HARNESS_COMMANDS` set). Exact match, no prefix
+	 * matching — `loop` does not match `loop-runner`. Use for internal slash
+	 * commands or skills that intentionally aren't declared as dependencies.
+	 */
+	ignore?: string[];
+}
+
 export interface Manifest {
 	name?: string;
 	install_path?: string; // Legacy — maps to dev_install_path
@@ -41,6 +55,7 @@ export interface Manifest {
 	sources?: Record<string, string>;
 	dependencies?: Record<string, Dependency>;
 	"dev-dependencies"?: Record<string, Dependency>;
+	scan?: ScanConfig; // Authoring-aid config; never used at install time. Issue #52.
 }
 
 export interface LockfileEntry {

@@ -15,6 +15,22 @@ import { type LocalEntry, scanLocalRepo } from "../core/repo-scanner.js";
 import { dim, pluralize, success, warn } from "../core/ui.js";
 import type { Dependency, LocalDependency, Manifest } from "../types.js";
 
+/**
+ * Trailing comment hint about the optional `scan.ignore` field. Surfaced in
+ * the generated manifest so users discover the field without consulting the
+ * docs. Keeps the active YAML minimal (no empty `scan:` block) while still
+ * advertising the knob. Issue #52.
+ */
+const SCAN_HINT_COMMENT = `
+# Optional: extend \`skilltree scan\`'s ignore list with names you intentionally
+# don't declare as dependencies (e.g., internal slash commands not in any
+# registry). Exact match — no prefix matching. See docs/specs/reference.md.
+#
+# scan:
+#   ignore:
+#     - my-internal-command
+`;
+
 export interface InitOptions {
 	global?: boolean;
 	homeDir?: string; // Override home directory for agent detection (testing)
@@ -81,7 +97,7 @@ export async function initCommand(dir: string, options?: InitOptions): Promise<v
 		"dev-dependencies": {},
 	};
 
-	await writeFile(manifestPath, serializeManifest(manifest), "utf-8");
+	await writeFile(manifestPath, serializeManifest(manifest) + SCAN_HINT_COMMENT, "utf-8");
 	success(`Created ${MANIFEST_NEW}`);
 
 	// Update .gitignore for all targets. Resolve through the agent registry

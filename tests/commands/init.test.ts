@@ -33,6 +33,23 @@ describe("initCommand", () => {
 		expect(content).toContain("claude");
 	});
 
+	test("scaffolds a scan.ignore hint comment (issue #52)", async () => {
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "empty-home");
+		await mkdir(fakeHome, { recursive: true });
+		await initCommand(dir, { homeDir: fakeHome });
+
+		const content = await readFile(join(dir, "skilltree.yml"), "utf-8");
+		// The hint advertises the field without activating it — keeps the
+		// generated YAML lean while making the knob discoverable.
+		expect(content).toContain("scan:");
+		expect(content).toContain("ignore:");
+		expect(content).toContain("my-internal-command");
+		// Hint is a YAML comment, so the parsed manifest should still have no
+		// `scan` field (i.e., commenting out, not activating).
+		expect(content).toMatch(/^#\s*scan:/m);
+	});
+
 	test("creates .gitignore with skill and agent entries", async () => {
 		const dir = await makeTempDir();
 		const fakeHome = join(dir, "empty-home");

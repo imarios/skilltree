@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -192,6 +192,102 @@ describe("scanCommand", () => {
 			restore();
 		}
 		expect(logs.some((l) => l.includes("testing"))).toBe(true);
+	});
+
+	test("scan.ignore from skilltree.yml suppresses undeclared report (issue #52)", async () => {
+		const dir = await makeTempDir();
+		await createSkill(dir, "my-skill", [], "Use /my-internal-command and the /other-skill.");
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			[
+				"name: test-project",
+				"scan:",
+				"  ignore:",
+				"    - my-internal-command",
+				"dependencies: {}",
+				"",
+			].join("\n"),
+		);
+
+		let exitCode: number | undefined;
+		const originalExit = process.exit;
+		const originalCwd = process.cwd();
+		process.exit = ((code: number) => {
+			exitCode = code;
+			throw new Error(`exit ${code}`);
+		}) as typeof process.exit;
+		process.chdir(dir);
+
+		const { logs, restore } = captureConsole();
+		try {
+			await scanCommand([join(dir, "my-skill")], { check: true });
+		} catch {
+			// Expected — mock throws to stop execution
+		} finally {
+			restore();
+			process.exit = originalExit;
+			process.chdir(originalCwd);
+		}
+
+		// other-skill is still undeclared and triggers exit 1
+		expect(exitCode).toBe(1);
+		const joined = logs.join("\n");
+		expect(joined).toContain("other-skill");
+		expect(joined).not.toContain("my-internal-command");
+	});
+
+	test("--llm path honors scan.ignore (issue #52)", async () => {
+		// Mock the LLM module so we don't need ANTHROPIC_API_KEY in CI. The mock
+		// returns both an ignored name and a real undeclared dep — the test
+		// proves the ignore set filters LLM suggestions just like it does regex
+		// matches, keeping the two stages in agreement. We preserve the rest of
+		// the real exports (notably `parseEntityList`) so other test files that
+		// share the module graph aren't affected.
+		const realLlm = await import("../../src/core/llm.js");
+		mock.module("../../src/core/llm.js", () => ({
+			...realLlm,
+			llmScanContent: async () => [
+				{ name: "my-internal-command", type: "command" },
+				{ name: "real-dep", type: "skill" },
+			],
+		}));
+
+		const dir = await makeTempDir();
+		await createSkill(dir, "my-skill", [], "Authoring body — content irrelevant under mock.");
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			[
+				"name: test-project",
+				"scan:",
+				"  ignore:",
+				"    - my-internal-command",
+				"dependencies: {}",
+				"",
+			].join("\n"),
+		);
+
+		const originalCwd = process.cwd();
+		process.chdir(dir);
+
+		const { logs, restore } = captureConsole();
+		try {
+			await scanCommand([join(dir, "my-skill")], { llm: true, json: true });
+		} finally {
+			restore();
+			process.chdir(originalCwd);
+		}
+
+		// JSON output captures the merged result; the ignored name must not
+		// leak into either llmSuggestions or confirmed, while real-dep does.
+		const jsonLine = logs.find((l) => l.trim().startsWith("["));
+		expect(jsonLine).toBeDefined();
+		const results = JSON.parse(jsonLine ?? "[]") as Array<{
+			llmSuggestions?: string[];
+			confirmed?: string[];
+		}>;
+		const merged = results.flatMap((r) => [...(r.llmSuggestions ?? []), ...(r.confirmed ?? [])]);
+		expect(merged).not.toContain("my-internal-command");
+		expect(merged).toContain("real-dep");
 	});
 
 	test("detects undeclared slash-command reference in a command file", async () => {
