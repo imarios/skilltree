@@ -300,13 +300,16 @@ describe("cloneOrFetchBare", () => {
 
 		// First, clone the cache while a side branch exists upstream.
 		const srcGit = simpleGit(repoDir);
+		// Capture the default branch BEFORE creating side-branch — must work
+		// regardless of `init.defaultBranch` (CI runners often default to
+		// `master` while modern local installs default to `main`).
+		const defaultBranch = (await srcGit.raw(["symbolic-ref", "--short", "HEAD"])).trim();
 		await srcGit.checkoutLocalBranch("side-branch");
 		await writeFile(join(repoDir, "side.txt"), "x");
 		await srcGit.add(".");
 		await srcGit.commit("side commit");
-		const defaultBranch = (await srcGit.raw(["symbolic-ref", "--short", "HEAD"])).trim();
 		// Return upstream to its default branch.
-		await srcGit.checkout(defaultBranch === "side-branch" ? "main" : defaultBranch);
+		await srcGit.checkout(defaultBranch);
 
 		await cloneOrFetchBare(`file://${repoDir}`, bareDir);
 
