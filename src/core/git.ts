@@ -141,6 +141,41 @@ export function toGitCloneUrl(repo: string): string {
 }
 
 /**
+ * The fetch refspec we install on every bare cache. `git clone --bare` deliberately
+ * leaves `remote.origin.fetch` unset (see `git-clone(1)`: "neither remote-tracking
+ * branches nor the related configuration variables are created"), so a subsequent
+ * `git fetch --tags` resolves the remote's HEAD into FETCH_HEAD only and never
+ * updates `refs/heads/*` — new commits on the default branch are silently missed
+ * (issue #55).
+ *
+ * Installing this refspec — both on fresh clones and on pre-existing caches —
+ * gives us mirror-style branch updates without the broader `--mirror` semantics
+ * (PR refs, replace refs, etc.).
+ */
+const BARE_FETCH_REFSPEC = "+refs/heads/*:refs/heads/*";
+
+/**
+ * Backfill the branch-mirroring fetch refspec into a bare cache, replacing
+ * any pre-existing value(s). Use `--replace-all` rather than a plain
+ * `git config name value`: plain set fails with exit 5 ("cannot overwrite
+ * multiple values with a single value") when the cache already has more
+ * than one `remote.origin.fetch` entry — which can happen with caches
+ * produced by `git clone --mirror` or hand-edited configs. That failure
+ * would break the very `registry update` path this fix exists to rescue.
+ *
+ * Net behavior: after this call, the cache has exactly one fetch refspec,
+ * `BARE_FETCH_REFSPEC`. We intentionally overwrite broader refspecs too
+ * (e.g. mirror's `+refs/*:refs/*`); skilltree exclusively manages the
+ * cache directory, so narrowing to heads-only is the canonical state.
+ *
+ * Idempotent: rewriting the same value is a no-op on disk semantics and
+ * cheap enough to run on every fetch. See issue #55.
+ */
+async function ensureBareFetchRefspec(git: ReturnType<typeof simpleGit>): Promise<void> {
+	await git.raw(["config", "--replace-all", "remote.origin.fetch", BARE_FETCH_REFSPEC]);
+}
+
+/**
  * Clone a bare repo if it doesn't exist, or fetch if it does.
  * If the directory exists but is not a valid bare repo (e.g., empty dir
  * from a failed previous clone), it is removed and re-cloned. If the
@@ -164,7 +199,36 @@ export async function cloneOrFetchBare(repoUrl: string, targetDir: string): Prom
 					if (await isOriginUrlDrifted(git, repoUrl)) {
 						await rm(targetDir, { recursive: true, force: true });
 					} else {
-						await git.fetch(["--tags", "--prune"]);
+						// Backfill the refspec on caches produced by older
+						// skilltree builds before fetching — see issue #55.
+						await ensureBareFetchRefspec(git);
+						// Two-fetch dance to keep branch-vs-tag pruning
+						// asymmetric — both are required, and `--prune` /
+						// `--prune-tags` flags on a single invocation cannot
+						// express the split:
+						//
+						// 1) Branches (no prune): with our configured refspec
+						//    `+refs/heads/*:refs/heads/*`, a `--prune` would
+						//    delete local `refs/heads/<branch>` whenever the
+						//    upstream removed or renamed the branch. Tagless
+						//    dep resolution reads
+						//    `getCommitSha(cache, getDefaultBranch(cache))`
+						//    — pruning the cached default branch under a
+						//    rename would turn that into a hard error
+						//    instead of returning the last-known commit.
+						// 2) Tags (prune): a maintainer revoking a tag (e.g.
+						//    pointing at a leaked-credential or malicious
+						//    commit) MUST propagate to consumers. Without
+						//    pruning, `resolveOneRepo` in `src/core/graph.ts`
+						//    keeps resolving the dead tag against the cached
+						//    commit forever.
+						//
+						// The explicit `+refs/tags/*:refs/tags/*` on the
+						// second call overrides the configured branch
+						// refspec for that invocation, so `--prune` is
+						// scoped to tags only.
+						await git.fetch(["--tags"]);
+						await git.fetch(["--prune", "origin", "+refs/tags/*:refs/tags/*"]);
 						return;
 					}
 				}
@@ -179,7 +243,16 @@ export async function cloneOrFetchBare(repoUrl: string, targetDir: string): Prom
 	}
 	await mkdir(targetDir, { recursive: true });
 	const gitUrl = toGitCloneUrl(repoUrl);
-	await simpleGit().clone(gitUrl, targetDir, ["--bare"]);
+	// `-o origin` locks the remote name regardless of the user's
+	// `clone.defaultRemoteName` git config — otherwise users who've set
+	// that globally (e.g. to "upstream") would get a cache whose remote
+	// has a non-`origin` name, breaking `ensureBareFetchRefspec` (which
+	// writes `remote.origin.fetch`), the drift check (which reads
+	// `remote.origin.url`), and the tag-pruning fetch below (which
+	// references `origin` explicitly).
+	await simpleGit().clone(gitUrl, targetDir, ["--bare", "-o", "origin"]);
+	// Fresh clones need the refspec too — `git clone --bare` doesn't set one.
+	await ensureBareFetchRefspec(simpleGit(targetDir));
 }
 
 /**
