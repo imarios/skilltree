@@ -105,6 +105,46 @@ dependencies:
 		expect((dep as { name?: string }).name).toBe("workflow-builder");
 		expect((dep as { type?: string }).type).toBe("agent");
 	});
+
+	// Issue #52: user-extensible ignore list for `skilltree scan`.
+	test("parses scan.ignore as a list of strings", () => {
+		const yaml = `
+scan:
+  ignore:
+    - my-internal-command
+    - other-skill
+dependencies: {}
+`;
+		const manifest = parseManifest(yaml);
+		expect(manifest.scan?.ignore).toEqual(["my-internal-command", "other-skill"]);
+	});
+
+	test("scan section is optional", () => {
+		const manifest = parseManifest("dependencies: {}\n");
+		expect(manifest.scan).toBeUndefined();
+	});
+
+	test("scan.ignore defaults to undefined when scan present but empty", () => {
+		const manifest = parseManifest("scan: {}\ndependencies: {}\n");
+		expect(manifest.scan).toBeDefined();
+		expect(manifest.scan?.ignore).toBeUndefined();
+	});
+
+	test("rejects scan when not a mapping", () => {
+		expect(() => parseManifest("scan: [foo, bar]\ndependencies: {}\n")).toThrow(/scan/);
+	});
+
+	test("rejects scan.ignore when not a list", () => {
+		expect(() => parseManifest("scan:\n  ignore: not-a-list\ndependencies: {}\n")).toThrow(
+			/scan\.ignore/,
+		);
+	});
+
+	test("rejects non-string entries in scan.ignore", () => {
+		expect(() => parseManifest("scan:\n  ignore:\n    - 42\ndependencies: {}\n")).toThrow(
+			/scan\.ignore/,
+		);
+	});
 });
 
 describe("serializeManifest: install_targets", () => {

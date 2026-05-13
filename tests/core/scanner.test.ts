@@ -504,6 +504,37 @@ describe("scanFile — slash-command references", () => {
 		}
 	});
 
+	test("respects extraIgnores from caller (issue #52)", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeCommand(
+			dir,
+			"my-cmd",
+			"Run /my-internal-command and /loop and /unrelated.",
+		);
+
+		const result = await scanFile(filePath, { extraIgnores: new Set(["my-internal-command"]) });
+		// builtin /loop still filtered
+		expect(result?.detected).not.toContain("loop");
+		// user-extended ignore filtered
+		expect(result?.detected).not.toContain("my-internal-command");
+		expect(result?.undeclared).not.toContain("my-internal-command");
+		// unrelated names still reported
+		expect(result?.undeclared).toContain("unrelated");
+	});
+
+	test("extraIgnores is exact-match — prefix hits are not filtered (issue #52)", async () => {
+		const dir = await makeTempDir();
+		const filePath = await writeCommand(
+			dir,
+			"my-cmd",
+			"Use /my-internal-command and also /my-internal-command-extra.",
+		);
+
+		const result = await scanFile(filePath, { extraIgnores: new Set(["my-internal-command"]) });
+		expect(result?.detected).not.toContain("my-internal-command");
+		expect(result?.detected).toContain("my-internal-command-extra");
+	});
+
 	test("filters self-reference by filename when no name: in frontmatter", async () => {
 		const dir = await makeTempDir();
 		const cmdDir = join(dir, "commands");

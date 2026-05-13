@@ -194,6 +194,48 @@ describe("scanCommand", () => {
 		expect(logs.some((l) => l.includes("testing"))).toBe(true);
 	});
 
+	test("scan.ignore from skilltree.yml suppresses undeclared report (issue #52)", async () => {
+		const dir = await makeTempDir();
+		await createSkill(dir, "my-skill", [], "Use /my-internal-command and the /other-skill.");
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			[
+				"name: test-project",
+				"scan:",
+				"  ignore:",
+				"    - my-internal-command",
+				"dependencies: {}",
+				"",
+			].join("\n"),
+		);
+
+		let exitCode: number | undefined;
+		const originalExit = process.exit;
+		const originalCwd = process.cwd();
+		process.exit = ((code: number) => {
+			exitCode = code;
+			throw new Error(`exit ${code}`);
+		}) as typeof process.exit;
+		process.chdir(dir);
+
+		const { logs, restore } = captureConsole();
+		try {
+			await scanCommand([join(dir, "my-skill")], { check: true });
+		} catch {
+			// Expected — mock throws to stop execution
+		} finally {
+			restore();
+			process.exit = originalExit;
+			process.chdir(originalCwd);
+		}
+
+		// other-skill is still undeclared and triggers exit 1
+		expect(exitCode).toBe(1);
+		const joined = logs.join("\n");
+		expect(joined).toContain("other-skill");
+		expect(joined).not.toContain("my-internal-command");
+	});
+
 	test("detects undeclared slash-command reference in a command file", async () => {
 		const dir = await makeTempDir();
 		const cmdDir = join(dir, "commands");

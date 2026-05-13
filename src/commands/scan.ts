@@ -1,6 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { entityNameFromPath, mdFileType } from "../core/entity-type.js";
+import { readGlobalManifest, readManifest } from "../core/manifest.js";
 import type { ScanResult } from "../core/scanner.js";
 import { applyToFrontmatter, scanFiles, scanFileWithLlm } from "../core/scanner.js";
 import { dim, pc, success } from "../core/ui.js";
@@ -53,14 +54,41 @@ export function classifyEntityFile(
 
 async function buildKnownEntities(
 	files: string[],
+	extraIgnores: ReadonlySet<string>,
 ): Promise<Array<{ name: string; type: EntityType }>> {
-	const results = await scanFiles(files);
+	const results = await scanFiles(files, { extraIgnores });
 	const entities: Array<{ name: string; type: EntityType }> = [];
 	for (const result of results) {
 		const classified = classifyEntityFile(result.file, result.name);
 		if (classified) entities.push(classified);
 	}
 	return entities;
+}
+
+/**
+ * Collect names the scanner should treat as already-known, beyond the
+ * hardcoded `BUILTIN_HARNESS_COMMANDS` set. Unions the project manifest's
+ * `scan.ignore` with the global manifest's, ignoring missing manifests
+ * silently — both are optional configs. Issue #52.
+ */
+async function loadExtraIgnores(): Promise<Set<string>> {
+	const ignores = new Set<string>();
+
+	try {
+		const project = await readManifest(process.cwd());
+		for (const name of project.scan?.ignore ?? []) ignores.add(name);
+	} catch {
+		// No project manifest is fine — scan works without one.
+	}
+
+	try {
+		const global = await readGlobalManifest();
+		for (const name of global.scan?.ignore ?? []) ignores.add(name);
+	} catch {
+		// No global manifest is fine — global config is opt-in.
+	}
+
+	return ignores;
 }
 
 export async function scanCommand(paths: string[], options: ScanOptions): Promise<void> {
@@ -75,7 +103,10 @@ export async function scanCommand(paths: string[], options: ScanOptions): Promis
 		return;
 	}
 
-	const results = options.llm ? await runLlmScan(allFiles) : await scanFiles(allFiles);
+	const extraIgnores = await loadExtraIgnores();
+	const results = options.llm
+		? await runLlmScan(allFiles, extraIgnores)
+		: await scanFiles(allFiles, { extraIgnores });
 
 	if (options.json) {
 		console.log(JSON.stringify(results, null, 2));
@@ -89,12 +120,15 @@ export async function scanCommand(paths: string[], options: ScanOptions): Promis
 	}
 }
 
-async function runLlmScan(allFiles: string[]): Promise<ScanResult[]> {
+async function runLlmScan(
+	allFiles: string[],
+	extraIgnores: ReadonlySet<string>,
+): Promise<ScanResult[]> {
 	console.log(dim("Running LLM-assisted scan (this may take a moment)...\n"));
-	const knownEntities = await buildKnownEntities(allFiles);
+	const knownEntities = await buildKnownEntities(allFiles, extraIgnores);
 	const results: ScanResult[] = [];
 	for (const file of allFiles) {
-		const result = await scanFileWithLlm(file, knownEntities);
+		const result = await scanFileWithLlm(file, knownEntities, { extraIgnores });
 		if (result) results.push(result);
 	}
 	return results;

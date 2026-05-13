@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import YAML from "yaml";
-import type { Dependency, EntityType, LocalDependency, Manifest } from "../types.js";
+import type { Dependency, EntityType, LocalDependency, Manifest, ScanConfig } from "../types.js";
 import { isSourceDependency } from "../types.js";
 import { resolveGlobalTarget, resolveTarget } from "./agents.js";
 import { MANIFEST_NEW, resolveGlobalManifestPath, resolveManifestPath } from "./filenames.js";
@@ -52,7 +52,42 @@ export function parseManifest(content: string): Manifest {
 		manifest["dev-dependencies"] = raw["dev-dependencies"] as Record<string, Dependency>;
 	}
 
+	if (raw.scan !== undefined) {
+		manifest.scan = parseScanConfig(raw.scan);
+	}
+
 	return manifest;
+}
+
+/**
+ * Parse the `scan:` block. Authoring-only config (`skilltree scan`) — never
+ * consulted in the install path. Strict on shape so a typo doesn't silently
+ * disable the ignore list: matches the strictness `sources:` already applies.
+ * Issue #52.
+ */
+function parseScanConfig(raw: unknown): ScanConfig {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+		const got = raw === null ? "null" : Array.isArray(raw) ? "array" : typeof raw;
+		throw new Error(`Invalid manifest: \`scan\` must be a mapping, got ${got}.`);
+	}
+	const obj = raw as Record<string, unknown>;
+	const scan: ScanConfig = {};
+	if (obj.ignore !== undefined) {
+		if (!Array.isArray(obj.ignore)) {
+			throw new Error(
+				`Invalid manifest: \`scan.ignore\` must be a list of strings, got ${typeof obj.ignore}.`,
+			);
+		}
+		for (const v of obj.ignore) {
+			if (typeof v !== "string") {
+				throw new Error(
+					`Invalid manifest: \`scan.ignore\` entries must be strings, got ${v === null ? "null" : typeof v}.`,
+				);
+			}
+		}
+		scan.ignore = obj.ignore as string[];
+	}
+	return scan;
 }
 
 /**

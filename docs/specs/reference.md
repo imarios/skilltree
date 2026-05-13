@@ -61,6 +61,11 @@ dev-dependencies:
 
   my-experimental-skill:
     local: ./skills/experimental
+
+# Optional: extend `skilltree scan`'s ignore list. See "Ignore List" below.
+scan:
+  ignore:
+    - my-internal-command
 ```
 
 **Fields per dependency entry:**
@@ -266,6 +271,29 @@ If any errors were collected, block install and report all of them together.
 | Quoted skill | `[delimiters]([name])[delimiters]\s+skill` | `\`python-coding\` skill`, `"my-style" skill` |
 
 Name validation: >= 2 chars, lowercase alphanumeric with hyphens.
+
+### Ignore List (Builtin + User-Extensible)
+
+The scanner skips two sets of names rather than reporting them as undeclared:
+
+1. **Built-in harness commands** — Claude Code's slash commands (`/loop`, `/simplify`, `/help`, ...) ship with the harness, are not packaged as registry skills, and cannot be declared in `dependencies:`. Maintained as `BUILTIN_HARNESS_COMMANDS` in `src/core/scanner.ts`. Match is exact — `loop` is filtered, `loop-runner` is not.
+2. **User-supplied extras** — names listed under `scan.ignore` in `skilltree.yml` (project-scoped) and/or `~/.skilltree/global.yaml` (user-scoped). Same exact-match semantics. The scanner unions both manifests with the built-in set before flagging undeclared references.
+
+```yaml
+# skilltree.yml — project-scoped ignores
+scan:
+  ignore:
+    - my-internal-command   # not a registry skill, intentionally undeclared
+    - prototype-skill
+```
+
+The same list is honored by `--llm` (LLM deep scan), so the two stages don't disagree about which names need declaring.
+
+Use this when:
+- Anthropic adds a new built-in slash command before skilltree's built-in list catches up.
+- You reference internal slash commands or skills you intentionally don't declare.
+
+Don't use this to silence real undeclared dependencies — declare them with `skilltree add` instead.
 
 ### LLM Deep Scan (optional, `--llm`)
 

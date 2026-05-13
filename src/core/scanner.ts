@@ -157,17 +157,33 @@ export interface ScanResult {
 }
 
 /**
+ * Caller-supplied options for a scan. `extraIgnores` is a project- and/or
+ * user-scoped extension of `BUILTIN_HARNESS_COMMANDS` — typically loaded from
+ * `skilltree.yml`'s `scan.ignore` field plus the global manifest. Exact-match
+ * semantics carry over from the builtin set (issue #52).
+ */
+export interface ScanOptions {
+	extraIgnores?: ReadonlySet<string>;
+}
+
+/**
  * Whether a regex-captured token survives the post-match filters and counts as
  * a real entity reference. Drops sub-minimum-length tokens, self-references,
- * single-word English stopwords ("companion skill"), and Claude Code's
- * built-in slash commands (issue #43). Hyphenated tokens bypass the stopword
- * check since real skill IDs are conventionally hyphenated.
+ * single-word English stopwords ("companion skill"), Claude Code's built-in
+ * slash commands (issue #43), and any caller-supplied extras (issue #52).
+ * Hyphenated tokens bypass the stopword check since real skill IDs are
+ * conventionally hyphenated.
  */
-function isCandidateRef(depName: string, selfName: string): boolean {
+function isCandidateRef(
+	depName: string,
+	selfName: string,
+	extraIgnores?: ReadonlySet<string>,
+): boolean {
 	if (depName.length < MIN_NAME_LENGTH) return false;
 	if (depName === selfName) return false;
 	if (!depName.includes("-") && STOPWORDS.has(depName.toLowerCase())) return false;
 	if (BUILTIN_HARNESS_COMMANDS.has(depName)) return false;
+	if (extraIgnores?.has(depName)) return false;
 	return true;
 }
 
@@ -175,7 +191,7 @@ function isCandidateRef(depName: string, selfName: string): boolean {
  * Scan a single SKILL.md, agent .md, or command .md file for undeclared
  * dependencies.
  */
-export async function scanFile(filePath: string): Promise<ScanResult | null> {
+export async function scanFile(filePath: string, opts?: ScanOptions): Promise<ScanResult | null> {
 	const content = await readFile(filePath, "utf-8");
 	const frontmatter = parseFrontmatter(content);
 
@@ -205,7 +221,7 @@ export async function scanFile(filePath: string): Promise<ScanResult | null> {
 			const match = pattern.exec(body);
 			if (match === null) break;
 			const depName = match[1];
-			if (depName && isCandidateRef(depName, name)) {
+			if (depName && isCandidateRef(depName, name, opts?.extraIgnores)) {
 				detected.add(depName);
 			}
 		}
@@ -231,8 +247,9 @@ export async function scanFile(filePath: string): Promise<ScanResult | null> {
 export async function scanFileWithLlm(
 	filePath: string,
 	knownEntities: Array<{ name: string; type: string }>,
+	opts?: ScanOptions,
 ): Promise<ScanResult | null> {
-	const result = await scanFile(filePath);
+	const result = await scanFile(filePath, opts);
 	if (!result) return null;
 
 	const content = await readFile(filePath, "utf-8");
@@ -240,7 +257,14 @@ export async function scanFileWithLlm(
 
 	const declaredSet = new Set(result.declared);
 	const undeclaredSet = new Set(result.undeclared);
-	const llmNames = llmDeps.map((d) => d.name).filter((name) => !declaredSet.has(name));
+	// Apply the same ignore set to LLM suggestions so the two stages agree
+	// (issue #52). Without this, `--llm` could surface names that the regex
+	// stage was told to skip — exactly the kind of disagreement the user
+	// expects the config to silence.
+	const extraIgnores = opts?.extraIgnores;
+	const llmNames = llmDeps
+		.map((d) => d.name)
+		.filter((name) => !declaredSet.has(name) && !(extraIgnores?.has(name) ?? false));
 
 	// Confirmed: found by both regex and LLM (high confidence)
 	const confirmed = llmNames.filter((name) => undeclaredSet.has(name));
@@ -258,11 +282,11 @@ export async function scanFileWithLlm(
 /**
  * Scan multiple files and return results.
  */
-export async function scanFiles(filePaths: string[]): Promise<ScanResult[]> {
+export async function scanFiles(filePaths: string[], opts?: ScanOptions): Promise<ScanResult[]> {
 	const results: ScanResult[] = [];
 
 	for (const filePath of filePaths) {
-		const result = await scanFile(filePath);
+		const result = await scanFile(filePath, opts);
 		if (result) {
 			results.push(result);
 		}
