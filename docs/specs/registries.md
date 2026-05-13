@@ -48,12 +48,12 @@ registries:
 
 This file is user-level. It is never checked into a project. Different developers can have different registries configured — this is fine because registries only affect discovery, not resolution.
 
-### Optional index: `skillkit-index.yaml`
+### Optional index: `skilltree-index.yml`
 
-A repo can include a `skillkit-index.yaml` at its root to make search fast:
+A repo can include a `skilltree-index.yml` at its root to make search fast:
 
 ```yaml
-# skillkit-index.yaml -- optional, speeds up search
+# skilltree-index.yml -- optional, speeds up search
 entities:
   - name: python-coding
     type: skill
@@ -84,7 +84,9 @@ entities:
 
 If a repo does not have this file, skilltree falls back to **dynamic scanning** — walking `git ls-tree -r HEAD` for `SKILL.md` files and `.md` agent files, reading their frontmatter. This is slower but means any skill repo works as a registry with zero changes.
 
-**Who generates the index?** The repo maintainer, ideally via CI (e.g., a GitHub Action that runs `skilltree index` on push and commits the result). Hand-maintaining it is discouraged — it drifts. See the `skilltree index` command below.
+**Who generates the index?** The repo maintainer, ideally via CI (e.g., a GitHub Action that runs `skilltree registry index` on push and commits the result). Hand-maintaining it is discouraged — it drifts. See the `skilltree registry index` command below.
+
+**Legacy name:** earlier versions wrote the index as `skillkit-index.yaml`. Repos with that legacy file still work — `skilltree registry index` emits a deprecation warning and reads it. Running `skilltree registry index` regenerates the index as `skilltree-index.yml` and removes the legacy file.
 
 ### Cache layout
 
@@ -171,7 +173,7 @@ $ skilltree registry update shared-skills
 
 **Steps:**
 1. `git fetch` (or `git clone --bare` if first time) into `~/.skilltree/registry-cache/<name>/repo/`
-2. Check for `skillkit-index.yaml` at HEAD — `git show HEAD:skillkit-index.yaml`
+2. Check for `skilltree-index.yml` at HEAD — `git show HEAD:skilltree-index.yml`. If absent, fall back to the legacy `skillkit-index.yaml` with a deprecation warning.
 3. **If found** — parse it. Each entry provides `name`, `type`, `path`, `description`, `tags`.
 4. **If not found** — dynamic scan:
    - `git ls-tree -r HEAD` to list all paths in the repo
@@ -347,29 +349,29 @@ $ skilltree add nonexistent-skill
 - `--version` → applied after registry resolution (default: `"*"`)
 - `--registry <name>` → only search that registry (skips disambiguation)
 
-### `skilltree index` (authoring command)
+### `skilltree registry index` (authoring command)
 
-Generate `skillkit-index.yaml` for a skill repo. Intended for repo maintainers.
+Generate `skilltree-index.yml` for a skill repo. Intended for repo maintainers.
 
 ```bash
 $ cd my-skills-repo
-$ skilltree index
+$ skilltree registry index
   Scanned 23 entities (12 skills, 11 agents)
-  Wrote skillkit-index.yaml
+  Wrote skilltree-index.yml
 
-$ skilltree index --check
-  skillkit-index.yaml is up to date ✓
+$ skilltree registry index --check
+  skilltree-index.yml is up to date ✓
 
-$ skilltree index --check
-  skillkit-index.yaml is stale (2 entities changed, 1 added)
-  Run 'skilltree index' to update
+$ skilltree registry index --check
+  skilltree-index.yml is stale (2 entities changed, 1 added)
+  Run 'skilltree registry index' to update
   Exit 1
 ```
 
 **CI integration:**
 ```yaml
 # .github/workflows/index.yml
-- run: skilltree index --check
+- run: skilltree registry index --check
   # Fails if index is stale — author must regenerate
 ```
 
@@ -405,7 +407,7 @@ A source alias and a registry can point to the same repo — that's fine. They'r
 
 ### Phase B: Search
 - `skilltree registry update` (fetch + scan/parse index)
-- `skillkit-index.yaml` parsing
+- `skilltree-index.yml` parsing
 - Dynamic scanning fallback (git ls-tree + frontmatter reading)
 - `skilltree search` with matching and formatted output
 - `skilltree info`
@@ -429,18 +431,18 @@ Even when registry-assisted, `add` writes `repo:` + `path:` to the manifest. The
 Different lifecycles (TTL vs on-demand), different purposes (search vs resolution), separate directories. Avoids cross-contamination.
 
 ### 4. Dynamic scanning as fallback
-Any git repo with skills works as a registry without adding `skillkit-index.yaml`. The index is a performance optimization, not a requirement. Rationale: zero barrier to entry. A team can `skilltree registry add` their existing skill repo and start searching immediately.
+Any git repo with skills works as a registry without adding `skilltree-index.yml`. The index is a performance optimization, not a requirement. Rationale: zero barrier to entry. A team can `skilltree registry add` their existing skill repo and start searching immediately.
 
-### 5. `skillkit-index.yaml` is a CI artifact
+### 5. `skilltree-index.yml` is a CI artifact
 Generating the index is an authoring concern, checked with `skilltree index --check` in CI. Not hand-maintained. Rationale: hand-maintained indexes drift from reality, producing wrong search results (worse than slow results).
 
 ### 6. No auto-fetch on search
 `skilltree search` uses cached data even if stale, with a warning. Rationale: search should be fast and predictable. `registry update` is the explicit fetch. Users shouldn't be surprised by network calls during search.
 
 ### 8. Parsed index cached to disk
-`registry update` writes a parsed `index.json` alongside the bare repo. `search` reads this file — it never touches git. This separates the expensive work (git fetch, tree walk, frontmatter parsing) from the cheap work (string matching over a JSON array). Both `skillkit-index.yaml` (repo-provided) and dynamic scanning (fallback) produce the same `index.json` output — search doesn't know or care which path was used.
+`registry update` writes a parsed `index.json` alongside the bare repo. `search` reads this file — it never touches git. This separates the expensive work (git fetch, tree walk, frontmatter parsing) from the cheap work (string matching over a JSON array). Both `skilltree-index.yml` (repo-provided) and dynamic scanning (fallback) produce the same `index.json` output — search doesn't know or care which path was used.
 
-**Rejected alternative:** re-parse on every search. Simple (no extra state) but makes search slow for repos without `skillkit-index.yaml` — reading 50+ frontmatters via `git show` on every query is noticeable. Caching makes search consistently fast regardless of whether the repo provides an index.
+**Rejected alternative:** re-parse on every search. Simple (no extra state) but makes search slow for repos without `skilltree-index.yml` — reading 50+ frontmatters via `git show` on every query is noticeable. Caching makes search consistently fast regardless of whether the repo provides an index.
 
 ### 7. Interactive disambiguation, not ordering priority
 When the same skill name exists in multiple registries, `skilltree add` prompts the user to choose instead of silently picking by declaration order. Rationale: implicit ordering priority creates hard-to-debug behavior differences between developers.

@@ -266,7 +266,7 @@ export function buildProgram(): Command {
 
 	registry
 		.command("index")
-		.description("Generate skillkit-index.yaml for this repo")
+		.description("Generate skilltree-index.yml for this repo")
 		.option("--check", "Check if index is up to date (exit 1 if stale)")
 		.action(async (opts) => {
 			await indexCommand({ check: opts.check });

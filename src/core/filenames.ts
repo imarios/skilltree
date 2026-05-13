@@ -12,6 +12,9 @@ export const LOCKFILE_LEGACY = "skillkit.lock";
 export const GLOBAL_MANIFEST = "global.yml";
 export const GLOBAL_MANIFEST_ALT = "global.yaml";
 export const GLOBAL_LOCKFILE = "global.lock";
+export const INDEX_NEW = "skilltree-index.yml";
+export const INDEX_LEGACY = "skillkit-index.yaml";
+export const INDEX_DISPLAY = INDEX_NEW;
 
 const DEPRECATION_PREFIX = pc.yellow("[DEPRECATION]");
 
@@ -36,7 +39,8 @@ export function _resetDeprecationWarningsForTests(): void {
 /**
  * Resolve the manifest filename in a directory.
  * Accepts skilltree.yml (canonical) or skilltree.yaml (deprecated default);
- * refuses if both exist. Falls back to skillkit.yaml with a deprecation warning.
+ * refuses if both exist. Falls back to the legacy manifest name with a
+ * deprecation warning.
  */
 export function resolveManifestPath(dir: string): { path: string; filename: string } {
 	const newPath = `${dir}/${MANIFEST_NEW}`;
@@ -75,7 +79,8 @@ export function resolveManifestPath(dir: string): { path: string; filename: stri
 
 /**
  * Resolve the lockfile filename in a directory.
- * Prefers skilltree.lock, falls back to skillkit.lock with a deprecation warning.
+ * Prefers skilltree.lock, falls back to the legacy lockfile name with a
+ * deprecation warning.
  */
 export function resolveLockfilePath(dir: string): { path: string; filename: string } {
 	const newPath = `${dir}/${LOCKFILE_NEW}`;
@@ -111,7 +116,7 @@ export function findExistingManifest(dir: string): string | null {
 }
 
 /**
- * Check if a manifest exists (skilltree.yml, skilltree.yaml, or legacy skillkit.yaml).
+ * Check if a manifest exists (skilltree.yml, skilltree.yaml, or the legacy name).
  */
 export function manifestExists(dir: string): boolean {
 	return findExistingManifest(dir) !== null;
@@ -123,6 +128,45 @@ export function manifestExists(dir: string): boolean {
  */
 export const MANIFEST_DISPLAY = MANIFEST_NEW;
 export const LOCKFILE_DISPLAY = LOCKFILE_NEW;
+
+/**
+ * Emit the legacy-index deprecation warning at most once per process.
+ * Called from registry-scanner (reading a bare repo) and index-cmd
+ * (reading a working tree) so both paths nudge maintainers the same way.
+ */
+export function warnIndexLegacy(): void {
+	warnOnce(
+		"index-legacy",
+		`${DEPRECATION_PREFIX} Found ${INDEX_LEGACY} — please regenerate as ${INDEX_NEW} by running \`skilltree registry index\`, then delete ${INDEX_LEGACY}. Support for ${INDEX_LEGACY} will be removed in a future version.`,
+	);
+}
+
+/**
+ * Resolve the index filename in a local directory.
+ * Prefers skilltree-index.yml, falls back to skillkit-index.yaml with a
+ * deprecation warning. Refuses if both exist — the maintainer should pick one.
+ * Returns null filename when neither file is present.
+ */
+export function resolveIndexPath(dir: string): { path: string; filename: string | null } {
+	const newPath = `${dir}/${INDEX_NEW}`;
+	const legacyPath = `${dir}/${INDEX_LEGACY}`;
+	const newExists = existsSync(newPath);
+	const legacyExists = existsSync(legacyPath);
+
+	if (newExists && legacyExists) {
+		throw new Error(
+			`Both ${INDEX_NEW} and ${INDEX_LEGACY} exist in ${dir}. Keep only ${INDEX_NEW} — ${INDEX_LEGACY} is the deprecated name. Delete ${INDEX_LEGACY} to resolve.`,
+		);
+	}
+	if (newExists) {
+		return { path: newPath, filename: INDEX_NEW };
+	}
+	if (legacyExists) {
+		warnIndexLegacy();
+		return { path: legacyPath, filename: INDEX_LEGACY };
+	}
+	return { path: newPath, filename: null };
+}
 
 // --- Global paths ---
 

@@ -211,7 +211,7 @@ describe("registryListCommand", () => {
 			{
 				registries: [
 					{ name: "vibes", repo: "github.com/imarios/vibes" },
-					{ name: "community", repo: "github.com/skillkit/community-skills" },
+					{ name: "community", repo: "github.com/skilltree/community-skills" },
 				],
 			},
 			configPath,

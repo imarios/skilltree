@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import YAML from "yaml";
 import { mdFileType } from "../core/entity-type.js";
+import { INDEX_LEGACY, INDEX_NEW, resolveIndexPath } from "../core/filenames.js";
 import { parseFrontmatter } from "../core/frontmatter.js";
 import { SKIP_MD_FILES } from "../core/registry-scanner.js";
 import type { IndexEntry } from "../types.js";
@@ -14,31 +15,55 @@ export async function indexCommand(opts: { check?: boolean }, dir?: string): Pro
 	const yamlContent = YAML.stringify({ entities: entries }, { lineWidth: 0 });
 
 	if (opts.check) {
-		const indexPath = join(baseDir, "skillkit-index.yaml");
-		if (!existsSync(indexPath)) {
-			console.log("skillkit-index.yaml does not exist. Run 'skilltree index' to create it.");
+		// resolveIndexPath emits the legacy deprecation warning when only
+		// skillkit-index.yaml exists, and throws if both names are present.
+		const { path: indexPath, filename } = resolveIndexPath(baseDir);
+		if (filename === null) {
+			console.log(`${INDEX_NEW} does not exist. Run 'skilltree registry index' to create it.`);
+			process.exit(1);
+		}
+		// On the legacy path we exit 1 regardless of content equality — the
+		// file name itself is "stale" and the maintainer is expected to
+		// regenerate it so the canonical name takes over.
+		if (filename === INDEX_LEGACY) {
+			console.log(
+				`${INDEX_LEGACY} is the deprecated name. Run 'skilltree registry index' to regenerate as ${INDEX_NEW}.`,
+			);
 			process.exit(1);
 		}
 		const existing = await readFile(indexPath, "utf-8");
 		if (existing.trim() === yamlContent.trim()) {
-			console.log("skillkit-index.yaml is up to date");
+			console.log(`${INDEX_NEW} is up to date`);
 		} else {
 			console.log(
-				`skillkit-index.yaml is stale (${entries.length} entities found). Run 'skilltree index' to update.`,
+				`${INDEX_NEW} is stale (${entries.length} entities found). Run 'skilltree registry index' to update.`,
 			);
 			process.exit(1);
 		}
 		return;
 	}
 
-	await writeFile(join(baseDir, "skillkit-index.yaml"), yamlContent, "utf-8");
+	await writeFile(join(baseDir, INDEX_NEW), yamlContent, "utf-8");
+	// If the maintainer has a leftover legacy file, remove it on write so the
+	// next `scanRegistry` and `--check` see a single canonical source. Makes
+	// `skilltree registry index` the one-command migration path promised by
+	// the deprecation warning.
+	const legacyPath = join(baseDir, INDEX_LEGACY);
+	let migratedLegacy = false;
+	if (existsSync(legacyPath)) {
+		await unlink(legacyPath);
+		migratedLegacy = true;
+	}
 	const skills = entries.filter((e) => e.type === "skill").length;
 	const agents = entries.filter((e) => e.type === "agent").length;
 	const commands = entries.filter((e) => e.type === "command").length;
 	console.log(
 		`Scanned ${entries.length} entities (${skills} skills, ${agents} agents, ${commands} commands)`,
 	);
-	console.log("Wrote skillkit-index.yaml");
+	console.log(`Wrote ${INDEX_NEW}`);
+	if (migratedLegacy) {
+		console.log(`Removed legacy ${INDEX_LEGACY}`);
+	}
 }
 
 async function scanLocalDirectory(baseDir: string): Promise<IndexEntry[]> {

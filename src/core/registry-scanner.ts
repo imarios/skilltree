@@ -3,8 +3,9 @@ import simpleGit from "simple-git";
 import YAML from "yaml";
 import type { EntityType, IndexEntry } from "../types.js";
 import { entityNameFromPath, mdFileType } from "./entity-type.js";
+import { INDEX_LEGACY, INDEX_NEW, warnIndexLegacy } from "./filenames.js";
 import { parseFrontmatter } from "./frontmatter.js";
-import { readFileAtRef } from "./git.js";
+import { pathExistsAtRef, readFileAtRef } from "./git.js";
 
 /** Files that are never agents even if they are .md — shared with index-cmd.ts */
 export const SKIP_MD_FILES = new Set([
@@ -25,7 +26,8 @@ export const SKIP_MD_FILES = new Set([
 
 /**
  * Scan a bare git repo for skills and agents.
- * Tries skillkit-index.yaml first, falls back to dynamic scanning.
+ * Tries the canonical index file first, then the legacy name (with a
+ * deprecation warning), then falls back to dynamic scanning.
  *
  * IMPORTANT: if you change the output shape, classification rules, or which
  * files are recognized here (or in any helper this calls), bump
@@ -33,21 +35,26 @@ export const SKIP_MD_FILES = new Set([
  * tells consumers their on-disk caches are no longer trustworthy (issue #25).
  */
 export async function scanRegistry(repoDir: string): Promise<IndexEntry[]> {
-	// Try skillkit-index.yaml first (fast path)
-	try {
-		const content = await readFileAtRef(repoDir, "HEAD", "skillkit-index.yaml");
-		return parseSkillkitIndex(content);
-	} catch {
-		// No index file — fall back to dynamic scan
+	// Canonical file first
+	if (await pathExistsAtRef(repoDir, "HEAD", INDEX_NEW)) {
+		const content = await readFileAtRef(repoDir, "HEAD", INDEX_NEW);
+		return parseIndex(content);
+	}
+	// Legacy file — accept but warn the maintainer
+	if (await pathExistsAtRef(repoDir, "HEAD", INDEX_LEGACY)) {
+		warnIndexLegacy();
+		const content = await readFileAtRef(repoDir, "HEAD", INDEX_LEGACY);
+		return parseIndex(content);
 	}
 
 	return dynamicScanRepo(repoDir);
 }
 
 /**
- * Parse a skillkit-index.yaml file into IndexEntry[].
+ * Parse an index file (skilltree-index.yml or legacy skillkit-index.yaml)
+ * into IndexEntry[].
  */
-export function parseSkillkitIndex(yamlContent: string): IndexEntry[] {
+export function parseIndex(yamlContent: string): IndexEntry[] {
 	const raw = YAML.parse(yamlContent);
 	if (!raw || typeof raw !== "object" || !Array.isArray(raw.entities)) {
 		return [];

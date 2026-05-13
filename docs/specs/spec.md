@@ -511,8 +511,8 @@ Plugins coexist without conflict (different namespaces, different storage). For 
 - `~/.skilltree/config.yaml` global config, registry cache management
 - `skilltree registry add|remove|list|update`
 - `skilltree search`, `skilltree info`
-- `skillkit-index.yaml` parsing + dynamic scanning fallback
-- `skilltree index` (authoring command for index generation)
+- `skilltree-index.yml` parsing (with legacy `skillkit-index.yaml` fallback) + dynamic scanning fallback
+- `skilltree registry index` (authoring command for index generation)
 - Registry-assisted `skilltree add <name>` (without `--repo`)
 - See [registries.md](registries.md) for full spec
 

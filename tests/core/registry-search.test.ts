@@ -108,7 +108,7 @@ describe("searchRegistries", () => {
 		},
 	]);
 
-	const communityIndex = makeIndex("community", "github.com/skillkit/community-skills", [
+	const communityIndex = makeIndex("community", "github.com/skilltree/community-skills", [
 		{
 			name: "python-testing",
 			type: "skill",

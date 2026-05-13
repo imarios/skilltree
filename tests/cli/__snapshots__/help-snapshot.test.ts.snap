@@ -247,7 +247,7 @@ Commands:
   remove <name>            Remove a registered registry
   list [options]           List all registered registries
   update [options] [name]  Fetch registry repos and rebuild search indexes
-  index [options]          Generate skillkit-index.yaml for this repo
+  index [options]          Generate skilltree-index.yml for this repo
   help [command]           display help for command
 "
 `;
@@ -321,7 +321,7 @@ Options:
 exports[`CLI help snapshots \`registry index --help\` is stable 1`] = `
 "Usage: skilltree registry index [options]
 
-Generate skillkit-index.yaml for this repo
+Generate skilltree-index.yml for this repo
 
 Options:
   --check     Check if index is up to date (exit 1 if stale)
