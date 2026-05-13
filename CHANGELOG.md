@@ -1,3 +1,9 @@
+## v0.25.2 (2026-05-13)
+
+### Refactor
+
+- **manifest**: extract parseSourceEntry helper to drop cognitive complexity (#54)
+
 ## v0.25.1 (2026-05-04)
 
 ### Fix
