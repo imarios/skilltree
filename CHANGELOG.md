@@ -1,3 +1,9 @@
+## v0.25.4 (2026-05-13)
+
+### Fix
+
+- **registry**: rename skillkit-index.yaml to skilltree-index.yml (#58)
+
 ## v0.25.3 (2026-05-13)
 
 ### Fix
