@@ -1,3 +1,9 @@
+## v0.25.3 (2026-05-13)
+
+### Fix
+
+- **registry**: bare clones mirror branches and prune revoked tags (#55) (#56)
+
 ## v0.25.2 (2026-05-13)
 
 ### Refactor
