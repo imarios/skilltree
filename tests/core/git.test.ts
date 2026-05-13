@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import simpleGit from "simple-git";
 import {
+	cloneOrFetchBare,
 	ensureCached,
 	getCommitSha,
 	getDefaultBranch,
@@ -175,5 +176,215 @@ describe("git operations with local bare repo", () => {
 
 		const branch = await getDefaultBranch(bareDir);
 		expect(["main", "master"]).toContain(branch);
+	});
+});
+
+describe("cloneOrFetchBare", () => {
+	// Regression: issue #55 — bare clones produced by `git clone --bare` have no
+	// remote.origin.fetch refspec. A subsequent `git fetch --tags --prune`
+	// updates tags but leaves refs/heads/* frozen at clone time, so new commits
+	// on the default branch are silently missed.
+	test("picks up new commits on the default branch on re-fetch (issue #55)", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(dir, "src-repo", [{ path: "skills/a", name: "a" }]);
+		const bareDir = join(dir, "bare-cache");
+
+		// First call: clones from scratch.
+		await cloneOrFetchBare(`file://${repoDir}`, bareDir);
+		const branch = await getDefaultBranch(bareDir);
+		const initialSha = await getCommitSha(bareDir, branch);
+
+		// Advance the source by one commit on the default branch.
+		const srcGit = simpleGit(repoDir);
+		await writeFile(join(repoDir, "newfile.txt"), "x");
+		await srcGit.add(".");
+		await srcGit.commit("second");
+		const newSrcSha = (await srcGit.revparse(["HEAD"])).trim();
+		expect(newSrcSha).not.toBe(initialSha);
+
+		// Second call: must fetch the new commit into the bare clone's
+		// refs/heads/<branch>, not just resolve it into FETCH_HEAD.
+		await cloneOrFetchBare(`file://${repoDir}`, bareDir);
+		const updatedSha = await getCommitSha(bareDir, branch);
+
+		expect(updatedSha).toBe(newSrcSha);
+	});
+
+	// Existing users (pre-fix) have stale caches with no refspec configured.
+	// The fix has to be self-healing: when cloneOrFetchBare runs against such a
+	// cache, it must backfill the refspec AND pull in the commits the cache
+	// missed while the bug was live. Re-cloning would be slow for large repos
+	// and would discard reflog/objects unnecessarily.
+	test("self-heals a pre-existing bare clone that has no fetch refspec (issue #55)", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(dir, "src-repo", [{ path: "skills/a", name: "a" }]);
+		const bareDir = join(dir, "bare-cache");
+
+		// Simulate a cache produced by the old (buggy) code: a plain
+		// `git clone --bare` with no refspec configured.
+		await simpleGit().clone(repoDir, bareDir, ["--bare"]);
+		const bareGit = simpleGit(bareDir);
+		// Sanity check: refspec is unset, mirroring the on-disk state of
+		// every cache produced by skilltree <= 0.25.1.
+		let refspec = "";
+		try {
+			refspec = (await bareGit.raw(["config", "--get", "remote.origin.fetch"])).trim();
+		} catch {
+			// `git config --get` exits 1 when the key is missing.
+		}
+		expect(refspec).toBe("");
+
+		const branch = await getDefaultBranch(bareDir);
+		const initialSha = await getCommitSha(bareDir, branch);
+
+		// Advance the source.
+		const srcGit = simpleGit(repoDir);
+		await writeFile(join(repoDir, "newfile.txt"), "x");
+		await srcGit.add(".");
+		await srcGit.commit("second");
+		const newSrcSha = (await srcGit.revparse(["HEAD"])).trim();
+		expect(newSrcSha).not.toBe(initialSha);
+
+		// cloneOrFetchBare should heal the stale cache: install the refspec
+		// and fetch the missed commit on the same invocation.
+		await cloneOrFetchBare(`file://${repoDir}`, bareDir);
+
+		const healedRefspec = (await bareGit.raw(["config", "--get", "remote.origin.fetch"])).trim();
+		expect(healedRefspec).toBe("+refs/heads/*:refs/heads/*");
+
+		const updatedSha = await getCommitSha(bareDir, branch);
+		expect(updatedSha).toBe(newSrcSha);
+	});
+
+	// Regression for round-1 hypothesis H1: a cache that already has *multiple*
+	// remote.origin.fetch entries (e.g. produced by `git clone --mirror`, or
+	// hand-edited by a user) would make a plain `git config <name> <value>`
+	// exit 5 with "cannot overwrite multiple values with a single value",
+	// breaking the self-healing path. ensureBareFetchRefspec must collapse all
+	// existing values to the single canonical one.
+	test("self-heals a cache that has MULTIPLE pre-existing fetch refspecs (H1)", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(dir, "src-repo", [{ path: "skills/a", name: "a" }]);
+		const bareDir = join(dir, "bare-cache");
+
+		// Simulate a cache produced by an older `--mirror` setup or a manual
+		// `git config --add`: two distinct fetch refspecs configured.
+		await simpleGit().clone(repoDir, bareDir, ["--bare"]);
+		const bareGit = simpleGit(bareDir);
+		await bareGit.raw(["config", "--add", "remote.origin.fetch", "+refs/heads/*:refs/heads/*"]);
+		await bareGit.raw(["config", "--add", "remote.origin.fetch", "+refs/tags/*:refs/tags/*"]);
+
+		// Sanity: two values present.
+		const before = (await bareGit.raw(["config", "--get-all", "remote.origin.fetch"])).trim();
+		expect(before.split("\n").length).toBe(2);
+
+		// Must not throw — the fix uses --replace-all.
+		await cloneOrFetchBare(`file://${repoDir}`, bareDir);
+
+		// After healing, exactly one canonical refspec remains.
+		const after = (await bareGit.raw(["config", "--get-all", "remote.origin.fetch"])).trim();
+		expect(after).toBe("+refs/heads/*:refs/heads/*");
+	});
+
+	// Regression for round-1 hypothesis H2: with the new refspec installed,
+	// `git fetch --prune` would delete local refs/heads/<branch> whenever the
+	// upstream removed/renamed the branch. Tagless dep resolution in
+	// src/core/graph.ts reads getCommitSha(cache, getDefaultBranch(cache)),
+	// so pruning the cached default branch under an upstream rename turns
+	// that into a hard failure instead of resolving to the last-known commit.
+	// cloneOrFetchBare must NOT prune.
+	test("preserves locally-cached branches that upstream has deleted (H2)", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(dir, "src-repo", [{ path: "skills/a", name: "a" }]);
+		const bareDir = join(dir, "bare-cache");
+
+		// First, clone the cache while a side branch exists upstream.
+		const srcGit = simpleGit(repoDir);
+		await srcGit.checkoutLocalBranch("side-branch");
+		await writeFile(join(repoDir, "side.txt"), "x");
+		await srcGit.add(".");
+		await srcGit.commit("side commit");
+		const defaultBranch = (await srcGit.raw(["symbolic-ref", "--short", "HEAD"])).trim();
+		// Return upstream to its default branch.
+		await srcGit.checkout(defaultBranch === "side-branch" ? "main" : defaultBranch);
+
+		await cloneOrFetchBare(`file://${repoDir}`, bareDir);
+
+		// Cache has side-branch right after the initial clone.
+		const sideShaInitial = await getCommitSha(bareDir, "side-branch");
+		expect(sideShaInitial).toMatch(/^[a-f0-9]{40}$/);
+
+		// Upstream deletes side-branch.
+		await srcGit.deleteLocalBranch("side-branch", true);
+
+		// Re-fetch. With --prune, side-branch would be deleted locally.
+		await cloneOrFetchBare(`file://${repoDir}`, bareDir);
+
+		// The cached branch must still resolve — this is the data point
+		// tagless resolution in src/core/graph.ts depends on for repos
+		// whose default branch has been renamed upstream.
+		const sideShaAfter = await getCommitSha(bareDir, "side-branch");
+		expect(sideShaAfter).toBe(sideShaInitial);
+	});
+
+	// Regression for round-2 hypothesis H2: dropping `--prune` outright would
+	// be wrong in the other direction — upstream-revoked tags must propagate to
+	// the cache so `resolveOneRepo` in src/core/graph.ts doesn't keep resolving
+	// a revoked tag (e.g. a maintainer's emergency tag deletion pointing at a
+	// vulnerable commit). The fix uses `--prune-tags` which prunes tags but
+	// leaves branches alone.
+	test("prunes upstream-revoked tags from the cache (round-2 H2)", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(
+			dir,
+			"src-repo",
+			[{ path: "skills/a", name: "a" }],
+			"v1.0.0",
+		);
+		const bareDir = join(dir, "bare-cache");
+
+		// Initial clone — cache mirrors upstream's tags.
+		await cloneOrFetchBare(`file://${repoDir}`, bareDir);
+		expect(await listTags(bareDir)).toContain("v1.0.0");
+
+		// Upstream revokes v1.0.0 (e.g. emergency tag deletion).
+		const srcGit = simpleGit(repoDir);
+		await srcGit.raw(["tag", "-d", "v1.0.0"]);
+
+		// Re-fetch. The revoked tag must NOT linger in the cache.
+		await cloneOrFetchBare(`file://${repoDir}`, bareDir);
+		expect(await listTags(bareDir)).not.toContain("v1.0.0");
+	});
+
+	// Regression for round-3 hypothesis H3: when a user has set
+	// `clone.defaultRemoteName=upstream` (or any non-default value) in their
+	// global gitconfig, `git clone --bare` honors that and names the remote
+	// `upstream` instead of `origin`. Without `-o origin`, every other call
+	// in cloneOrFetchBare that hardcodes `origin` (ensureBareFetchRefspec
+	// writing `remote.origin.fetch`, drift check reading `remote.origin.url`,
+	// tag-prune fetch referencing `origin` explicitly) breaks.
+	test("honors -o origin regardless of clone.defaultRemoteName (round-3 H3)", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(dir, "src-repo", [{ path: "skills/a", name: "a" }]);
+		const bareDir = join(dir, "bare-cache");
+
+		// Inject `clone.defaultRemoteName=upstream` into a scratch global
+		// gitconfig and point this process at it. cloneOrFetchBare spawns
+		// `git` via simple-git, which inherits this env — so the spawn sees
+		// the hostile config. If the fix is in place (`-o origin` on the
+		// clone), the cache's remote name MUST still be `origin`.
+		const hostileConfig = join(dir, "hostile-gitconfig");
+		await writeFile(hostileConfig, "[clone]\n  defaultRemoteName = upstream\n");
+		const savedEnv = process.env.GIT_CONFIG_GLOBAL;
+		process.env.GIT_CONFIG_GLOBAL = hostileConfig;
+		try {
+			await cloneOrFetchBare(`file://${repoDir}`, bareDir);
+		} finally {
+			if (savedEnv === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+			else process.env.GIT_CONFIG_GLOBAL = savedEnv;
+		}
+
+		const remotes = (await simpleGit(bareDir).raw(["remote"])).trim();
+		expect(remotes).toBe("origin");
 	});
 });
