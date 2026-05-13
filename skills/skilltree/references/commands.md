@@ -253,15 +253,27 @@ Shows entity type, registry, path, description, tags, available versions, and a 
 
 ## `skilltree registry index`
 
-Generate `skilltree-index.yml` for a skill repo. For repo maintainers. Repos that still have a legacy `skillkit-index.yaml` are migrated automatically — the new file replaces the old one and a deprecation warning is emitted on read until you regenerate.
+Generate `skilltree-index.yml` at the **root of a skill repo** so the repo is discoverable via `skilltree search` / `skilltree info`. For repo maintainers.
+
+**When you need this:** publishing a repo where skills/agents live in **non-standard locations**. Dynamic scanning (the fallback when no index is present) only reliably finds:
+
+- skills at `**/SKILL.md`
+- agents at `*.md` outside any skill dir, with `name:` or `skills:` frontmatter
+- slash-commands under a `commands/` path segment
+
+If your repo uses unconventional layouts (e.g., skills nested under `packages/*/skill/`, agents without `name:` frontmatter, curated subsets of a larger monorepo, files that need extra `tags:` for search), the index file is the answer — it explicitly lists every entity with its path, description, and tags, overriding the scanner.
+
+It also lets you ship `tags:` (not in the SKILL.md spec) and speeds up search by skipping the tree walk.
 
 ```bash
-skilltree registry index           # Generate index
-skilltree registry index --check   # Check if index is up to date (CI mode)
+skilltree registry index           # Generate/refresh skilltree-index.yml at repo root
+skilltree registry index --check   # Exit 1 if stale (CI mode)
 ```
 
 **Flags:**
 - `--check` — Exit 0 if up to date, exit 1 if stale
+
+**Publishing workflow:** run `skilltree registry index` and commit `skilltree-index.yml`. Wire `--check` into CI so the index never drifts from the actual skill set. Legacy `skillkit-index.yaml` files are migrated automatically — the new file replaces the old one and a deprecation warning is emitted on read until you regenerate.
 
 ## `skilltree vendor`
 

@@ -39,6 +39,8 @@ Use this skill when:
 
 **Registries** — Git repos registered globally (`~/.skilltree/config.yaml`) for skill discovery. Registries are authoring-time tools — they help find and add skills via `skilltree search` but are never in the install or resolution path. The manifest stays self-contained.
 
+**Publishing a discoverable registry (`skilltree-index.yml`)** — If you publish a repo of skills/agents, drop a `skilltree-index.yml` at the **repo root** (generate with `skilltree registry index`). Without it, search falls back to a dynamic scan that only finds standard layouts (`**/SKILL.md`, agents as top-level `.md` with `name:`/`skills:` frontmatter, slash-commands under `commands/`). **If your skills live in non-standard locations — nested in monorepo packages, custom paths, curated subsets, or you want `tags:` for search — `skilltree-index.yml` is the solution.** See `references/commands.md` → `skilltree registry index`.
+
 ## Origin-Manifest Resolution — Concepts Every Author and Consumer Should Know
 
 When a repo ships a `skilltree.yml`, it becomes **self-describing**: downstream consumers (and skilltree itself) use that manifest as the authoritative map of what skills/agents the repo owns and where they live. This has concrete consequences:
