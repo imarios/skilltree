@@ -306,6 +306,51 @@ describe("removeCommand", () => {
 		}
 	});
 
+	describe("--dev flag", () => {
+		// `remove --dev` asserts intent: only proceed if the name lives in
+		// `dev-dependencies`. Mirrors `add -D` so scripts can be explicit about
+		// which group they target. The manifest validator forbids the same
+		// name in both groups, so --dev's value is the assertion, not
+		// disambiguation between groups.
+		test("removes a dev-dependency when --dev is set", async () => {
+			const dir = await setup();
+			await addCommand(
+				"dev-skill",
+				{ repo: "github.com/user/repo", path: "skills/dev-skill", dev: true },
+				dir,
+			);
+
+			await removeCommand("dev-skill", dir, { force: true, dev: true });
+
+			const manifest = await readManifest(dir);
+			expect(manifest["dev-dependencies"]?.["dev-skill"]).toBeUndefined();
+		});
+
+		test("errors when --dev is set but name is only in prod dependencies", async () => {
+			const dir = await setup();
+			await addCommand(
+				"prod-only",
+				{ repo: "github.com/user/repo", path: "skills/prod-only" },
+				dir,
+			);
+
+			await expect(removeCommand("prod-only", dir, { force: true, dev: true })).rejects.toThrow(
+				"not in dev-dependencies",
+			);
+
+			// And the prod entry is left untouched
+			const manifest = await readManifest(dir);
+			expect(manifest.dependencies?.["prod-only"]).toBeDefined();
+		});
+
+		test("errors when --dev is combined with --global (global has no dev-deps)", async () => {
+			const dir = await setup();
+			await expect(
+				removeCommand("anything", dir, { force: true, dev: true, global: true }),
+			).rejects.toThrow("--dev is not compatible with --global");
+		});
+	});
+
 	test("orphan cleanup removes installed files of orphans", async () => {
 		const dir = await setup();
 		await addCommand("parent", { repo: "github.com/user/repo", path: "skills/parent" }, dir);
