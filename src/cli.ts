@@ -125,12 +125,14 @@ export function buildProgram(): Command {
 		.option("--keep-files", "Leave installed files in place")
 		.option("-n, --dry-run", "Preview the removal without changing anything")
 		.option("-g, --global", "Remove from global dependencies")
+		.option("-D, --dev", "Only remove from dev-dependencies (mirrors `add -D`)")
 		.action(async (name: string, opts) => {
 			await removeCommand(name, process.cwd(), {
 				force: opts.force,
 				keepFiles: opts.keepFiles,
 				dryRun: opts.dryRun,
 				global: opts.global,
+				dev: opts.dev,
 			});
 		});
 
@@ -171,7 +173,7 @@ export function buildProgram(): Command {
 	program
 		.command("teach")
 		.description("Install the skilltree skill to all detected coding agents")
-		.option("--agent <name>", "Install to a specific agent only")
+		.option("--agent <agent>", "Install to a specific agent only")
 		.action(async (opts) => {
 			await teachCommand({ agent: opts.agent });
 		});

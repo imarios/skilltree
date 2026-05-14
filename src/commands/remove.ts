@@ -27,6 +27,14 @@ export interface RemoveOptions {
 	global?: boolean;
 	globalDir?: string; // test override
 	dryRun?: boolean;
+	/**
+	 * Scope the removal to `dev-dependencies` only. Without this, `remove`
+	 * searches both groups (the default). With it, a same-named entry in
+	 * `dependencies` is left intact; a name that lives only in `dependencies`
+	 * errors out. Incompatible with `--global` (global manifests have no
+	 * dev-deps).
+	 */
+	dev?: boolean;
 }
 
 export async function removeCommand(
@@ -36,6 +44,14 @@ export async function removeCommand(
 ): Promise<void> {
 	const globalDir = options.globalDir ?? getGlobalDir();
 	const isGlobal = !!options.global;
+	const devOnly = options.dev === true;
+
+	// Mutex: global manifests have no `dev-dependencies`, so `--dev --global`
+	// is meaningless. Reject explicitly rather than silently degrading to a
+	// "name not in manifest" error that would mislead the user about why.
+	if (devOnly && isGlobal) {
+		throw new Error("--dev is not compatible with --global (global manifests have no dev-deps).");
+	}
 
 	const manifest = await loadManifestOrThrow(dir, { global: isGlobal, globalDir });
 	// Validate first — match the install command's invariants so a malformed
@@ -45,7 +61,7 @@ export async function removeCommand(
 	if (!isGlobal) warnLegacyInstallPath(manifest);
 	const lockfile = isGlobal ? await readGlobalLockfile(globalDir) : await readLockfile(dir);
 
-	validateRemoveTarget(name, manifest, lockfile, isGlobal);
+	validateRemoveTarget(name, manifest, lockfile, isGlobal, devOnly);
 
 	if (options.dryRun) {
 		// In a preview we deliberately do NOT prompt for confirmation — there is
@@ -57,7 +73,7 @@ export async function removeCommand(
 	await confirmIfDependents(name, lockfile, options);
 
 	// Remove from manifest
-	removeFromManifest(name, manifest, isGlobal);
+	removeFromManifest(name, manifest, isGlobal, devOnly);
 
 	if (isGlobal) {
 		await writeGlobalManifest(manifest, globalDir);
@@ -147,10 +163,22 @@ function validateRemoveTarget(
 	},
 	lockfile: Lockfile | null,
 	isGlobal: boolean,
+	devOnly: boolean,
 ): void {
 	const inDeps = manifest.dependencies && name in manifest.dependencies;
 	const inDevDeps =
 		!isGlobal && manifest["dev-dependencies"] && name in manifest["dev-dependencies"];
+
+	// Scoped check: --dev cares ONLY about dev-dependencies. A prod-only entry
+	// must error here, not get silently skipped — otherwise the user typing
+	// `remove foo --dev` would see "successfully removed" output while foo is
+	// still in `dependencies`.
+	if (devOnly) {
+		if (!inDevDeps) {
+			throw new Error(`"${name}" is not in dev-dependencies.`);
+		}
+		return;
+	}
 
 	if (!inDeps && !inDevDeps) {
 		const manifestName = isGlobal ? GLOBAL_MANIFEST : MANIFEST_NEW;
@@ -188,8 +216,11 @@ function removeFromManifest(
 		"dev-dependencies"?: Record<string, unknown>;
 	},
 	isGlobal: boolean,
+	devOnly: boolean,
 ): void {
-	if (manifest.dependencies && name in manifest.dependencies) {
+	// `--dev` scopes deletion to dev-deps. Without it, both groups are cleared
+	// (legacy behavior: same name in both groups gets fully removed).
+	if (!devOnly && manifest.dependencies && name in manifest.dependencies) {
 		delete manifest.dependencies[name];
 	}
 	if (!isGlobal && manifest["dev-dependencies"] && name in manifest["dev-dependencies"]) {

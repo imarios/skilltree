@@ -118,6 +118,7 @@ Options:
   --keep-files   Leave installed files in place
   -n, --dry-run  Preview the removal without changing anything
   -g, --global   Remove from global dependencies
+  -D, --dev      Only remove from dev-dependencies (mirrors \`add -D\`)
   -h, --help     display help for command
 "
 `;
@@ -166,8 +167,8 @@ exports[`CLI help snapshots \`teach --help\` is stable 1`] = `
 Install the skilltree skill to all detected coding agents
 
 Options:
-  --agent <name>  Install to a specific agent only
-  -h, --help      display help for command
+  --agent <agent>  Install to a specific agent only
+  -h, --help       display help for command
 "
 `;
 
