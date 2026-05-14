@@ -1,3 +1,9 @@
+## v0.27.0 (2026-05-14)
+
+### Feat
+
+- **cli**: add `remove -D, --dev` + tighten `teach --agent <agent>` (#23) (#61)
+
 ## v0.26.0 (2026-05-13)
 
 ### Feat
