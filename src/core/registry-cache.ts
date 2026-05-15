@@ -25,8 +25,11 @@ export const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
  * History:
  *   1 — initial fingerprinted version (issue #25). Implicitly covers the
  *       slash-command scanner fix from #21/#24.
+ *   2 — Carbon Phase 2 (issue #63): scanRegistry adds tier 2 (skilltree.yml
+ *       as inferred index) between the curated file and dynamic scan, and
+ *       filters `publish: false` entries everywhere.
  */
-export const SCANNER_VERSION = 1;
+export const SCANNER_VERSION = 2;
 
 export function getRegistryCacheDir(): string {
 	return REGISTRY_CACHE_DIR;

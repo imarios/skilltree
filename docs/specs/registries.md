@@ -82,11 +82,23 @@ entities:
 | `description` | No | One-line summary (from frontmatter `description:` field) |
 | `tags` | No | Searchable keywords |
 
-If a repo does not have this file, skilltree falls back to **dynamic scanning** — walking `git ls-tree -r HEAD` for `SKILL.md` files and `.md` agent files, reading their frontmatter. This is slower but means any skill repo works as a registry with zero changes.
+If a repo does not have this file, skilltree falls back to **the manifest tier** (see below), then to **dynamic scanning** — walking `git ls-tree -r HEAD` for `SKILL.md` files and `.md` agent files, reading their frontmatter. The tiered approach keeps zero-config repos working while letting maintainers express layout once.
 
 **Who generates the index?** The repo maintainer, ideally via CI (e.g., a GitHub Action that runs `skilltree registry index` on push and commits the result). Hand-maintaining it is discouraged — it drifts. See the `skilltree registry index` command below.
 
 **Legacy name:** earlier versions wrote the index as `skillkit-index.yaml`. Repos with that legacy file still work — `skilltree registry index` emits a deprecation warning and reads it. Running `skilltree registry index` regenerates the index as `skilltree-index.yml` and removes the legacy file.
+
+### Indexing fallback chain (Carbon)
+
+When `skilltree registry update` scans a repo, it walks three tiers in order and stops at the first one that produces a non-empty result:
+
+1. **`skilltree-index.yml`** (curated; explicit list — authoritative override). Useful when a maintainer wants a hand-curated public catalog distinct from their `skilltree.yml`, or when their repo has no `skilltree.yml` at all.
+2. **`skilltree.yml` local entries** (inferred from the manifest). Reads the repo's own manifest at HEAD and emits an `IndexEntry` per publicly-visible local dependency (`publish !== false`, not in `dev-dependencies`). Description is read from the entity's `SKILL.md` / agent `.md` frontmatter. Falls through when the manifest has no visible local entries, so repos that only consume deps without authoring any keep working.
+3. **Dynamic scan**. The original behavior — `git ls-tree -r HEAD` for `SKILL.md` and `.md` agent files, reading frontmatter for name/description. Default for repos without either manifest signal.
+
+The manifest tier is most useful for **non-standard layouts** (skill directories at unconventional depths, mixed agent/skill placement) — a maintainer declares each entity once in `skilltree.yml` and the indexer finds them via the declared paths instead of guessing at directory structure. See [publication_surface.md](publication_surface.md) for the full visibility model and the `publish: false` flag.
+
+**Generated indexes filter by visibility.** `skilltree registry index` (the generation command) also honors the visibility predicate: `publish: false` and `dev-dependencies` local entries do not appear in the emitted `skilltree-index.yml`.
 
 ### Cache layout
 

@@ -1,11 +1,20 @@
 import { basename, dirname } from "node:path";
 import simpleGit from "simple-git";
 import YAML from "yaml";
-import type { EntityType, IndexEntry } from "../types.js";
+import type { Dependency, EntityType, IndexEntry, Manifest } from "../types.js";
+import { isLocalDependency } from "../types.js";
 import { entityNameFromPath, mdFileType } from "./entity-type.js";
-import { INDEX_LEGACY, INDEX_NEW, warnIndexLegacy } from "./filenames.js";
+import {
+	INDEX_LEGACY,
+	INDEX_NEW,
+	MANIFEST_NEW,
+	MANIFEST_NEW_ALT,
+	warnIndexLegacy,
+} from "./filenames.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { pathExistsAtRef, readFileAtRef } from "./git.js";
+import { parseManifest } from "./manifest.js";
+import { isPubliclyVisible } from "./visibility.js";
 
 /** Files that are never agents even if they are .md — shared with index-cmd.ts */
 export const SKIP_MD_FILES = new Set([
@@ -35,19 +44,162 @@ export const SKIP_MD_FILES = new Set([
  * tells consumers their on-disk caches are no longer trustworthy (issue #25).
  */
 export async function scanRegistry(repoDir: string): Promise<IndexEntry[]> {
-	// Canonical file first
+	// Tier 1: curated index file. Maintainer's authoritative override.
 	if (await pathExistsAtRef(repoDir, "HEAD", INDEX_NEW)) {
 		const content = await readFileAtRef(repoDir, "HEAD", INDEX_NEW);
 		return parseIndex(content);
 	}
-	// Legacy file — accept but warn the maintainer
+	// Tier 1 (legacy): same intent under the old filename — accept but warn.
 	if (await pathExistsAtRef(repoDir, "HEAD", INDEX_LEGACY)) {
 		warnIndexLegacy();
 		const content = await readFileAtRef(repoDir, "HEAD", INDEX_LEGACY);
 		return parseIndex(content);
 	}
 
-	return dynamicScanRepo(repoDir);
+	// Read the manifest once — used by both tier 2 (as the source of entries)
+	// and tier 3 (as the source of paths to hide). One git read either way.
+	const manifest = await readManifestAtRef(repoDir);
+
+	// Tier 2: skilltree.yml as inferred index — uses the maintainer's own
+	// manifest declarations (publication_surface.md §PS12). Only fires when
+	// the manifest has ≥1 publicly-visible local entry; otherwise falls
+	// through to dynamic scan so repos that consume deps without authoring
+	// any keep working as before.
+	if (manifest) {
+		const manifestEntries = await manifestEntriesFromManifest(repoDir, manifest);
+		if (manifestEntries.length > 0) {
+			return manifestEntries;
+		}
+	}
+
+	// Tier 3: dynamic scan — walk SKILL.md/.md files via git ls-tree, then
+	// strip any entries the manifest marks as hidden (publish: false locals
+	// and dev-dependency locals). Spec PS13: "for paths not in the manifest,
+	// treat as visible". When no manifest exists the hidden set is empty.
+	const hidden = manifest ? hiddenPathsFromManifest(manifest) : new Set<string>();
+	const dynamic = await dynamicScanRepo(repoDir);
+	if (hidden.size === 0) return dynamic;
+	return dynamic.filter((e) => !hidden.has(e.path));
+}
+
+/**
+ * Tier 2 of the fallback chain (publication_surface.md §PS12–PS13).
+ *
+ * Reads the repo's skilltree.yml at HEAD and emits IndexEntries for each
+ * publicly-visible local dep. Returns `null` when no manifest is present
+ * or unparseable. Convenience wrapper around `manifestEntriesFromManifest`
+ * for callers that just want "is there a manifest and what does it say."
+ */
+export async function manifestScanRepo(repoDir: string): Promise<IndexEntry[] | null> {
+	const manifest = await readManifestAtRef(repoDir);
+	if (!manifest) return null;
+	return manifestEntriesFromManifest(repoDir, manifest);
+}
+
+/**
+ * Same as `manifestScanRepo` but takes an already-parsed manifest. Lets
+ * `scanRegistry` parse once and reuse the result for both tier-2 emission
+ * and tier-3 hidden-path filtering.
+ */
+async function manifestEntriesFromManifest(
+	repoDir: string,
+	manifest: Manifest,
+): Promise<IndexEntry[]> {
+	const deps = manifest.dependencies;
+	if (!deps) return [];
+
+	const entries: IndexEntry[] = [];
+	for (const [key, dep] of Object.entries(deps)) {
+		if (!isLocalDependency(dep)) continue;
+		if (!isPubliclyVisible(dep, "dependencies")) continue;
+
+		const normalized = normalizeLocalPath(dep.local);
+		if (!normalized) continue; // Absolute or ~ path — not part of this repo
+
+		const entry = await buildManifestEntry(repoDir, key, dep, normalized);
+		if (entry) entries.push(entry);
+	}
+	return entries;
+}
+
+/**
+ * Collect normalized paths the manifest marks as not publicly visible:
+ * `publish: false` locals and `dev-dependencies` locals. Used by tier 3
+ * (dynamic scan) to strip these from emitted entries (spec PS13) and by
+ * `skilltree registry index` to filter generated output (spec PS14).
+ */
+export function hiddenPathsFromManifest(manifest: Manifest): Set<string> {
+	const hidden = new Set<string>();
+	for (const group of ["dependencies", "dev-dependencies"] as const) {
+		const deps = manifest[group];
+		if (!deps) continue;
+		for (const dep of Object.values(deps)) {
+			if (!isLocalDependency(dep)) continue;
+			if (isPubliclyVisible(dep, group)) continue;
+			const normalized = normalizeLocalPath(dep.local);
+			if (normalized !== null) hidden.add(normalized);
+		}
+	}
+	return hidden;
+}
+
+async function readManifestAtRef(repoDir: string): Promise<Manifest | null> {
+	for (const name of [MANIFEST_NEW, MANIFEST_NEW_ALT]) {
+		if (!(await pathExistsAtRef(repoDir, "HEAD", name))) continue;
+		try {
+			const content = await readFileAtRef(repoDir, "HEAD", name);
+			return parseManifest(content);
+		} catch {
+			// Malformed manifest — fall through. Same conservatism as tier 1.
+			return null;
+		}
+	}
+	return null;
+}
+
+/**
+ * Strip a leading `./` from a manifest `local:` value. Returns `null` for
+ * absolute paths and `~`-prefixed paths — those point outside this repo
+ * (typically an author's local-source alias) and are not publishable from it.
+ */
+function normalizeLocalPath(local: string): string | null {
+	if (local.startsWith("/") || local.startsWith("~")) return null;
+	return local.replace(/^\.\//, "").replace(/\/+$/, "");
+}
+
+async function buildManifestEntry(
+	repoDir: string,
+	key: string,
+	dep: Dependency & { local: string },
+	normalizedPath: string,
+): Promise<IndexEntry | null> {
+	const type = inferEntityType(dep, normalizedPath);
+	const name = dep.name ?? key;
+
+	const frontmatterPath = type === "skill" ? `${normalizedPath}/SKILL.md` : normalizedPath;
+	let description: string | undefined;
+	try {
+		if (await pathExistsAtRef(repoDir, "HEAD", frontmatterPath)) {
+			const content = await readFileAtRef(repoDir, "HEAD", frontmatterPath);
+			const fm = parseFrontmatter(content);
+			if (fm?.description) description = fm.description;
+		}
+	} catch {
+		// Unreadable — emit the entry without a description rather than dropping it.
+	}
+
+	const entry: IndexEntry = { name, type, path: normalizedPath };
+	if (description) entry.description = description;
+	return entry;
+}
+
+function inferEntityType(
+	dep: { type?: EntityType; local: string },
+	normalizedPath: string,
+): EntityType {
+	if (dep.type) return dep.type;
+	if (normalizedPath.endsWith(".md")) return mdFileType(normalizedPath);
+	return "skill";
 }
 
 /**

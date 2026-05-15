@@ -40,18 +40,20 @@ Lay the foundation: schema fields, validation, and one helper that every subsequ
 - [x] Tests (`tests/core/visibility.test.ts`): 9 cases — full predicate table across all dep variants and groups.
 - [x] `bun test` green: 1129/1129. `tsc` and biome clean.
 
-## Phase 2: Registry-scanner fallback + index filtering
+## Phase 2: Registry-scanner fallback + index filtering ✅ COMPLETE
 <!-- Spec: publication_surface.md PS12–PS14 -->
 
 Wire the visibility predicate into registry indexing and add the `skilltree.yml`-as-index fallback tier.
 
 ### Tasks
-- [ ] `src/core/registry-scanner.ts`: insert tier 2 (manifest-derived) between curated `skilltree-index.yml` and the dynamic `git ls-tree` scan. Reads the repo's `skilltree.yml` at HEAD via `git show`, extracts `dependencies` `local:` entries, filters by visibility predicate. (PS12, PS13)
-- [ ] `src/core/registry-scanner.ts`: dynamic-scan tier (tier 3) also filters by visibility — but the predicate needs `skilltree.yml` to know which paths are `publish:false`. Pre-load the manifest once at scan start; for paths not in the manifest, treat as visible (no manifest entry = no signal, conservative).
-- [ ] `src/commands/registry.ts` (or wherever `registry index` lives): when generating `skilltree-index.yml`, skip entries with `publish: false`. (PS14)
-- [ ] Tests (`tests/core/registry-scanner-fallback.test.ts`): three-tier fallback ordering; manifest tier surfaces only visible entries; dynamic tier filters by manifest where available.
-- [ ] Tests (`tests/commands/registry-index-publish.test.ts`): `registry index` generation skips `publish:false`.
-- [ ] Update `docs/specs/registries.md` to document the fallback chain. (PS29)
+- [x] `src/core/registry-scanner.ts`: insert tier 2 (manifest-derived) between curated `skilltree-index.yml` and the dynamic `git ls-tree` scan. (PS12, PS13)
+- [x] Tier 3 (dynamic-scan) cross-filters via `hiddenPathsFromManifest` so paths the manifest marks hidden never surface even when SKILL.md exists on disk.
+- [x] `src/commands/index-cmd.ts`: filter `publish:false` (and dev-dep local) paths when generating `skilltree-index.yml`. (PS14)
+- [x] `SCANNER_VERSION` bumped 1 → 2 so existing consumers refresh their caches.
+- [x] Tests (`tests/core/registry-scanner-fallback.test.ts`): 14 cases — three-tier ordering, manifest tier behavior, cross-filter.
+- [x] Tests (`tests/commands/index-cmd-publish.test.ts`): 4 cases — `publish:false`, dev-deps, no-manifest, undeclared-skill.
+- [x] Updated `docs/specs/registries.md` with the fallback-chain section. (PS29)
+- [x] `bun test` green: 1147/1147. tsc + biome clean.
 
 ## Phase 3: Installer + vendor — exclude and .skilltreeignore
 <!-- Spec: publication_surface.md PS6–PS11, PS17, PS20–PS22 -->
@@ -102,7 +104,7 @@ Catch the footgun: a published entity transitively depends on a same-repo `publi
 ## Carbon — Sub-project Status
 
 Phase 1: ✅ COMPLETE
-Phase 2: PENDING
+Phase 2: ✅ COMPLETE
 Phase 3: PENDING
 Phase 4: PENDING
 Phase 5: PENDING
