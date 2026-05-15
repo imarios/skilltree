@@ -1,6 +1,10 @@
-import { describe, expect, test } from "bun:test";
-import { lintAsymmetricPublish } from "../../src/commands/check.js";
+import { afterEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { checkCommand, lintAsymmetricPublish } from "../../src/commands/check.js";
 import type { ResolvedEntity } from "../../src/core/graph.js";
+import { createLocalSkill } from "../helpers/git-fixtures.js";
 
 function entity(
 	name: string,
@@ -130,5 +134,233 @@ describe("lintAsymmetricPublish (Carbon Phase 5)", () => {
 		// a → b → a (cycle). No publish:false anywhere → no warnings, no hang.
 		const entities = buildMap(entity("a", ["b"]), entity("b", ["a"]));
 		expect(lintAsymmetricPublish(entities)).toEqual([]);
+	});
+});
+
+// --- checkCommand (end-to-end) ---
+
+let tempDir: string;
+
+afterEach(async () => {
+	if (tempDir) await rm(tempDir, { recursive: true, force: true });
+});
+
+async function makeProject(
+	manifest: string,
+	skills: Array<{ name: string; deps?: string[] }>,
+): Promise<string> {
+	tempDir = await mkdtemp(join(tmpdir(), "skilltree-check-cmd-"));
+	await writeFile(join(tempDir, "skilltree.yml"), manifest, "utf-8");
+	for (const s of skills) {
+		await createLocalSkill(join(tempDir, "skills"), s.name, s.deps);
+	}
+	return tempDir;
+}
+
+function captureOutput(): { logs: string[]; warns: string[]; restore: () => void } {
+	const logs: string[] = [];
+	const warns: string[] = [];
+	const origLog = console.log;
+	const origWarn = console.warn;
+	console.log = (msg: string) => {
+		logs.push(typeof msg === "string" ? msg : String(msg));
+	};
+	console.warn = (msg: string) => {
+		warns.push(typeof msg === "string" ? msg : String(msg));
+	};
+	return {
+		logs,
+		warns,
+		restore: () => {
+			console.log = origLog;
+			console.warn = origWarn;
+		},
+	};
+}
+
+describe("checkCommand (end-to-end)", () => {
+	test("clean manifest prints success and exits 0", async () => {
+		const dir = await makeProject(
+			[
+				"name: test",
+				"dependencies:",
+				"  foo:",
+				"    local: ./skills/foo",
+				"    type: skill",
+				"",
+			].join("\n"),
+			[{ name: "foo" }],
+		);
+
+		const cap = captureOutput();
+		try {
+			await checkCommand(dir);
+		} finally {
+			cap.restore();
+		}
+		expect(cap.warns).toEqual([]);
+		expect(cap.logs.join("\n")).toContain("No issues");
+	});
+
+	test("manifest with leak emits warnings (non-strict, exit 0)", async () => {
+		const dir = await makeProject(
+			[
+				"name: test",
+				"dependencies:",
+				"  analysis:",
+				"    local: ./skills/analysis",
+				"    type: skill",
+				"  experimental:",
+				"    local: ./skills/experimental",
+				"    type: skill",
+				"    publish: false",
+				"",
+			].join("\n"),
+			[{ name: "analysis", deps: ["experimental"] }, { name: "experimental" }],
+		);
+
+		const cap = captureOutput();
+		try {
+			await checkCommand(dir);
+		} finally {
+			cap.restore();
+		}
+		const allOutput = [...cap.warns, ...cap.logs].join("\n");
+		expect(cap.warns.length).toBeGreaterThan(0);
+		expect(allOutput).toContain("analysis");
+		expect(allOutput).toContain("experimental");
+		expect(allOutput).toMatch(/issue.*found/);
+		expect(allOutput).toContain("--strict");
+	});
+
+	test("singular pluralization for exactly one issue", async () => {
+		const dir = await makeProject(
+			[
+				"name: test",
+				"dependencies:",
+				"  analysis:",
+				"    local: ./skills/analysis",
+				"    type: skill",
+				"  experimental:",
+				"    local: ./skills/experimental",
+				"    type: skill",
+				"    publish: false",
+				"",
+			].join("\n"),
+			[{ name: "analysis", deps: ["experimental"] }, { name: "experimental" }],
+		);
+
+		const cap = captureOutput();
+		try {
+			await checkCommand(dir);
+		} finally {
+			cap.restore();
+		}
+		const allOutput = cap.logs.join("\n");
+		// 1 leaking root → "1 issue found" (singular)
+		expect(allOutput).toMatch(/1 issue found/);
+	});
+
+	test("plural form for multiple issues", async () => {
+		const dir = await makeProject(
+			[
+				"name: test",
+				"dependencies:",
+				"  analysis:",
+				"    local: ./skills/analysis",
+				"    type: skill",
+				"  loader:",
+				"    local: ./skills/loader",
+				"    type: skill",
+				"  experimental:",
+				"    local: ./skills/experimental",
+				"    type: skill",
+				"    publish: false",
+				"",
+			].join("\n"),
+			[
+				{ name: "analysis", deps: ["loader"] },
+				{ name: "loader", deps: ["experimental"] },
+				{ name: "experimental" },
+			],
+		);
+
+		const cap = captureOutput();
+		try {
+			await checkCommand(dir);
+		} finally {
+			cap.restore();
+		}
+		const allOutput = cap.logs.join("\n");
+		expect(allOutput).toMatch(/2 issues found/);
+	});
+
+	test("--strict exits 1 when warnings are present", async () => {
+		const dir = await makeProject(
+			[
+				"name: test",
+				"dependencies:",
+				"  analysis:",
+				"    local: ./skills/analysis",
+				"    type: skill",
+				"  experimental:",
+				"    local: ./skills/experimental",
+				"    type: skill",
+				"    publish: false",
+				"",
+			].join("\n"),
+			[{ name: "analysis", deps: ["experimental"] }, { name: "experimental" }],
+		);
+
+		const cap = captureOutput();
+		const origExit = process.exit;
+		let exitCode: number | undefined;
+		process.exit = ((c: number) => {
+			exitCode = c;
+			throw new Error(`exit ${c}`);
+		}) as typeof process.exit;
+		try {
+			await checkCommand(dir, { strict: true });
+		} catch {
+			// Expected — mocked exit throws.
+		} finally {
+			process.exit = origExit;
+			cap.restore();
+		}
+		expect(exitCode).toBe(1);
+	});
+
+	test("--strict with clean manifest does not exit", async () => {
+		const dir = await makeProject(
+			[
+				"name: test",
+				"dependencies:",
+				"  foo:",
+				"    local: ./skills/foo",
+				"    type: skill",
+				"",
+			].join("\n"),
+			[{ name: "foo" }],
+		);
+
+		const cap = captureOutput();
+		const origExit = process.exit;
+		let exitCode: number | undefined;
+		process.exit = ((c: number) => {
+			exitCode = c;
+			throw new Error(`exit ${c}`);
+		}) as typeof process.exit;
+		try {
+			await checkCommand(dir, { strict: true });
+		} finally {
+			process.exit = origExit;
+			cap.restore();
+		}
+		expect(exitCode).toBeUndefined();
+	});
+
+	test("throws useful error when no manifest exists", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-check-cmd-"));
+		await expect(checkCommand(tempDir)).rejects.toThrow();
 	});
 });

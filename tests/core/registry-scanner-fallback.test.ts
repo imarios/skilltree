@@ -285,6 +285,36 @@ description: Bar agent
 		expect(bySite["my-agent"]?.type).toBe("agent");
 	});
 
+	test("manifest tier emits entry without description when SKILL.md is missing", async () => {
+		// Manifest declares an entry but the path doesn't have a SKILL.md.
+		// Should emit the entry with no description rather than dropping it.
+		const dir = await setup();
+		const bareDir = await createBareFixture(dir, {
+			"skilltree.yml": `dependencies:
+  foo:
+    local: ./skills/foo
+    type: skill
+`,
+			// No SKILL.md for foo on disk
+			"placeholder.txt": "keeps the repo non-empty",
+		});
+		const entries = await scanRegistry(bareDir);
+		expect(entries.map((e) => e.name)).toEqual(["foo"]);
+		expect(entries[0]?.description).toBeUndefined();
+	});
+
+	test("manifest tier falls through gracefully when skilltree.yml is malformed", async () => {
+		// Unparseable YAML → readManifestAtRef returns null → fall through to
+		// dynamic scan (and no cross-filter applied).
+		const dir = await setup();
+		const bareDir = await createBareFixture(dir, {
+			"skilltree.yml": "this is :: not valid yaml: [\n",
+			"skills/foo/SKILL.md": SKILL_FOO,
+		});
+		const entries = await scanRegistry(bareDir);
+		expect(entries.map((e) => e.name)).toEqual(["foo"]);
+	});
+
 	test("manifest tier skips absolute and ~ local paths (not part of repo)", async () => {
 		const dir = await setup();
 		const bareDir = await createBareFixture(dir, {
