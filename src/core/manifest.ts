@@ -290,6 +290,57 @@ function expandSourceDep(
 }
 
 /**
+ * Validate `publish` and `exclude` fields on a single dependency entry
+ * (publication_surface.md §PS4, PS7, PS27, PS28).
+ *
+ * Both fields are only meaningful on local entries — remote entries are
+ * someone else's to publish. Type errors are caught here too so a malformed
+ * value surfaces before any consumer-facing code path reads it.
+ */
+function validatePublishExclude(
+	dep: Dependency,
+	group: string,
+	key: string,
+	hasLocal: boolean,
+	errors: string[],
+): void {
+	const bag = dep as { publish?: unknown; exclude?: unknown };
+
+	if (bag.publish !== undefined) {
+		if (!hasLocal) {
+			errors.push(`${group}.${key}: publish is only valid on local entries`);
+		} else if (typeof bag.publish !== "boolean") {
+			errors.push(`${group}.${key}: publish must be a boolean, got ${describeType(bag.publish)}`);
+		}
+	}
+
+	if (bag.exclude !== undefined) {
+		if (!hasLocal) {
+			errors.push(`${group}.${key}: exclude is only valid on local entries`);
+		} else if (!Array.isArray(bag.exclude)) {
+			errors.push(
+				`${group}.${key}: exclude must be a list of strings, got ${describeType(bag.exclude)}`,
+			);
+		} else {
+			for (const entry of bag.exclude) {
+				if (typeof entry !== "string") {
+					errors.push(
+						`${group}.${key}: exclude entries must be strings, got ${describeType(entry)}`,
+					);
+					break;
+				}
+			}
+		}
+	}
+}
+
+function describeType(value: unknown): string {
+	if (value === null) return "null";
+	if (Array.isArray(value)) return "array";
+	return typeof value;
+}
+
+/**
  * Validate a manifest for required fields and mutual exclusivity.
  * Returns a list of error messages (empty = valid).
  */
@@ -314,6 +365,8 @@ export function validateManifest(manifest: Manifest): string[] {
 			// `path:` is optional for remote/source deps (R9). When missing, the
 			// resolver infers it from the origin repo's skilltree.yml or the
 			// conventional probe. See origin_manifest_resolution.md §R9.
+
+			validatePublishExclude(dep, group, key, hasLocal, errors);
 		}
 	}
 

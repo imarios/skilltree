@@ -26,19 +26,19 @@ Phase 1: foundation
 
 After Phase 1 ships, Phases 2–5 are mostly independent and could be parallelized in principle, but we ship them sequentially for clean per-phase commits and reviewable diffs.
 
-## Phase 1: Foundation — types, validation, visibility predicate
+## Phase 1: Foundation — types, validation, visibility predicate ✅ COMPLETE
 <!-- Spec: publication_surface.md PS1–PS5, PS27–PS28 -->
 
 Lay the foundation: schema fields, validation, and one helper that every subsequent phase calls. No use sites are wired up yet — Phase 1 produces dead code that gets activated in Phases 2–5.
 
 ### Tasks
-- [ ] Add `publish?: boolean` and `exclude?: string[]` to the `Dependency` type in `src/types.ts` (and any mirrored types for local/remote variants). (PS3, PS6)
-- [ ] `parseManifest` / `serializeManifest` in `src/core/manifest.ts`: round-trip the two new fields. Preserve omission when the user didn't set them.
-- [ ] `validateManifest`: reject `publish:` or `exclude:` on remote entries (`repo:` / `source:` without local-source filesystem expansion). Type-check `publish` is boolean and `exclude` is `string[]`. Clear actionable error messages. (PS4, PS7, PS27, PS28)
-- [ ] New file `src/core/visibility.ts` with `isPubliclyVisible(entry: Dependency, group: "dependencies" | "dev-dependencies"): boolean`. Single source of truth. (PS1, PS2)
-- [ ] Tests (`tests/core/manifest-publish-exclude.test.ts`): round-trip; reject on remote entries; type errors. Parametrized.
-- [ ] Tests (`tests/core/visibility.test.ts`): predicate table covering all four combinations (group × publish flag) plus default (publish omitted).
-- [ ] No use sites changed yet — Phase 1 is foundation only.
+- [x] Add `publish?: boolean` and `exclude?: string[]` to `LocalDependency` in `src/types.ts`. (PS3, PS6)
+- [x] `parseManifest` / `serializeManifest` in `src/core/manifest.ts`: round-trip the two new fields (verified by tests; no code change needed — YAML pass-through preserves them).
+- [x] `validateManifest`: reject `publish:` or `exclude:` on remote entries. Type-check `publish` is boolean and `exclude` is `string[]`. (PS4, PS7, PS27, PS28)
+- [x] New file `src/core/visibility.ts` with `isPubliclyVisible(entry, group)`. Single source of truth. (PS1, PS2)
+- [x] Tests (`tests/core/manifest-publish-exclude.test.ts`): 17 cases — round-trip, remote-entry rejection, type errors, positive cases.
+- [x] Tests (`tests/core/visibility.test.ts`): 9 cases — full predicate table across all dep variants and groups.
+- [x] `bun test` green: 1129/1129. `tsc` and biome clean.
 
 ## Phase 2: Registry-scanner fallback + index filtering
 <!-- Spec: publication_surface.md PS12–PS14 -->
@@ -101,7 +101,7 @@ Catch the footgun: a published entity transitively depends on a same-repo `publi
 
 ## Carbon — Sub-project Status
 
-Phase 1: PENDING
+Phase 1: ✅ COMPLETE
 Phase 2: PENDING
 Phase 3: PENDING
 Phase 4: PENDING
