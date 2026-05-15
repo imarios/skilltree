@@ -14,6 +14,8 @@ Project Naming Theme: Elements
 
 - **Boron** (04/21/2026): Origin-manifest resolution for direct deps — `path:` optional when origin declares the name, redundancy/override warnings, `force_path` opt-out, `skilltree add --path` optional
 
+- **Carbon** (05/14/2026): Publication surface — `skilltree.yml` as registry-index fallback, `publish: false` for WIP local entities, `exclude:` + `.skilltreeignore` for file-level trim, unified visibility predicate across indexing/vendor/origin-manifest lookup, `check` lint for asymmetric publish state (resolves #63)
+
 ## Completed Projects
 
 (none)
