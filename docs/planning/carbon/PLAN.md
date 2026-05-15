@@ -71,16 +71,18 @@ File-level trim. Introduces a glob-based ignore engine and wires it into both in
 - [x] Vendor audit: today's vendor copies BOTH groups; Phase 3 preserves that and only filters `publish:false`. Strict spec PS20 reading ("applies the visibility predicate") is noted as an open question.
 - [x] `bun test` green: 1183/1183. tsc + biome clean.
 
-## Phase 4: Graph extension — downstream visibility error
+## Phase 4: Graph extension — downstream visibility error ✅ COMPLETE
 <!-- Spec: publication_surface.md PS15–PS16 -->
 
 Extend origin-manifest lookup so a downstream chain hitting a `publish:false` entry produces the same actionable error already used for `dev-dependencies`.
 
 ### Tasks
-- [ ] `src/core/graph.ts`: in the origin-manifest lookup path, when an origin's entry matches a name but the origin manifest marks it `publish: false`, record a hint in `originDevDepHints` (or a sibling map) with the `publish:false` reason. (PS15)
-- [ ] Error formatting: produce a distinct message that names the reason (`dev-dependencies` vs `publish: false`) so the consumer's fix is obvious. (PS16)
-- [ ] Tests (`tests/core/graph-publish-downstream.test.ts`): downstream resolution fails cleanly when transitive dep is `publish:false`; error text matches; distinguishes from the `dev-dependencies` case.
-- [ ] Update `docs/specs/reference.md` to document the new resolution-failure reason. (PS31)
+- [x] `src/core/graph.ts`: renamed `originDevDepHints` → `originHiddenHints`, value type widened to `{ repo, reason }`. (PS15)
+- [x] Detection: when origin's `dependencies[name]` is a local entry with `publish: false`, record hint with reason `"publish-false"` and fall through.
+- [x] Error formatting: `addUnresolvedError` renders distinct text per reason; preserves dev-dep wording for regression-safety. (PS16)
+- [x] Tests (`tests/core/graph-publish-downstream.test.ts`): 4 cases — publish:false error, dev-dep regression, consumer override, publish:true silence.
+- [x] Updated `docs/specs/reference.md` origin-manifest section. (PS31)
+- [x] `bun test` green: 1187/1187. tsc + biome clean.
 
 ## Phase 5: `check` lint — asymmetric publish state
 <!-- Spec: publication_surface.md PS23–PS26 -->
@@ -107,5 +109,5 @@ Catch the footgun: a published entity transitively depends on a same-repo `publi
 Phase 1: ✅ COMPLETE
 Phase 2: ✅ COMPLETE
 Phase 3: ✅ COMPLETE
-Phase 4: PENDING
+Phase 4: ✅ COMPLETE
 Phase 5: PENDING

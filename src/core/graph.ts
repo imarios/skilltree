@@ -79,9 +79,20 @@ interface ResolutionState {
 	manifestKeys: Set<string>;
 	errors: string[];
 	warnings: string[];
-	/** depName -> origin repo URL, for informative error when a transitive dep
-	 * is only in origin's dev-dependencies (not exposed to downstream consumers). */
-	originDevDepHints: Map<string, string>;
+	/**
+	 * depName -> { repo, reason } for transitive deps that origin's manifest
+	 * declares but marks as not exposed to downstream consumers. Two reasons:
+	 *   - "dev-dependency": entry is in origin's `dev-dependencies` group
+	 *   - "publish-false":  entry has `publish: false` in origin's `dependencies`
+	 * Drives the actionable resolution-failure message at `addUnresolvedError`.
+	 * Spec: publication_surface.md §PS15–PS16.
+	 */
+	originHiddenHints: Map<string, OriginHiddenHint>;
+}
+
+interface OriginHiddenHint {
+	repo: string;
+	reason: "dev-dependency" | "publish-false";
 }
 
 export async function resolveAll(
@@ -102,7 +113,7 @@ export async function resolveAll(
 		]),
 		errors: [],
 		warnings: [],
-		originDevDepHints: new Map(),
+		originHiddenHints: new Map(),
 	};
 
 	await resolveRepoVersions(expanded, state);
@@ -547,8 +558,22 @@ async function tryResolveFromOriginManifest(
 
 	if (!prodEntry) {
 		if (devEntry) {
-			state.originDevDepHints.set(depName, parentEntity.repo);
+			state.originHiddenHints.set(depName, {
+				repo: parentEntity.repo,
+				reason: "dev-dependency",
+			});
 		}
+		return false;
+	}
+
+	// Origin declared the entry in `dependencies` but marked it not for sharing.
+	// Treat the same as the dev-dependency case: record a hint and fall through
+	// so downstream gets an actionable error. (publication_surface.md §PS15.)
+	if (isLocalDependency(prodEntry) && prodEntry.publish === false) {
+		state.originHiddenHints.set(depName, {
+			repo: parentEntity.repo,
+			reason: "publish-false",
+		});
 		return false;
 	}
 
@@ -834,7 +859,7 @@ function addUnresolvedError(
 	const parentEntity = state.entities.get(parentCompositeKey);
 	const parentName = parentEntity?.name ?? parentCompositeKey;
 	const parentSource = parentEntity?.repo ? `from ${parentEntity.repo}` : "local";
-	const devHintRepo = state.originDevDepHints.get(depName);
+	const hint = state.originHiddenHints.get(depName);
 
 	const lines = [
 		`${parentName} (${parentSource}) declares dependency "${depName}",`,
@@ -850,14 +875,23 @@ function addUnresolvedError(
 		lines.push(`       - local filesystem`);
 	}
 
-	if (devHintRepo) {
+	if (hint?.reason === "dev-dependency") {
 		lines.push("");
 		lines.push(
-			`     Note: "${depName}" is declared as a dev-dependency in origin's manifest (${devHintRepo}).`,
+			`     Note: "${depName}" is declared as a dev-dependency in origin's manifest (${hint.repo}).`,
 		);
 		lines.push(`     dev-dependencies are not exposed to downstream consumers.`);
 		lines.push(
 			`     Fix: upstream should move it to \`dependencies\`, or declare ${depName} explicitly in your own ${MANIFEST_NEW}.`,
+		);
+	} else if (hint?.reason === "publish-false") {
+		lines.push("");
+		lines.push(
+			`     Note: "${depName}" is declared in origin's manifest (${hint.repo}) but marked \`publish: false\`.`,
+		);
+		lines.push(`     publish: false entries are not exposed to downstream consumers.`);
+		lines.push(
+			`     Fix: upstream should remove \`publish: false\` once it's ready to share, or declare ${depName} explicitly in your own ${MANIFEST_NEW}.`,
 		);
 	} else {
 		lines.push("");
