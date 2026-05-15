@@ -4,7 +4,10 @@ import { parseEntityList } from "../../src/core/llm.js";
 describe("llmScanContent", () => {
 	test("throws on missing ANTHROPIC_API_KEY", async () => {
 		const saved = process.env.ANTHROPIC_API_KEY;
-		process.env.ANTHROPIC_API_KEY = undefined;
+		// `process.env.X = undefined` coerces to the string "undefined" on
+		// some runtimes (Linux Bun in CI), which is truthy and defeats the
+		// `if (!apiKey)` guard. `delete` is unambiguous across runtimes.
+		delete process.env.ANTHROPIC_API_KEY;
 
 		// Dynamic import to get fresh module state
 		const mod = await import("../../src/core/llm.js");
