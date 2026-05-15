@@ -25,6 +25,19 @@ export interface LocalDependency {
 	local: string;
 	type?: EntityType;
 	name?: string;
+	/**
+	 * Publication-surface flag. When `false`, this entity is invisible to every
+	 * consumer-facing path (registry indexing, vendor, origin-manifest lookup)
+	 * but still installs into the maintainer's own .claude/. Default: `true`.
+	 * Only valid on local entries. See docs/specs/publication_surface.md §PS3.
+	 */
+	publish?: boolean;
+	/**
+	 * File-level trim for published entities. Gitignore-style globs, relative
+	 * to the entity root. Honored by installer (copy) and vendor.
+	 * Only valid on local entries. See docs/specs/publication_surface.md §PS6.
+	 */
+	exclude?: string[];
 	/** Internal: the source directory this dep came from (for same-origin resolution). Not serialized. */
 	_sourceDir?: string;
 }

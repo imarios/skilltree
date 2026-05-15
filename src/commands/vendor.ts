@@ -6,6 +6,7 @@ import {
 	getSkillAgentIgnoreEntries,
 	removeGitignoreEntries,
 } from "../core/gitignore.js";
+import type { ResolvedEntity } from "../core/graph.js";
 import { resolveAll } from "../core/graph.js";
 import { computeIntegrity, executeInstall, getTargetPath, planInstall } from "../core/installer.js";
 import {
@@ -72,9 +73,16 @@ export async function vendorCommand(dir: string, options: VendorOptions): Promis
 	const result = await resolveAll(manifest, dir);
 	throwOnResolutionErrors(result);
 
+	// Drop `publish: false` local entities — they're not ready to ship and
+	// shouldn't appear in vendored artifacts that consumers will see.
+	// dev-dependencies stay (vendor freezes the maintainer's full env).
+	// Spec: publication_surface.md §PS20.
+	const visibleEntities = filterUnpublishedLocals(result.entities);
+	const visibleOrder = result.installOrder.filter((k) => visibleEntities.has(k));
+
 	// Plan install: ALL deps (both groups), ALL as copy (no symlinks)
 	// Setting installPath forces copy mode for local deps in planInstall
-	const plan = await planInstall(result.entities, result.installOrder, installBase, {
+	const plan = await planInstall(visibleEntities, visibleOrder, installBase, {
 		installPath: installBase, // forces copy mode
 	});
 
@@ -226,6 +234,22 @@ async function checkModifiedVendoredFiles(lockfile: Lockfile, installBase: strin
 			`${modified.length} vendored file${modified.length > 1 ? "s" : ""} modified: ${modified.join(", ")}\nRun \`skilltree vendor\` to overwrite with fresh copies, or \`skilltree unvendor --force\` to discard changes.`,
 		);
 	}
+}
+
+/**
+ * Drop local entities flagged `publish: false`. Remote entities ride through
+ * untouched — publish is the maintainer's signal about THEIR repo, not
+ * authoritative for anyone else's. Spec: publication_surface.md §PS20.
+ */
+function filterUnpublishedLocals(
+	entities: Map<string, ResolvedEntity>,
+): Map<string, ResolvedEntity> {
+	const out = new Map<string, ResolvedEntity>();
+	for (const [key, entity] of entities) {
+		if (entity.local && entity.publish === false) continue;
+		out.set(key, entity);
+	}
+	return out;
 }
 
 async function deleteVendoredFiles(lockfile: Lockfile, installBase: string): Promise<void> {

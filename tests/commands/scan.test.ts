@@ -240,9 +240,13 @@ describe("scanCommand", () => {
 		// Mock the LLM module so we don't need ANTHROPIC_API_KEY in CI. The mock
 		// returns both an ignored name and a real undeclared dep — the test
 		// proves the ignore set filters LLM suggestions just like it does regex
-		// matches, keeping the two stages in agreement. We preserve the rest of
-		// the real exports (notably `parseEntityList`) so other test files that
-		// share the module graph aren't affected.
+		// matches, keeping the two stages in agreement.
+		//
+		// CAUTION: Bun's `mock.module(...)` is process-global — it leaks across
+		// test files. We restore the real module in `finally` so unrelated
+		// tests (e.g. `tests/core/llm.test.ts` asserting an env-var guard) see
+		// the un-mocked `llmScanContent`. Without the restore, the leak depends
+		// on Bun's parallel file-execution order and surfaces as a flake.
 		const realLlm = await import("../../src/core/llm.js");
 		mock.module("../../src/core/llm.js", () => ({
 			...realLlm,
@@ -252,42 +256,47 @@ describe("scanCommand", () => {
 			],
 		}));
 
-		const dir = await makeTempDir();
-		await createSkill(dir, "my-skill", [], "Authoring body — content irrelevant under mock.");
-		await writeFile(
-			join(dir, "skilltree.yml"),
-			[
-				"name: test-project",
-				"scan:",
-				"  ignore:",
-				"    - my-internal-command",
-				"dependencies: {}",
-				"",
-			].join("\n"),
-		);
-
-		const originalCwd = process.cwd();
-		process.chdir(dir);
-
-		const { logs, restore } = captureConsole();
 		try {
-			await scanCommand([join(dir, "my-skill")], { llm: true, json: true });
-		} finally {
-			restore();
-			process.chdir(originalCwd);
-		}
+			const dir = await makeTempDir();
+			await createSkill(dir, "my-skill", [], "Authoring body — content irrelevant under mock.");
+			await writeFile(
+				join(dir, "skilltree.yml"),
+				[
+					"name: test-project",
+					"scan:",
+					"  ignore:",
+					"    - my-internal-command",
+					"dependencies: {}",
+					"",
+				].join("\n"),
+			);
 
-		// JSON output captures the merged result; the ignored name must not
-		// leak into either llmSuggestions or confirmed, while real-dep does.
-		const jsonLine = logs.find((l) => l.trim().startsWith("["));
-		expect(jsonLine).toBeDefined();
-		const results = JSON.parse(jsonLine ?? "[]") as Array<{
-			llmSuggestions?: string[];
-			confirmed?: string[];
-		}>;
-		const merged = results.flatMap((r) => [...(r.llmSuggestions ?? []), ...(r.confirmed ?? [])]);
-		expect(merged).not.toContain("my-internal-command");
-		expect(merged).toContain("real-dep");
+			const originalCwd = process.cwd();
+			process.chdir(dir);
+
+			const { logs, restore } = captureConsole();
+			try {
+				await scanCommand([join(dir, "my-skill")], { llm: true, json: true });
+			} finally {
+				restore();
+				process.chdir(originalCwd);
+			}
+
+			// JSON output captures the merged result; the ignored name must not
+			// leak into either llmSuggestions or confirmed, while real-dep does.
+			const jsonLine = logs.find((l) => l.trim().startsWith("["));
+			expect(jsonLine).toBeDefined();
+			const results = JSON.parse(jsonLine ?? "[]") as Array<{
+				llmSuggestions?: string[];
+				confirmed?: string[];
+			}>;
+			const merged = results.flatMap((r) => [...(r.llmSuggestions ?? []), ...(r.confirmed ?? [])]);
+			expect(merged).not.toContain("my-internal-command");
+			expect(merged).toContain("real-dep");
+		} finally {
+			// Restore real module so subsequent test files aren't affected.
+			mock.module("../../src/core/llm.js", () => realLlm);
+		}
 	});
 
 	test("detects undeclared slash-command reference in a command file", async () => {

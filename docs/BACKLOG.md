@@ -14,6 +14,31 @@
 
 - [x] **Migration guide** — Documented in commands.md under `targets migrate`. → Fixed.
 
+## Carbon follow-ups (issue #63 / publication surface)
+
+- [ ] **Vendor + dev-dependencies — strict-spec interpretation.** Spec
+  PS20 says "vendor applies the visibility predicate." Strict reading
+  would also drop `dev-dependencies` from vendored output (the predicate
+  excludes them by definition). Phase 3 preserved today's behavior
+  (vendor copies both groups) and only filtered `publish: false`. Need
+  sir's call on whether to tighten. Probably needs a design pass first
+  to confirm vendor's audience (own-repo freeze vs distribution to
+  outside consumers).
+
+- [ ] **Consolidate `describeType(value)` helper.** The same
+  null/array/typeof pattern appears at `manifest.ts:70`, `parseSourceEntry:124`,
+  and the new `describeType` introduced in Carbon Phase 1. Reasonable
+  cleanup — extract to a shared internal helper in `core/types-utils.ts`
+  or similar.
+
+- [ ] **`!negation` patterns in `IgnoreMatcher`.** Phase 3 deliberately
+  skipped negation to keep the matcher minimal. Add if a real `exclude:`
+  or `.skilltreeignore` use case surfaces that needs to opt-back-in.
+
+- [ ] **Soft warning on `publish: false` in dev-dependencies.** Allowed
+  today (redundant — dev-deps are already hidden), but a `skilltree check`
+  hint might prevent confusion.
+
 ## Deferred from issue #23 (CLI flag consistency)
 
 The non-breaking subset of issue #23 shipped in PRs PM1–PM4. The items

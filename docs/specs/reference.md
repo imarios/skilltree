@@ -207,6 +207,7 @@ Name-only list. Resolution details (repo, version) come from the consumer's `ski
 - If origin's `local:` path is absolute (e.g., from a `source:` alias expanding to a filesystem path on origin's author's machine), the entry is skipped silently since consumers cannot use such paths.
 - If origin's `skilltree.yml` is missing, malformed, or doesn't declare the name, resolution falls through silently to the conventional probe.
 - If origin declared the name only under `dev-dependencies`, the error message includes a specific hint pointing at the upstream author.
+- If origin declared the name in `dependencies` but marked it `publish: false`, the entry is treated the same as a `dev-dependency` for downstream visibility: resolution falls through, and the actionable error names the reason as `publish: false` so the consumer (and the upstream maintainer) know the fix. See [publication_surface.md](publication_surface.md) §PS15–PS16.
 
 **Declaration order:** Manifest entries processed top to bottom, `dependencies` before `dev-dependencies`. First resolution of a name wins for same-name entities in different repos.
 

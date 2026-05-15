@@ -5,12 +5,14 @@ import YAML from "yaml";
 import { mdFileType } from "../core/entity-type.js";
 import { INDEX_LEGACY, INDEX_NEW, resolveIndexPath } from "../core/filenames.js";
 import { parseFrontmatter } from "../core/frontmatter.js";
-import { SKIP_MD_FILES } from "../core/registry-scanner.js";
+import { readManifest } from "../core/manifest.js";
+import { hiddenPathsFromManifest, SKIP_MD_FILES } from "../core/registry-scanner.js";
 import type { IndexEntry } from "../types.js";
 
 export async function indexCommand(opts: { check?: boolean }, dir?: string): Promise<void> {
 	const baseDir = dir ?? process.cwd();
-	const entries = await scanLocalDirectory(baseDir);
+	const hiddenPaths = await loadHiddenPaths(baseDir);
+	const entries = await scanLocalDirectory(baseDir, hiddenPaths);
 
 	const yamlContent = YAML.stringify({ entities: entries }, { lineWidth: 0 });
 
@@ -66,16 +68,42 @@ export async function indexCommand(opts: { check?: boolean }, dir?: string): Pro
 	}
 }
 
-async function scanLocalDirectory(baseDir: string): Promise<IndexEntry[]> {
+/**
+ * Build the set of entity paths the maintainer's manifest marks as not
+ * publicly visible — `publish: false` locals plus dev-dependency locals.
+ * Spec: publication_surface.md §PS14.
+ *
+ * Returned paths are normalized so a `relative(baseDir, fullPath)` walk
+ * result can match them by equality. Delegates to the shared helper in
+ * `registry-scanner` so the rule stays in one place.
+ */
+async function loadHiddenPaths(baseDir: string): Promise<Set<string>> {
+	try {
+		const manifest = await readManifest(baseDir);
+		return hiddenPathsFromManifest(manifest);
+	} catch {
+		return new Set<string>(); // No manifest is fine — nothing to hide.
+	}
+}
+
+async function scanLocalDirectory(
+	baseDir: string,
+	hiddenPaths: Set<string>,
+): Promise<IndexEntry[]> {
 	const entries: IndexEntry[] = [];
-	await walkDir(baseDir, baseDir, entries);
+	await walkDir(baseDir, baseDir, entries, hiddenPaths);
 	entries.sort((a, b) => a.name.localeCompare(b.name));
 	return entries;
 }
 
 const SKIP_DIRS = new Set(["node_modules", "dist", "build"]);
 
-async function walkDir(currentDir: string, baseDir: string, entries: IndexEntry[]): Promise<void> {
+async function walkDir(
+	currentDir: string,
+	baseDir: string,
+	entries: IndexEntry[],
+	hiddenPaths: Set<string>,
+): Promise<void> {
 	const items = await readdir(currentDir);
 
 	for (const item of items) {
@@ -85,10 +113,10 @@ async function walkDir(currentDir: string, baseDir: string, entries: IndexEntry[
 		const s = await stat(fullPath);
 
 		if (s.isDirectory()) {
-			if (await tryAddSkill(fullPath, baseDir, entries)) continue;
-			await walkDir(fullPath, baseDir, entries);
+			if (await tryAddSkill(fullPath, baseDir, entries, hiddenPaths)) continue;
+			await walkDir(fullPath, baseDir, entries, hiddenPaths);
 		} else if (s.isFile() && item.endsWith(".md") && item !== "SKILL.md") {
-			await tryAddAgent(fullPath, item, baseDir, entries);
+			await tryAddAgent(fullPath, item, baseDir, entries, hiddenPaths);
 		}
 	}
 }
@@ -97,14 +125,17 @@ async function tryAddSkill(
 	fullPath: string,
 	baseDir: string,
 	entries: IndexEntry[],
+	hiddenPaths: Set<string>,
 ): Promise<boolean> {
 	const skillMdPath = join(fullPath, "SKILL.md");
 	if (!existsSync(skillMdPath)) return false;
 
+	const relPath = relative(baseDir, fullPath);
+	if (hiddenPaths.has(relPath)) return true; // Skip but don't recurse into a hidden skill.
+
 	try {
 		const content = await readFile(skillMdPath, "utf-8");
 		const fm = parseFrontmatter(content);
-		const relPath = relative(baseDir, fullPath);
 		const name = fm?.name ?? basename(fullPath);
 		const entry: IndexEntry = { name, type: "skill", path: relPath };
 		if (fm?.description) entry.description = fm.description;
@@ -120,17 +151,20 @@ async function tryAddAgent(
 	item: string,
 	baseDir: string,
 	entries: IndexEntry[],
+	hiddenPaths: Set<string>,
 ): Promise<void> {
 	if (SKIP_MD_FILES.has(item)) return;
 	// Skip ALL-CAPS filenames (e.g., CONTRIBUTING.md)
 	const upperBase = basename(item);
 	if (upperBase === upperBase.toUpperCase() && upperBase !== upperBase.toLowerCase()) return;
 
+	const relPath = relative(baseDir, fullPath);
+	if (hiddenPaths.has(relPath)) return;
+
 	try {
 		const content = await readFile(fullPath, "utf-8");
 		const fm = parseFrontmatter(content);
 		if (!fm || (!fm.name && !fm.skills)) return;
-		const relPath = relative(baseDir, fullPath);
 		const name = fm.name ?? basename(item, ".md");
 		const entry: IndexEntry = { name, type: mdFileType(relPath), path: relPath };
 		if (fm.description) entry.description = fm.description;

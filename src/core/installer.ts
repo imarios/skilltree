@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import {
 	chmod,
 	cp,
@@ -11,12 +12,13 @@ import {
 	symlink,
 	writeFile,
 } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import simpleGit from "simple-git";
 import type { EntityType, Lockfile } from "../types.js";
 import { isSingleFileEntity } from "./entity-type.js";
 import { readFileAtRef } from "./git.js";
 import type { ResolvedEntity } from "./graph.js";
+import { IgnoreMatcher } from "./ignore.js";
 import { stripDotSlash } from "./paths.js";
 
 export interface InstallOptions {
@@ -196,6 +198,9 @@ export async function executeInstall(
 	await mkdir(join(installBase, "agents"), { recursive: true });
 	await mkdir(join(installBase, "commands"), { recursive: true });
 
+	// Repo-wide ignore patterns apply to every local entity copy. Read once.
+	const repoIgnore = await readRepoIgnore(projectDir);
+
 	for (const item of plan.toInstall) {
 		const { entity, action, targetPath } = item;
 
@@ -208,7 +213,13 @@ export async function executeInstall(
 			await symlink(sourcePath, targetPath);
 		} else if (action === "copy") {
 			if (entity.local) {
-				await copyEntityFiles(resolve(projectDir, entity.path), targetPath, entity.type);
+				const sourcePath = resolve(projectDir, entity.path);
+				const entityIgnore = new IgnoreMatcher(entity.exclude ?? []);
+				await copyEntityFiles(sourcePath, targetPath, entity.type, {
+					projectDir,
+					entityIgnore,
+					repoIgnore,
+				});
 			} else if (entity.cachePath) {
 				await copyFromGitCache(entity, targetPath);
 			}
@@ -218,6 +229,22 @@ export async function executeInstall(
 	}
 
 	return integrityMap;
+}
+
+/**
+ * Read `.skilltreeignore` at the repo root, if present. Returns an
+ * `IgnoreMatcher` with the file's patterns (and an empty one if absent).
+ * Spec: publication_surface.md §PS9–PS11.
+ */
+async function readRepoIgnore(projectDir: string): Promise<IgnoreMatcher> {
+	const path = join(projectDir, ".skilltreeignore");
+	if (!existsSync(path)) return new IgnoreMatcher([]);
+	try {
+		const content = await readFile(path, "utf-8");
+		return new IgnoreMatcher(content.split(/\r?\n/));
+	} catch {
+		return new IgnoreMatcher([]);
+	}
 }
 
 /**
@@ -248,26 +275,66 @@ async function prepareTarget(
 	return false;
 }
 
+interface CopyContext {
+	/** Repo root, used to compute repo-relative paths for .skilltreeignore. */
+	projectDir: string;
+	/** Per-entity exclude patterns (entity-relative). */
+	entityIgnore: IgnoreMatcher;
+	/** Repo-wide .skilltreeignore patterns (repo-relative). */
+	repoIgnore: IgnoreMatcher;
+}
+
 /**
- * Copy entity files from a local source, excluding .git directories.
+ * Copy entity files from a local source, excluding .git directories and
+ * any files matching the per-entity `exclude:` or repo-level `.skilltreeignore`
+ * patterns. Spec: publication_surface.md §PS17, PS21.
+ *
+ * For single-file entities (agents, commands) the file IS the entity; the
+ * ignore rules don't apply — there's nothing to filter inside a single file.
  */
 async function copyEntityFiles(
 	sourcePath: string,
 	targetPath: string,
 	entityType: EntityType,
+	ctx: CopyContext,
 ): Promise<void> {
 	if (isSingleFileEntity(entityType)) {
-		// Single file copy (agents and commands)
 		await mkdir(dirname(targetPath), { recursive: true });
 		await cp(sourcePath, targetPath);
-	} else {
-		// Directory copy, excluding .git
-		await mkdir(targetPath, { recursive: true });
-		await cp(sourcePath, targetPath, {
-			recursive: true,
-			filter: (src) => !src.includes("/.git"),
-		});
+		return;
 	}
+
+	await mkdir(targetPath, { recursive: true });
+	const skipMatchers = ctx.entityIgnore.isEmpty && ctx.repoIgnore.isEmpty;
+	await cp(sourcePath, targetPath, {
+		recursive: true,
+		filter: (src) => {
+			if (src.includes("/.git")) return false;
+			if (skipMatchers) return true;
+			return !shouldExclude(src, sourcePath, ctx);
+		},
+	});
+}
+
+/**
+ * Test an absolute source path against both ignore matchers. The entity
+ * matcher sees the path relative to the entity root; the repo matcher sees
+ * the path relative to the project root. Either match → exclude.
+ *
+ * Skipped when the path IS the entity root itself — the filter is called
+ * on the root once and excluding it would skip the whole copy.
+ */
+function shouldExclude(src: string, sourcePath: string, ctx: CopyContext): boolean {
+	if (src === sourcePath) return false;
+	const entityRel = relative(sourcePath, src);
+	if (entityRel && !entityRel.startsWith("..") && ctx.entityIgnore.ignores(entityRel)) {
+		return true;
+	}
+	const repoRel = relative(ctx.projectDir, src);
+	if (repoRel && !repoRel.startsWith("..") && ctx.repoIgnore.ignores(repoRel)) {
+		return true;
+	}
+	return false;
 }
 
 /**
