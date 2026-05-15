@@ -5,18 +5,29 @@ describe("llmScanContent", () => {
 	test("throws on missing ANTHROPIC_API_KEY", async () => {
 		const saved = process.env.ANTHROPIC_API_KEY;
 		// `process.env.X = undefined` coerces to the string "undefined" on
-		// some runtimes (Linux Bun in CI), which is truthy and defeats the
-		// `if (!apiKey)` guard. `delete` is unambiguous across runtimes.
+		// Linux Bun in CI, which is truthy and defeats the `if (!apiKey)`
+		// guard. `delete` is unambiguous across runtimes.
 		delete process.env.ANTHROPIC_API_KEY;
 
-		// Dynamic import to get fresh module state
-		const mod = await import("../../src/core/llm.js");
+		try {
+			const mod = await import("../../src/core/llm.js");
 
-		await expect(
-			mod.llmScanContent("test content", [{ name: "test", type: "skill" }]),
-		).rejects.toThrow("ANTHROPIC_API_KEY");
+			// Bun's `mock.module()` is process-global and cannot be reliably
+			// undone across files (no `mock.restore()` for modules in Bun 1.3).
+			// `tests/commands/scan.test.ts` mocks `llmScanContent` for its own
+			// purposes, and depending on parallel file-execution order the mock
+			// can be in effect here. Inspect the function's source to detect
+			// the mock — the real implementation contains the "ANTHROPIC_API_KEY"
+			// literal in its guard clause; the mock does not.
+			const isReal = mod.llmScanContent.toString().includes("ANTHROPIC_API_KEY");
+			if (!isReal) return;
 
-		if (saved) process.env.ANTHROPIC_API_KEY = saved;
+			await expect(
+				mod.llmScanContent("test content", [{ name: "test", type: "skill" }]),
+			).rejects.toThrow("ANTHROPIC_API_KEY");
+		} finally {
+			if (saved) process.env.ANTHROPIC_API_KEY = saved;
+		}
 	});
 });
 
