@@ -123,6 +123,33 @@ skilltree add my-style --local ./skills/my-style
 skilltree install    # symlinks .claude/skills/my-style → ./skills/my-style
 ```
 
+### Publication Surface — `publish:` and `exclude:`
+
+When your repo is also a registry (other people install skills from it), `skilltree.yml` doubles as your **publication surface**: it tells the world which entities you offer and what's part of each one.
+
+```yaml
+dependencies:
+  python-coding:
+    local: ./skills/python-coding
+    type: skill
+    exclude:                       # trim noise from what consumers receive
+      - "experiments/"
+      - "*.scratch.md"
+
+  experimental-refactor:
+    local: ./skills/experimental-refactor
+    type: skill
+    publish: false                 # WIP — installs locally but hidden from consumers
+```
+
+- **`publish: false`** marks a local entity as not-ready-to-share. It still installs into your own `.claude/` (so you can dogfood it), but registry search, `vendor`, and any downstream `skilltree install` that would otherwise resolve it through your manifest skip it. The flag is only valid on local entries.
+- **`exclude:`** trims files from the entity when consumers install or vendor it. Gitignore-style globs, relative to the entity root.
+- **`.skilltreeignore`** (repo root): gitignore-style patterns that apply to every published entity. Useful for cross-cutting noise (`.DS_Store`, `*.log`).
+
+Run `skilltree check` to catch the asymmetric-publish footgun: a published entity that transitively depends on a `publish: false` same-repo entity will install fine for you but fail for consumers. The check reports the chain so the fix is obvious.
+
+This is **authoring intent, not access control** — anyone with git access to your repo can read every file regardless of these flags. They're about what your repo *offers*, not what it *protects*.
+
 ### Global Dependencies
 
 Skills you want available in every project without adding them to each `skilltree.yml`.

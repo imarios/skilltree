@@ -4,6 +4,7 @@ import pkg from "../package.json";
 import { completeCommand } from "./commands/_complete.js";
 import { addCommand } from "./commands/add.js";
 import { cacheCleanCommand } from "./commands/cache.js";
+import { checkCommand } from "./commands/check.js";
 import { completionCommand } from "./commands/completion.js";
 import { depsTreeCommand } from "./commands/deps.js";
 import { indexCommand } from "./commands/index-cmd.js";
@@ -143,6 +144,14 @@ export function buildProgram(): Command {
 		.option("-g, --global", "Verify global dependencies")
 		.action(async (opts) => {
 			await verifyCommand(process.cwd(), { global: opts.global, json: opts.json });
+		});
+
+	program
+		.command("check")
+		.description("Lint the project's skilltree.yml for design-time issues")
+		.option("--strict", "Exit 1 if any warnings are found")
+		.action(async (opts) => {
+			await checkCommand(process.cwd(), { strict: opts.strict });
 		});
 
 	program

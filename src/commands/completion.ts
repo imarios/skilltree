@@ -121,6 +121,11 @@ const COMMANDS: CmdDef[] = [
 		flags: [{ long: "--global", short: "-g", description: "Verify global dependencies" }],
 	},
 	{
+		name: "check",
+		description: "Lint the project's skilltree.yml for design-time issues",
+		flags: [{ long: "--strict", description: "Exit 1 if any warnings are found" }],
+	},
+	{
 		name: "list",
 		description: "List installed dependencies",
 		flags: [

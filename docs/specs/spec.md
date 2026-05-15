@@ -187,6 +187,21 @@ my-style:
 
 Local deps are **symlinked** during `skilltree install` (edits reflected instantly, no reinstall loop). During `--prod --install-path`, local deps are **copied** (Docker can't follow host symlinks). This follows Cargo's `path` + `version` pattern.
 
+**Publication-surface flags** (local entries only — see [publication_surface.md](publication_surface.md)):
+
+```yaml
+experimental:
+  local: ./skills/experimental
+  publish: false                  # WIP — installs locally, hidden from consumers
+analysis-pipeline:
+  local: ./skills/analysis-pipeline
+  exclude:                        # trim files from consumer-facing copies
+    - "experiments/"
+    - "*.scratch.md"
+```
+
+The single **visibility predicate** governs every consumer-facing path (registry indexing, vendor, origin-manifest lookup): an entity is publicly visible iff it is in `dependencies` (not `dev-dependencies`) AND `publish !== false`. Both `publish` and `exclude` are only valid on `local:` entries.
+
 ### Dependency Groups and Install Paths
 
 Skills serve two purposes: helping developers write code (dev) and powering the product's AI features at runtime (source). Most users only need the first -- they add skills and everything installs to `.claude/`. The second purpose activates when you set `src_install_path`.

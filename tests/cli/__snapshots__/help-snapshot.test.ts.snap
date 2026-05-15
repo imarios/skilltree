@@ -20,6 +20,8 @@ Commands:
   update [options] [name]       Update dependencies to latest versions
   remove [options] <name>       Remove a dependency
   verify [options]              Verify installed dependencies against lockfile
+  check [options]               Lint the project's skilltree.yml for design-time
+                                issues
   list [options]                List installed dependencies
   scan [options] <paths...>     Scan skills, agents, and commands for undeclared
                                 dependencies
@@ -132,6 +134,17 @@ Options:
   --json        Output results as JSON
   -g, --global  Verify global dependencies
   -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`check --help\` is stable 1`] = `
+"Usage: skilltree check [options]
+
+Lint the project's skilltree.yml for design-time issues
+
+Options:
+  --strict    Exit 1 if any warnings are found
+  -h, --help  display help for command
 "
 `;
 

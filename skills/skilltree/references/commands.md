@@ -122,6 +122,20 @@ skilltree verify --global
 
 Reports: `OK` (matches), `MODIFIED` (changed), `LINKED` (symlink), `MISSING`, `STALE` (vendored local dep with newer source), `BROKEN` (dead symlink).
 
+## `skilltree check`
+
+Design-time lint of `skilltree.yml`. Currently catches **asymmetric publish state** — a publicly-visible local entity that depends (directly or transitively) on a same-repo `publish: false` entity. Your own install succeeds; downstream consumers fail at install time on the transitive `publish: false`.
+
+```bash
+skilltree check
+skilltree check --strict
+```
+
+**Flags:**
+- `--strict` — Exit 1 if any warnings are found
+
+Each warning shows the chain (`A → B → C (publish: false)`) so the fix is obvious: either remove `publish: false` on the leaf or break the dependency chain.
+
 ## `skilltree list`
 
 Show installed dependencies in a table.

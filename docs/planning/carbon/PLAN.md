@@ -84,18 +84,21 @@ Extend origin-manifest lookup so a downstream chain hitting a `publish:false` en
 - [x] Updated `docs/specs/reference.md` origin-manifest section. (PS31)
 - [x] `bun test` green: 1187/1187. tsc + biome clean.
 
-## Phase 5: `check` lint — asymmetric publish state
+## Phase 5: `check` lint — asymmetric publish state ✅ COMPLETE
 <!-- Spec: publication_surface.md PS23–PS26 -->
 
 Catch the footgun: a published entity transitively depends on a same-repo `publish:false` entity. The maintainer's local install succeeds, but downstream consumers fail at install time.
 
 ### Tasks
-- [ ] `src/commands/check.ts` (extend or create): for each `publish !== false` local entity, walk its dependency graph using existing resolver primitives. Restrict the walk to same-repo `local:` deps. Flag any reachable `publish:false` entity with the full chain. (PS23, PS25)
-- [ ] Error formatting: render the chain (`analysis-pipeline → data-loader → experimental-refactor (publish: false)`) so the fix is obvious. (PS24)
-- [ ] Wire as a warning into `check`'s existing pass; non-zero exit only in strict mode (consistent with other warnings). (PS26)
-- [ ] Tests (`tests/commands/check-asymmetric-publish.test.ts`): direct dep case; transitive (2-hop, 3-hop) case; no warning when chain is consistent; no warning when chain crosses into a different repo.
-- [ ] Update `README.md` with publication-surface section (concept + `publish: false` / `exclude:` mechanics). (PS32)
-- [ ] Update `docs/specs/spec.md` with `publish:` field reference + visibility predicate. (PS30)
+- [x] `src/commands/check.ts`: NEW `checkCommand` + `lintAsymmetricPublish` BFS. Per spec PS23/PS25 walks only same-repo local entities.
+- [x] Error formatting: indented chain (`a (published) → b (published) → c (publish: false)`) with leak marker. (PS24)
+- [x] `--strict` flag exits 1 if any warnings. (PS26)
+- [x] CLI registration + completion table + commands.md updated.
+- [x] Tests (`tests/commands/check-publish.test.ts`): 10 cases — direct, transitive (2-hop, 3-hop), multi-chain, clean, all-false, remote-edges, dev-group, render-format, cycle-safety.
+- [x] Updated `README.md` "Publication Surface" subsection. (PS32)
+- [x] Updated `docs/specs/spec.md` "Dependencies: Remote vs Local" with publication-surface flags. (PS30)
+- [x] Help snapshot, completion freshness, and skill-freshness tests regenerated/updated.
+- [x] `bun test` green: 1198/1198. tsc + biome clean.
 
 ## Project-level deliverables (across all phases)
 
@@ -110,4 +113,4 @@ Phase 1: ✅ COMPLETE
 Phase 2: ✅ COMPLETE
 Phase 3: ✅ COMPLETE
 Phase 4: ✅ COMPLETE
-Phase 5: PENDING
+Phase 5: ✅ COMPLETE
