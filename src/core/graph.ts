@@ -39,6 +39,20 @@ export interface ResolvedEntity {
 	cachePath?: string;
 	/** The source directory this entity came from (for same-origin resolution of local sources). */
 	sourceDir?: string;
+	/**
+	 * Publication-surface flag from the local manifest entry. Only meaningful
+	 * for local entities. `false` → not exposed to consumers via indexing or
+	 * vendor; still installed locally for the maintainer. See
+	 * docs/specs/publication_surface.md §PS3, PS18, PS20.
+	 */
+	publish?: boolean;
+	/**
+	 * File-level trim patterns from the local manifest entry. Gitignore-style
+	 * globs, relative to the entity root. Honored by the installer's copy
+	 * path. Only meaningful for local entities; ignored for single-file types.
+	 * See docs/specs/publication_surface.md §PS6, PS17, PS21.
+	 */
+	exclude?: string[];
 }
 
 export interface ResolutionResult {
@@ -279,7 +293,14 @@ async function readRemoteFrontmatter(
 async function resolveLocalEntity(
 	yamlKey: string,
 	entityName: string,
-	dep: { local: string; type?: EntityType; name?: string; _sourceDir?: string },
+	dep: {
+		local: string;
+		type?: EntityType;
+		name?: string;
+		_sourceDir?: string;
+		publish?: boolean;
+		exclude?: string[];
+	},
 	group: DependencyGroup,
 	state: ResolutionState,
 ): Promise<void> {
@@ -304,6 +325,8 @@ async function resolveLocalEntity(
 		dependencies: frontmatterDeps,
 		sourceDir: dep._sourceDir ? expandTilde(dep._sourceDir) : undefined,
 	};
+	if (dep.publish !== undefined) entity.publish = dep.publish;
+	if (dep.exclude !== undefined) entity.exclude = dep.exclude;
 
 	registerEntity(entity, state);
 

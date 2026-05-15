@@ -55,20 +55,21 @@ Wire the visibility predicate into registry indexing and add the `skilltree.yml`
 - [x] Updated `docs/specs/registries.md` with the fallback-chain section. (PS29)
 - [x] `bun test` green: 1147/1147. tsc + biome clean.
 
-## Phase 3: Installer + vendor — exclude and .skilltreeignore
+## Phase 3: Installer + vendor — exclude and .skilltreeignore ✅ COMPLETE
 <!-- Spec: publication_surface.md PS6–PS11, PS17, PS20–PS22 -->
 
 File-level trim. Introduces a glob-based ignore engine and wires it into both installer and vendor copy paths.
 
 ### Tasks
-- [ ] New file `src/core/ignore.ts`: thin wrapper around a gitignore-style matcher. Accepts a list of patterns + a base path; returns a `shouldExclude(file: string): boolean` function. Composable across the two scopes. (PS9, PS11)
-- [ ] `src/core/manifest.ts` (or new helper): load `.skilltreeignore` from repo root if present; expose to installer/vendor.
-- [ ] `src/core/installer.ts`: when copying a local entity, build the combined matcher (entity-relative `exclude:` + repo-relative `.skilltreeignore`) and skip excluded files. (PS17)
-- [ ] `src/commands/vendor.ts`: apply visibility predicate to entity selection (skip `publish:false`); apply combined matcher when copying. (PS20, PS21)
-- [ ] Tests (`tests/core/ignore.test.ts`): parametrized — leading slash, trailing slash, double-star, negation, layering precedence. Gitignore semantics.
-- [ ] Tests (`tests/core/installer-exclude.test.ts`): copy with `exclude:` only; copy with `.skilltreeignore` only; copy with both layered.
-- [ ] Tests (`tests/commands/vendor-publish-exclude.test.ts`): `publish:false` skipped; `exclude:` honored; `.skilltreeignore` honored.
-- [ ] Vendor inconsistency audit (open question from spec): does `vendor` today include `dev-dependencies` local entries? Document finding; fix if it does (extension of PS20).
+- [x] New file `src/core/ignore.ts`: `IgnoreMatcher` class, gitignore-subset semantics (literal, `*`, `**`, `**/`, `?`, root anchor, trailing-slash dir). (PS9, PS11)
+- [x] `src/core/installer.ts`: reads `.skilltreeignore` once per `executeInstall`. `copyEntityFiles` honors entity-relative `exclude:` + repo-relative `.skilltreeignore`. (PS17)
+- [x] `src/core/graph.ts`: `ResolvedEntity` gains `publish` and `exclude`, threaded from `LocalDependency`.
+- [x] `src/commands/vendor.ts`: filters `publish:false` local entities via `filterUnpublishedLocals` before planning. Exclude/ignore-file honored via the installer path. (PS20, PS21)
+- [x] Tests (`tests/core/ignore.test.ts`): 28 cases — parametrized table over pattern × path.
+- [x] Tests (`tests/core/installer-exclude.test.ts`): 5 cases — exclude, .skilltreeignore, layered, no-matchers.
+- [x] Tests (`tests/commands/vendor-publish.test.ts`): 3 cases — publish:false skipped, dev-deps preserved, exclude honored.
+- [x] Vendor audit: today's vendor copies BOTH groups; Phase 3 preserves that and only filters `publish:false`. Strict spec PS20 reading ("applies the visibility predicate") is noted as an open question.
+- [x] `bun test` green: 1183/1183. tsc + biome clean.
 
 ## Phase 4: Graph extension — downstream visibility error
 <!-- Spec: publication_surface.md PS15–PS16 -->
@@ -105,6 +106,6 @@ Catch the footgun: a published entity transitively depends on a same-repo `publi
 
 Phase 1: ✅ COMPLETE
 Phase 2: ✅ COMPLETE
-Phase 3: PENDING
+Phase 3: ✅ COMPLETE
 Phase 4: PENDING
 Phase 5: PENDING
