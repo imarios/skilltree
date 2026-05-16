@@ -287,6 +287,8 @@ skilltree registry index --check   # Exit 1 if stale (CI mode)
 **Flags:**
 - `--check` — Exit 0 if up to date, exit 1 if stale
 
+**What `--check` validates:** every entity the scanner finds must be present in the index with matching `name`, `type`, and `description`; every other entry in the index must point to a real on-disk entity (a `SKILL.md` for skills, or a markdown file with `name:`/`skills:` frontmatter for agents and commands). Hand-authored entries for skills/agents at scanner-unreachable paths (nested under a parent `SKILL.md`, monorepo packages, etc.) and curated `tags:` are preserved — they do not trip `--check` as long as the path resolves. Phantom entries (paths that don't exist) still fail.
+
 **Publishing workflow:** run `skilltree registry index` and commit `skilltree-index.yml`. Wire `--check` into CI so the index never drifts from the actual skill set. Legacy `skillkit-index.yaml` files are migrated automatically — the new file replaces the old one and a deprecation warning is emitted on read until you regenerate.
 
 ## `skilltree vendor`

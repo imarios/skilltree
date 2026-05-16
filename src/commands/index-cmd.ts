@@ -33,13 +33,33 @@ export async function indexCommand(opts: { check?: boolean }, dir?: string): Pro
 			);
 			process.exit(1);
 		}
+		// Issue #62: --check used to compare scanner output against the file
+		// as raw YAML text. That treated hand-authored entries for skills at
+		// non-standard paths (scanner-unreachable depths, nested under a
+		// parent SKILL.md, etc.) as "stale" — which made the index file
+		// unusable for the very purpose docs/specs/registries.md advertises:
+		// "a hand-curated public catalog... useful for non-standard layouts."
+		//
+		// New semantics: validate the index file is *consistent with reality*,
+		// not byte-identical to a scanner dump.
+		//   1. Every scanner-discoverable entity must be present in the index
+		//      with the same name/type/description.
+		//   2. Every "extra" entry in the index (a path the scanner did not
+		//      visit) must point to a real on-disk entity. Phantom entries
+		//      still fail --check; hand-authored entries for real
+		//      non-standard skills/agents do not.
+		// `tags` are scanner-invisible by design and are always preserved.
 		const existing = await readFile(indexPath, "utf-8");
-		if (existing.trim() === yamlContent.trim()) {
+		const staleReasons = await diagnoseIndex(baseDir, existing, entries);
+		if (staleReasons.length === 0) {
 			console.log(`${INDEX_NEW} is up to date`);
 		} else {
 			console.log(
 				`${INDEX_NEW} is stale (${entries.length} entities found). Run 'skilltree registry index' to update.`,
 			);
+			for (const reason of staleReasons) {
+				console.log(`  - ${reason}`);
+			}
 			process.exit(1);
 		}
 		return;
@@ -144,6 +164,133 @@ async function tryAddSkill(
 		// Skip unreadable
 	}
 	return true; // Don't recurse into skill directories
+}
+
+/**
+ * Compute the list of reasons (if any) that the existing index file is out
+ * of sync with on-disk reality. Empty array = index is fine.
+ *
+ * Two failure modes (issue #62):
+ *   1. Scanner discovers an entity the index is missing or has wrong data for.
+ *   2. Index contains an entry whose path doesn't resolve to a real entity.
+ *
+ * Hand-authored entries at scanner-unreachable paths are valid and do not
+ * trigger either failure mode, as long as a SKILL.md (skill) or markdown
+ * file with frontmatter (agent/command) exists at the declared path.
+ */
+async function diagnoseIndex(
+	baseDir: string,
+	existingYaml: string,
+	scannerEntries: IndexEntry[],
+): Promise<string[]> {
+	const reasons: string[] = [];
+
+	let parsed: unknown;
+	try {
+		parsed = YAML.parse(existingYaml);
+	} catch (err) {
+		reasons.push(`existing index is not valid YAML: ${(err as Error).message}`);
+		return reasons;
+	}
+	const fileEntries = extractEntities(parsed);
+	if (fileEntries === null) {
+		reasons.push("existing index is missing an `entities` list");
+		return reasons;
+	}
+
+	const fileByPath = new Map<string, IndexEntry>();
+	for (const e of fileEntries) {
+		fileByPath.set(e.path, e);
+	}
+
+	// 1. Scanner-discoverable entities must each be represented in the file.
+	for (const scanned of scannerEntries) {
+		const found = fileByPath.get(scanned.path);
+		if (!found) {
+			reasons.push(`missing entry for ${scanned.path}`);
+			continue;
+		}
+		const mismatch = compareScannerFields(scanned, found);
+		if (mismatch) {
+			reasons.push(`entry for ${scanned.path}: ${mismatch}`);
+		}
+	}
+
+	// 2. Extras (entries the scanner didn't produce) must point to real
+	//    entities on disk. This catches typos and stale paths without
+	//    rejecting legitimate hand-authored entries.
+	const scannerPaths = new Set(scannerEntries.map((e) => e.path));
+	for (const fileEntry of fileEntries) {
+		if (scannerPaths.has(fileEntry.path)) continue;
+		const validity = await validateExtraEntry(baseDir, fileEntry);
+		if (validity !== null) {
+			reasons.push(`entry for ${fileEntry.path}: ${validity}`);
+		}
+	}
+
+	return reasons;
+}
+
+/** Defensive `entities:` extraction from arbitrary YAML input. */
+function extractEntities(parsed: unknown): IndexEntry[] | null {
+	if (parsed === null || typeof parsed !== "object") return null;
+	const entities = (parsed as { entities?: unknown }).entities;
+	if (!Array.isArray(entities)) return null;
+	const out: IndexEntry[] = [];
+	for (const raw of entities) {
+		if (raw === null || typeof raw !== "object") continue;
+		const e = raw as Record<string, unknown>;
+		if (typeof e.name !== "string" || typeof e.path !== "string") continue;
+		if (e.type !== "skill" && e.type !== "agent" && e.type !== "command") continue;
+		const entry: IndexEntry = { name: e.name, type: e.type, path: e.path };
+		if (typeof e.description === "string") entry.description = e.description;
+		if (Array.isArray(e.tags)) {
+			entry.tags = e.tags.filter((t): t is string => typeof t === "string");
+		}
+		out.push(entry);
+	}
+	return out;
+}
+
+/**
+ * Return a human-readable mismatch reason, or null if `file` matches what the
+ * scanner produced. `tags` are intentionally ignored — the scanner never
+ * emits tags, so hand-curated tags on otherwise-matching entries are kept.
+ */
+function compareScannerFields(scanner: IndexEntry, file: IndexEntry): string | null {
+	if (file.name !== scanner.name) {
+		return `name mismatch (have "${file.name}", expected "${scanner.name}")`;
+	}
+	if (file.type !== scanner.type) {
+		return `type mismatch (have "${file.type}", expected "${scanner.type}")`;
+	}
+	if ((file.description ?? "") !== (scanner.description ?? "")) {
+		return "description is out of date";
+	}
+	return null;
+}
+
+/**
+ * Verify that an index entry whose path the scanner did not visit still
+ * corresponds to a real entity on disk. Returns null when valid, or a
+ * one-line reason otherwise.
+ */
+async function validateExtraEntry(baseDir: string, entry: IndexEntry): Promise<string | null> {
+	const fullPath = join(baseDir, entry.path);
+	if (entry.type === "skill") {
+		return existsSync(join(fullPath, "SKILL.md")) ? null : "path does not contain a SKILL.md";
+	}
+	if (!existsSync(fullPath)) return "path does not exist";
+	try {
+		const content = await readFile(fullPath, "utf-8");
+		const fm = parseFrontmatter(content);
+		if (!fm || (!fm.name && !fm.skills)) {
+			return "file has no usable frontmatter (`name` or `skills`)";
+		}
+		return null;
+	} catch (err) {
+		return `path is unreadable: ${(err as Error).message}`;
+	}
 }
 
 async function tryAddAgent(

@@ -277,4 +277,172 @@ describe("indexCommand", () => {
 			/Both skilltree-index\.yml and skillkit-index\.yaml/,
 		);
 	});
+
+	// --- Issue #62: --check must respect hand-authored entries for skills at
+	// non-standard paths (the scanner only walks the standard layout). ---
+
+	test("--check passes when index contains a hand-authored entry for a skill at a non-standard path", async () => {
+		const dir = await makeTempDir();
+
+		// Standard-layout skill — scanner-discoverable
+		await mkdir(join(dir, "crawl4ai"), { recursive: true });
+		await writeFile(join(dir, "crawl4ai", "SKILL.md"), "---\nname: crawl4ai\n---\n");
+
+		// Outer "esql-details" is itself a skill — scanner-discoverable. Since
+		// the scanner stops at the first SKILL.md and does not recurse into
+		// skill directories, the nested skill below is unreachable to it.
+		await mkdir(join(dir, "esql-details", "esql-details-inner"), { recursive: true });
+		await writeFile(join(dir, "esql-details", "SKILL.md"), "---\nname: esql-details\n---\n");
+		await writeFile(
+			join(dir, "esql-details", "esql-details-inner", "SKILL.md"),
+			"---\nname: esql-details-inner\n---\n",
+		);
+
+		// Hand-authored index that includes all three — the third one is the
+		// manual addition for the non-standard, scanner-unreachable path.
+		await writeFile(
+			join(dir, "skilltree-index.yml"),
+			YAML.stringify({
+				entities: [
+					{ name: "crawl4ai", type: "skill", path: "crawl4ai" },
+					{ name: "esql-details", type: "skill", path: "esql-details" },
+					{
+						name: "esql-details-inner",
+						type: "skill",
+						path: "esql-details/esql-details-inner",
+					},
+				],
+			}),
+		);
+
+		const exitCode = await runExpectingExit(() => indexCommand({ check: true }, dir));
+		expect(exitCode).toBeUndefined();
+	});
+
+	test("--check passes when index contains a hand-authored entry for an agent at a non-standard path", async () => {
+		const dir = await makeTempDir();
+
+		// Nested agent that the scanner won't reach because it lives inside a
+		// directory that the scanner doesn't conventionally walk into.
+		await mkdir(join(dir, "custom", "nested"), { recursive: true });
+		await writeFile(
+			join(dir, "custom", "nested", "deep-agent.md"),
+			"---\nname: deep-agent\nskills: foo\n---\n",
+		);
+
+		// Tell the scanner not to recurse into `custom/` by placing a SKILL.md
+		// at `custom/` (skills are not recursed into), so the agent stays
+		// scanner-invisible while still existing on disk.
+		await writeFile(join(dir, "custom", "SKILL.md"), "---\nname: custom-skill\n---\n");
+
+		await writeFile(
+			join(dir, "skilltree-index.yml"),
+			YAML.stringify({
+				entities: [
+					{ name: "custom-skill", type: "skill", path: "custom" },
+					{
+						name: "deep-agent",
+						type: "agent",
+						path: "custom/nested/deep-agent.md",
+					},
+				],
+			}),
+		);
+
+		const exitCode = await runExpectingExit(() => indexCommand({ check: true }, dir));
+		expect(exitCode).toBeUndefined();
+	});
+
+	test("--check fails when a hand-authored entry points to a non-existent path", async () => {
+		const dir = await makeTempDir();
+		await mkdir(join(dir, "real-skill"), { recursive: true });
+		await writeFile(join(dir, "real-skill", "SKILL.md"), "---\nname: real-skill\n---\n");
+
+		await writeFile(
+			join(dir, "skilltree-index.yml"),
+			YAML.stringify({
+				entities: [
+					{ name: "real-skill", type: "skill", path: "real-skill" },
+					{ name: "phantom", type: "skill", path: "does/not/exist" },
+				],
+			}),
+		);
+
+		const exitCode = await runExpectingExit(() => indexCommand({ check: true }, dir));
+		expect(exitCode).toBe(1);
+	});
+
+	test("--check fails when a scanner-discoverable entity is missing from the index", async () => {
+		const dir = await makeTempDir();
+		await mkdir(join(dir, "alpha"), { recursive: true });
+		await writeFile(join(dir, "alpha", "SKILL.md"), "---\nname: alpha\n---\n");
+		await mkdir(join(dir, "beta"), { recursive: true });
+		await writeFile(join(dir, "beta", "SKILL.md"), "---\nname: beta\n---\n");
+
+		// Index lists only one of the two — `beta` is missing.
+		await writeFile(
+			join(dir, "skilltree-index.yml"),
+			YAML.stringify({
+				entities: [{ name: "alpha", type: "skill", path: "alpha" }],
+			}),
+		);
+
+		const exitCode = await runExpectingExit(() => indexCommand({ check: true }, dir));
+		expect(exitCode).toBe(1);
+	});
+
+	test("--check preserves hand-authored tags on scanner-discoverable entries", async () => {
+		const dir = await makeTempDir();
+		await mkdir(join(dir, "my-skill"), { recursive: true });
+		await writeFile(
+			join(dir, "my-skill", "SKILL.md"),
+			"---\nname: my-skill\ndescription: A test\n---\n",
+		);
+
+		// Scanner never produces `tags`. Hand-curated tags on an otherwise
+		// scanner-equivalent entry must NOT trip --check.
+		await writeFile(
+			join(dir, "skilltree-index.yml"),
+			YAML.stringify({
+				entities: [
+					{
+						name: "my-skill",
+						type: "skill",
+						path: "my-skill",
+						description: "A test",
+						tags: ["custom", "curated"],
+					},
+				],
+			}),
+		);
+
+		const exitCode = await runExpectingExit(() => indexCommand({ check: true }, dir));
+		expect(exitCode).toBeUndefined();
+	});
+
+	test("--check fails when a scanner-discoverable entry has a wrong description", async () => {
+		const dir = await makeTempDir();
+		await mkdir(join(dir, "my-skill"), { recursive: true });
+		await writeFile(
+			join(dir, "my-skill", "SKILL.md"),
+			"---\nname: my-skill\ndescription: Real description\n---\n",
+		);
+
+		await writeFile(
+			join(dir, "skilltree-index.yml"),
+			YAML.stringify({
+				entities: [
+					{
+						name: "my-skill",
+						type: "skill",
+						path: "my-skill",
+						description: "Outdated description",
+					},
+				],
+			}),
+		);
+
+		const exitCode = await runExpectingExit(() => indexCommand({ check: true }, dir));
+		expect(exitCode).toBe(1);
+	});
 });
