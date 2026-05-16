@@ -84,7 +84,7 @@ entities:
 
 If a repo does not have this file, skilltree falls back to **the manifest tier** (see below), then to **dynamic scanning** — walking `git ls-tree -r HEAD` for `SKILL.md` files and `.md` agent files, reading their frontmatter. The tiered approach keeps zero-config repos working while letting maintainers express layout once.
 
-**Who generates the index?** The repo maintainer, ideally via CI (e.g., a GitHub Action that runs `skilltree registry index` on push and commits the result). Hand-maintaining it is discouraged — it drifts. See the `skilltree registry index` command below.
+**Who generates the index?** The repo maintainer, ideally via CI (e.g., a GitHub Action that runs `skilltree registry index` on push and commits the result). Hand-maintaining the *scanner-discoverable* portion is discouraged — it drifts. **Hand-authored entries for non-standard paths** (skills nested below a parent `SKILL.md`, monorepo packages, agents under directories the scanner doesn't recurse into) and curated `tags:` are explicitly supported: `--check` (issue #62) validates them by checking the path resolves to a real entity on disk, not by demanding byte-for-byte equality with scanner output. See the `skilltree registry index` command below.
 
 **Legacy name:** earlier versions wrote the index as `skillkit-index.yaml`. Repos with that legacy file still work — `skilltree registry index` emits a deprecation warning and reads it. Running `skilltree registry index` regenerates the index as `skilltree-index.yml` and removes the legacy file.
 
@@ -380,11 +380,13 @@ $ skilltree registry index --check
   Exit 1
 ```
 
+`--check` is not a strict byte-comparison against scanner output. It enforces two invariants: (1) every scanner-discoverable entity is present in the index with matching `name`/`type`/`description`, and (2) every other entry in the index resolves to a real on-disk entity (issue #62). Hand-authored entries for non-standard paths and curated `tags:` therefore pass `--check` without modification.
+
 **CI integration:**
 ```yaml
 # .github/workflows/index.yml
 - run: skilltree registry index --check
-  # Fails if index is stale — author must regenerate
+  # Fails if the index drifts from on-disk reality — author must regenerate
 ```
 
 ## What This Does NOT Change
@@ -445,8 +447,8 @@ Different lifecycles (TTL vs on-demand), different purposes (search vs resolutio
 ### 4. Dynamic scanning as fallback
 Any git repo with skills works as a registry without adding `skilltree-index.yml`. The index is a performance optimization, not a requirement. Rationale: zero barrier to entry. A team can `skilltree registry add` their existing skill repo and start searching immediately.
 
-### 5. `skilltree-index.yml` is a CI artifact
-Generating the index is an authoring concern, checked with `skilltree index --check` in CI. Not hand-maintained. Rationale: hand-maintained indexes drift from reality, producing wrong search results (worse than slow results).
+### 5. `skilltree-index.yml` is a CI artifact (with curated extras allowed)
+Generating the bulk of the index is an authoring concern, checked with `skilltree registry index --check` in CI. The scanner-discoverable portion should not be hand-edited — it drifts. Rationale: hand-maintained indexes drift from reality, producing wrong search results. **Exception (issue #62):** entries for non-standard paths the scanner can't reach, and `tags:`, are deliberately hand-authored. `--check` validates these against on-disk reality (does the path exist? does it have a `SKILL.md` or frontmatter?) rather than rejecting them.
 
 ### 6. No auto-fetch on search
 `skilltree search` uses cached data even if stale, with a warning. Rationale: search should be fast and predictable. `registry update` is the explicit fetch. Users shouldn't be surprised by network calls during search.
