@@ -3,7 +3,6 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import simpleGit from "simple-git";
-import { _resetDeprecationWarningsForTests } from "../../src/core/filenames.js";
 import { dynamicScanRepo, parseIndex, scanRegistry } from "../../src/core/registry-scanner.js";
 
 let tempDir: string;
@@ -274,65 +273,6 @@ describe("scanRegistry", () => {
 		expect(entries[0]?.name).toBe("indexed-skill");
 		// Should have tags from index file (dynamic scan wouldn't have tags)
 		expect(entries[0]?.tags).toEqual(["indexed"]);
-	});
-
-	test("falls back to legacy skillkit-index.yaml with a deprecation warning", async () => {
-		_resetDeprecationWarningsForTests();
-		const dir = await setup();
-		const bareDir = await createBareFixture(dir, {
-			"skillkit-index.yaml": `entities:
-  - name: legacy-skill
-    type: skill
-    path: skills/legacy-skill
-    tags: [legacy]
-`,
-			"skills/legacy-skill/SKILL.md": "---\nname: legacy-skill\n---\n",
-		});
-
-		const warnings: string[] = [];
-		const original = console.warn;
-		console.warn = (msg: string) => warnings.push(msg);
-		try {
-			const entries = await scanRegistry(bareDir);
-			expect(entries).toHaveLength(1);
-			expect(entries[0]?.name).toBe("legacy-skill");
-			expect(entries[0]?.tags).toEqual(["legacy"]);
-		} finally {
-			console.warn = original;
-		}
-		expect(warnings.some((w) => /skillkit-index\.yaml/.test(w))).toBe(true);
-		expect(warnings.some((w) => /skilltree registry index/.test(w))).toBe(true);
-	});
-
-	test("prefers skilltree-index.yml over skillkit-index.yaml when both exist", async () => {
-		_resetDeprecationWarningsForTests();
-		const dir = await setup();
-		const bareDir = await createBareFixture(dir, {
-			"skilltree-index.yml": `entities:
-  - name: winner
-    type: skill
-    path: skills/winner
-`,
-			"skillkit-index.yaml": `entities:
-  - name: loser
-    type: skill
-    path: skills/loser
-`,
-			"skills/winner/SKILL.md": "---\nname: winner\n---\n",
-		});
-
-		const warnings: string[] = [];
-		const original = console.warn;
-		console.warn = (msg: string) => warnings.push(msg);
-		try {
-			const entries = await scanRegistry(bareDir);
-			expect(entries).toHaveLength(1);
-			expect(entries[0]?.name).toBe("winner");
-		} finally {
-			console.warn = original;
-		}
-		// No deprecation warning when the canonical file is present
-		expect(warnings.some((w) => /skillkit-index\.yaml/.test(w))).toBe(false);
 	});
 
 	test("falls back to dynamic scan when no index file", async () => {

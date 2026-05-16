@@ -4,13 +4,7 @@ import YAML from "yaml";
 import type { Dependency, EntityType, IndexEntry, Manifest } from "../types.js";
 import { isLocalDependency } from "../types.js";
 import { entityNameFromPath, mdFileType } from "./entity-type.js";
-import {
-	INDEX_LEGACY,
-	INDEX_NEW,
-	MANIFEST_NEW,
-	MANIFEST_NEW_ALT,
-	warnIndexLegacy,
-} from "./filenames.js";
+import { INDEX_NEW, MANIFEST_NEW, MANIFEST_NEW_ALT } from "./filenames.js";
 import { parseFrontmatter } from "./frontmatter.js";
 import { pathExistsAtRef, readFileAtRef } from "./git.js";
 import { parseManifest } from "./manifest.js";
@@ -35,8 +29,7 @@ export const SKIP_MD_FILES = new Set([
 
 /**
  * Scan a bare git repo for skills and agents.
- * Tries the canonical index file first, then the legacy name (with a
- * deprecation warning), then falls back to dynamic scanning.
+ * Tries the canonical index file first, then falls back to dynamic scanning.
  *
  * IMPORTANT: if you change the output shape, classification rules, or which
  * files are recognized here (or in any helper this calls), bump
@@ -47,12 +40,6 @@ export async function scanRegistry(repoDir: string): Promise<IndexEntry[]> {
 	// Tier 1: curated index file. Maintainer's authoritative override.
 	if (await pathExistsAtRef(repoDir, "HEAD", INDEX_NEW)) {
 		const content = await readFileAtRef(repoDir, "HEAD", INDEX_NEW);
-		return parseIndex(content);
-	}
-	// Tier 1 (legacy): same intent under the old filename — accept but warn.
-	if (await pathExistsAtRef(repoDir, "HEAD", INDEX_LEGACY)) {
-		warnIndexLegacy();
-		const content = await readFileAtRef(repoDir, "HEAD", INDEX_LEGACY);
 		return parseIndex(content);
 	}
 
@@ -203,8 +190,7 @@ function inferEntityType(
 }
 
 /**
- * Parse an index file (skilltree-index.yml or legacy skillkit-index.yaml)
- * into IndexEntry[].
+ * Parse an index file (skilltree-index.yml) into IndexEntry[].
  */
 export function parseIndex(yamlContent: string): IndexEntry[] {
 	const raw = YAML.parse(yamlContent);
