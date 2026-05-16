@@ -19,13 +19,9 @@ beforeEach(() => {
 	_resetDeprecationWarningsForTests();
 });
 
-function captureWarnings(): { warnings: string[]; restore: () => void } {
-	const warnings: string[] = [];
-	const original = console.warn;
-	console.warn = (msg: string) => {
-		warnings.push(msg);
-	};
-	return { warnings, restore: () => (console.warn = original) };
+async function makeTempDir(): Promise<string> {
+	tempDir = await mkdtemp(join(tmpdir(), "skilltree-index-cmd-"));
+	return tempDir;
 }
 
 function runExpectingExit(fn: () => Promise<void>): Promise<number | undefined> {
@@ -43,11 +39,6 @@ function runExpectingExit(fn: () => Promise<void>): Promise<number | undefined> 
 			process.exit = originalExit;
 		})
 		.then(() => captured);
-}
-
-async function makeTempDir(): Promise<string> {
-	tempDir = await mkdtemp(join(tmpdir(), "skilltree-index-cmd-"));
-	return tempDir;
 }
 
 describe("indexCommand", () => {
@@ -230,52 +221,6 @@ describe("indexCommand", () => {
 		expect(parsed.entities).toHaveLength(2);
 		const names = parsed.entities.map((e: { name: string }) => e.name).sort();
 		expect(names).toEqual(["alpha", "beta"]);
-	});
-
-	test("write replaces a legacy skillkit-index.yaml with the new file", async () => {
-		const dir = await makeTempDir();
-		await mkdir(join(dir, "skills", "my-skill"), { recursive: true });
-		await writeFile(join(dir, "skills", "my-skill", "SKILL.md"), "---\nname: my-skill\n---\n");
-		// Pre-existing legacy file from an older skilltree version
-		await writeFile(join(dir, "skillkit-index.yaml"), "entities: []\n");
-
-		await indexCommand({}, dir);
-
-		expect(existsSync(join(dir, "skilltree-index.yml"))).toBe(true);
-		expect(existsSync(join(dir, "skillkit-index.yaml"))).toBe(false);
-	});
-
-	test("--check exits 1 with a deprecation warning when only the legacy file exists", async () => {
-		const dir = await makeTempDir();
-		await mkdir(join(dir, "skills", "my-skill"), { recursive: true });
-		await writeFile(join(dir, "skills", "my-skill", "SKILL.md"), "---\nname: my-skill\n---\n");
-		await writeFile(
-			join(dir, "skillkit-index.yaml"),
-			YAML.stringify({
-				entities: [{ name: "my-skill", type: "skill", path: "skills/my-skill" }],
-			}),
-		);
-
-		const { warnings, restore } = captureWarnings();
-		let exitCode: number | undefined;
-		try {
-			exitCode = await runExpectingExit(() => indexCommand({ check: true }, dir));
-		} finally {
-			restore();
-		}
-		expect(exitCode).toBe(1);
-		expect(warnings.some((w) => /skillkit-index\.yaml/.test(w))).toBe(true);
-		expect(warnings.some((w) => /skilltree registry index/.test(w))).toBe(true);
-	});
-
-	test("--check errors when both new and legacy index files exist", async () => {
-		const dir = await makeTempDir();
-		await writeFile(join(dir, "skilltree-index.yml"), "entities: []\n");
-		await writeFile(join(dir, "skillkit-index.yaml"), "entities: []\n");
-
-		await expect(indexCommand({ check: true }, dir)).rejects.toThrow(
-			/Both skilltree-index\.yml and skillkit-index\.yaml/,
-		);
 	});
 
 	// --- Issue #62: --check must respect hand-authored entries for skills at

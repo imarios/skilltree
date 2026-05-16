@@ -129,14 +129,6 @@ describe("initCommand", () => {
 		await expect(initCommand(dir, { homeDir: fakeHome })).rejects.toThrow(/skilltree\.yaml/);
 	});
 
-	test("error message names skillkit.yaml when only the older legacy manifest exists", async () => {
-		const dir = await makeTempDir();
-		const fakeHome = join(dir, "empty-home");
-		await mkdir(fakeHome, { recursive: true });
-		await writeFile(join(dir, "skillkit.yaml"), "name: ancient\ndependencies: {}\n");
-		await expect(initCommand(dir, { homeDir: fakeHome })).rejects.toThrow(/skillkit\.yaml/);
-	});
-
 	test("--scan with --yes registers discovered skills and agents as local deps", async () => {
 		const dir = await makeTempDir();
 		const fakeHome = join(dir, "empty-home");

@@ -7,7 +7,6 @@ import {
 	GLOBAL_MANIFEST,
 	GLOBAL_MANIFEST_ALT,
 	globalManifestExists,
-	MANIFEST_LEGACY,
 	MANIFEST_NEW,
 	MANIFEST_NEW_ALT,
 	manifestExists,
@@ -117,31 +116,6 @@ describe("resolveManifestPath — .yaml / .yml support", () => {
 		expect(filename).toBe(MANIFEST_NEW);
 		expect(path).toBe(join(dir, MANIFEST_NEW));
 	});
-
-	test("falls back to skillkit.yaml legacy when no skilltree.* exists", async () => {
-		const dir = await makeTmp();
-		await writeFile(join(dir, "skillkit.yaml"), "");
-		const { filename } = resolveManifestPath(dir);
-		expect(filename).toBe(MANIFEST_LEGACY);
-	});
-
-	test("prefers skilltree.yaml over legacy skillkit.yaml when both exist", async () => {
-		const dir = await makeTmp();
-		await writeFile(join(dir, "skilltree.yaml"), "");
-		await writeFile(join(dir, "skillkit.yaml"), "");
-		captureWarnings(() => {
-			const { filename } = resolveManifestPath(dir);
-			expect(filename).toBe("skilltree.yaml");
-		});
-	});
-
-	test("prefers skilltree.yml over legacy skillkit.yaml when both exist", async () => {
-		const dir = await makeTmp();
-		await writeFile(join(dir, "skilltree.yml"), "");
-		await writeFile(join(dir, "skillkit.yaml"), "");
-		const { filename } = resolveManifestPath(dir);
-		expect(filename).toBe(MANIFEST_NEW);
-	});
 });
 
 describe("manifestExists — .yaml / .yml support", () => {
@@ -154,12 +128,6 @@ describe("manifestExists — .yaml / .yml support", () => {
 	test("true when skilltree.yml exists", async () => {
 		const dir = await makeTmp();
 		await writeFile(join(dir, "skilltree.yml"), "");
-		expect(manifestExists(dir)).toBe(true);
-	});
-
-	test("true when only legacy skillkit.yaml exists", async () => {
-		const dir = await makeTmp();
-		await writeFile(join(dir, "skillkit.yaml"), "");
 		expect(manifestExists(dir)).toBe(true);
 	});
 
@@ -228,21 +196,6 @@ describe("globalManifestExists — .yaml / .yml support", () => {
 // (e.g. project .yaml) doesn't silence unrelated deprecations the user
 // actually needs to see. Regression guard for the Set-based warnOnce helper.
 describe("warnOnce gate is independent across deprecation categories", () => {
-	test("project .yaml warning does not suppress legacy skillkit.yaml warning", async () => {
-		const dirA = await makeTmp();
-		const dirB = await makeTmp();
-		await writeFile(join(dirA, "skilltree.yaml"), "");
-		await writeFile(join(dirB, "skillkit.yaml"), "");
-
-		const warnings = captureWarnings(() => {
-			resolveManifestPath(dirA); // emits .yaml deprecation
-			resolveManifestPath(dirB); // emits skillkit.yaml deprecation
-		});
-
-		expect(warnings.some((w) => /skilltree\.yml/i.test(w) && !/skillkit/i.test(w))).toBe(true);
-		expect(warnings.some((w) => /skillkit\.yaml/i.test(w))).toBe(true);
-	});
-
 	test("project .yaml warning does not suppress global .yaml warning", async () => {
 		const projectDir = await makeTmp();
 		const globalDir = await makeTmp();
@@ -260,23 +213,19 @@ describe("warnOnce gate is independent across deprecation categories", () => {
 
 	test("_resetDeprecationWarningsForTests clears every category, not just one", async () => {
 		const projectDir = await makeTmp();
-		const legacyDir = await makeTmp();
 		const globalDir = await makeTmp();
 		await writeFile(join(projectDir, "skilltree.yaml"), "");
-		await writeFile(join(legacyDir, "skillkit.yaml"), "");
 		await writeFile(join(globalDir, "global.yaml"), "");
 
-		// First pass arms all three gates.
+		// First pass arms both gates.
 		captureWarnings(() => {
 			resolveManifestPath(projectDir);
-			resolveManifestPath(legacyDir);
 			resolveGlobalManifestPath(globalDir);
 		});
 
 		// Second pass without reset is silent — confirms the gates are armed.
 		const silent = captureWarnings(() => {
 			resolveManifestPath(projectDir);
-			resolveManifestPath(legacyDir);
 			resolveGlobalManifestPath(globalDir);
 		});
 		expect(silent).toEqual([]);
@@ -285,11 +234,9 @@ describe("warnOnce gate is independent across deprecation categories", () => {
 		_resetDeprecationWarningsForTests();
 		const after = captureWarnings(() => {
 			resolveManifestPath(projectDir);
-			resolveManifestPath(legacyDir);
 			resolveGlobalManifestPath(globalDir);
 		});
-		expect(after.some((w) => /skilltree\.yml/i.test(w) && !/skillkit/i.test(w))).toBe(true);
-		expect(after.some((w) => /skillkit\.yaml/i.test(w))).toBe(true);
+		expect(after.some((w) => /skilltree\.yml/i.test(w))).toBe(true);
 		expect(after.some((w) => /global\.yml/i.test(w))).toBe(true);
 	});
 });
