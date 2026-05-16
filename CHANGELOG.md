@@ -1,3 +1,9 @@
+## v0.27.1 (2026-05-16)
+
+### Fix
+
+- registry index --check accepts hand-authored entries for non-standard paths (#65)
+
 ## v0.27.0 (2026-05-14)
 
 ### Feat
