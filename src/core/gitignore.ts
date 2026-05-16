@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { resolveTarget } from "./agents.js";
 
@@ -49,7 +49,11 @@ export async function removeGitignoreEntries(dir: string, entries: string[]): Pr
 	const removed = entries.filter((e) => lines.some((l) => l.trim() === e));
 
 	if (removed.length > 0) {
-		await writeFile(gitignorePath, filtered.join("\n"), "utf-8");
+		if (filtered.every((line) => line.trim() === "" || line.trim().startsWith("#"))) {
+			await unlink(gitignorePath);
+		} else {
+			await writeFile(gitignorePath, filtered.join("\n"), "utf-8");
+		}
 	}
 
 	return removed;
