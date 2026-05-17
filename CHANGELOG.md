@@ -1,3 +1,9 @@
+## v0.29.1 (2026-05-17)
+
+### Fix
+
+- **vendor**: record vendored target so unvendor can't silently mismatch (#103)
+
 ## v0.29.0 (2026-05-17)
 
 ### Feat
