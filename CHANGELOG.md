@@ -1,3 +1,9 @@
+## v0.27.4 (2026-05-17)
+
+### Fix
+
+- scan --apply merges into existing deps key instead of writing parallel block (#90)
+
 ## v0.27.3 (2026-05-17)
 
 ### Fix
