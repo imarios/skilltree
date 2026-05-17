@@ -193,10 +193,15 @@ export function buildProgram(): Command {
 		.description("Copy all deps as real files for git commit (distribution mode)")
 		.option("--frozen", "Use lockfile only, error if out of sync")
 		.option("-n, --dry-run", "Show plan without making changes")
+		.option(
+			"--target <name>",
+			"Select install target by raw install_targets entry (e.g. claude, codex). Required when multiple targets are configured.",
+		)
 		.action(async (opts) => {
 			await vendorCommand(process.cwd(), {
 				frozen: opts.frozen,
 				dryRun: opts.dryRun,
+				target: opts.target,
 			});
 		});
 
@@ -205,8 +210,16 @@ export function buildProgram(): Command {
 		.description("Exit vendor mode, restore normal symlinked installs")
 		.option("-f, --force", "Discard modified vendored files")
 		.option("-n, --dry-run", "Show what would happen without making changes")
+		.option(
+			"--target <name>",
+			"Select install target by raw install_targets entry (e.g. claude, codex). Required when multiple targets are configured.",
+		)
 		.action(async (opts) => {
-			await unvendorCommand(process.cwd(), { force: opts.force, dryRun: opts.dryRun });
+			await unvendorCommand(process.cwd(), {
+				force: opts.force,
+				dryRun: opts.dryRun,
+				target: opts.target,
+			});
 		});
 
 	const deps = program.command("deps").description("Dependency graph commands");

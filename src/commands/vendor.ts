@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { resolveTarget } from "../core/agents.js";
 import { MANIFEST_NEW } from "../core/filenames.js";
 import {
 	addGitignoreEntries,
@@ -17,7 +18,6 @@ import {
 } from "../core/lockfile.js";
 import {
 	getDevInstallPath,
-	getInstallTargets,
 	loadManifestOrThrow,
 	validateManifestOrThrow,
 	warnLegacyInstallPath,
@@ -32,7 +32,7 @@ import {
 	throwOnResolutionErrors,
 	warn,
 } from "../core/ui.js";
-import type { Lockfile } from "../types.js";
+import type { Lockfile, Manifest } from "../types.js";
 
 export interface VendorOptions {
 	frozen?: boolean;
@@ -40,19 +40,87 @@ export interface VendorOptions {
 	target?: string;
 }
 
+/**
+ * Resolve which install target a vendor/unvendor invocation should act on.
+ *
+ * The contract — same for both commands so users don't have to relearn:
+ *
+ *   - Multi-target manifest (`install_targets` has 2+ entries):
+ *       `--target <name>` is REQUIRED. Without it, error lists the raw
+ *       entries the user can pass (e.g. "claude, codex") — NOT the
+ *       resolved filesystem paths (".claude", ".agents"), which would
+ *       mislead them into typing the wrong thing back at us. (See #69.)
+ *
+ *   - Single `install_targets` entry: `--target` is optional; if provided
+ *       it must match the configured entry.
+ *
+ *   - Legacy manifest (no `install_targets`, uses `dev_install_path` or
+ *       defaults): `--target` is rejected — there are no named targets
+ *       to pick from. Falls back to `getDevInstallPath()`.
+ *
+ * Returns the resolved on-disk path relative to the project root (e.g.
+ * ".claude"). Throws a user-facing `Error` for any contract violation.
+ */
+function resolveVendorTarget(
+	manifest: Manifest,
+	cmd: "vendor" | "unvendor",
+	target: string | undefined,
+): string {
+	const rawTargets = manifest.install_targets;
+
+	if (!rawTargets || rawTargets.length === 0) {
+		// Legacy manifest — no named targets exist
+		if (target !== undefined) {
+			throw new Error(
+				`${cmd}: --target is only valid when install_targets is configured. This manifest uses the legacy dev_install_path — drop --target or migrate with \`skilltree targets migrate\`.`,
+			);
+		}
+		return getDevInstallPath(manifest);
+	}
+
+	if (rawTargets.length > 1 && target === undefined) {
+		throw new Error(
+			`${cmd} requires --target <name> when multiple install targets are configured.\nConfigured targets: ${rawTargets.join(", ")}`,
+		);
+	}
+
+	const selected = target ?? rawTargets[0];
+	if (selected === undefined) {
+		// Unreachable: rawTargets.length >= 1 by the empty-check above, and
+		// target is a defined string when taken. Defensive throw keeps the
+		// type narrow without leaning on a non-null assertion.
+		throw new Error(`${cmd}: no install target available (internal invariant)`);
+	}
+	assertKnownTarget(cmd, selected, rawTargets);
+	return resolveTarget(selected);
+}
+
+/**
+ * Hard-error if `target` isn't one of the manifest's raw `install_targets`
+ * entries. Case-sensitive, exact match — matches how the rest of the codebase
+ * compares target names (e.g. `resolveTarget` does a strict object lookup).
+ *
+ * The error message uses raw entries, never resolved paths, so the user can
+ * copy-paste a name straight back into `--target`.
+ */
+function assertKnownTarget(
+	cmd: "vendor" | "unvendor",
+	target: string,
+	rawTargets: readonly string[],
+): void {
+	if (!rawTargets.includes(target)) {
+		throw new Error(
+			`${cmd}: unknown target '${target}'. Configured targets: ${rawTargets.join(", ")}`,
+		);
+	}
+}
+
 export async function vendorCommand(dir: string, options: VendorOptions): Promise<void> {
 	const manifest = await loadManifestOrThrow(dir);
 	validateManifestOrThrow(manifest);
 	warnLegacyInstallPath(manifest);
 
-	// Resolve vendor target — single target only
-	const targets = getInstallTargets(manifest);
-	if (targets.length > 1 && !options.target) {
-		throw new Error(
-			`vendor requires --target <name> when multiple install targets are configured.\nTargets: ${targets.join(", ")}`,
-		);
-	}
-	const devInstallPath = options.target ?? targets[0] ?? getDevInstallPath(manifest);
+	const devInstallPath = resolveVendorTarget(manifest, "vendor", options.target);
 	const installBase = join(dir, devInstallPath);
 
 	const existingLockfile = await readLockfile(dir);
@@ -141,6 +209,7 @@ export async function vendorCommand(dir: string, options: VendorOptions): Promis
 export interface UnvendorOptions {
 	force?: boolean;
 	dryRun?: boolean;
+	target?: string;
 }
 
 export async function unvendorCommand(dir: string, options?: UnvendorOptions): Promise<void> {
@@ -151,7 +220,7 @@ export async function unvendorCommand(dir: string, options?: UnvendorOptions): P
 		return;
 	}
 
-	const devInstallPath = getDevInstallPath(manifest);
+	const devInstallPath = resolveVendorTarget(manifest, "unvendor", options?.target);
 	const installBase = join(dir, devInstallPath);
 	const lockfile = await readLockfile(dir);
 
