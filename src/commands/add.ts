@@ -298,9 +298,27 @@ async function loadRegistryEntities(opts: AddOptions): Promise<RegistryEntity[]>
 	return entities;
 }
 
+/**
+ * Heuristic for "did the user pass a URL where an alias name was expected?"
+ * Matches the two URL shapes the rest of the tool accepts as a `repo:` value:
+ * scheme-prefixed (`https://`, `file://`, `git://`, `ssh://`, ...) and SSH
+ * shorthand (`git@host:path`). Anything else passes through as a candidate
+ * alias name — bare `vibes` or `my-source` should still be honored.
+ */
+const URL_LIKE_RE = /^(?:[a-z][a-z0-9+.-]*:\/\/|[\w.-]+@[\w.-]+:)/i;
+
 function validateAddFlags(opts: AddOptions): void {
 	if (opts.repo && opts.source) {
 		throw new Error("--repo and --source are mutually exclusive");
+	}
+	// Issue #122: --source expects an alias name registered under top-level
+	// `sources:`. Without this guard, a URL passed here lands literally in the
+	// manifest as `source: <url>` and install fails with "Unknown source alias".
+	if (opts.source && URL_LIKE_RE.test(opts.source)) {
+		throw new Error(
+			`--source expects an alias name registered under \`sources:\`, not a URL (got "${opts.source}"). ` +
+				`Use \`--repo <url>\` to pass a URL directly, or register the URL under \`sources:\` first and pass the alias name.`,
+		);
 	}
 	if (opts.global && opts.dev) {
 		throw new Error(

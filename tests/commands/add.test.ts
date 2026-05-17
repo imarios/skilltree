@@ -145,6 +145,23 @@ describe("addCommand", () => {
 		).rejects.toThrow("mutually exclusive");
 	});
 
+	test("rejects a URL passed to --source and points at --repo (#122)", async () => {
+		// --source expects an alias name registered under top-level `sources:`,
+		// not a URL. Without this guard, the URL gets written literally as the
+		// source alias and install fails downstream with "Unknown source alias".
+		const dir = await setup();
+		for (const url of [
+			"file:///tmp/foo",
+			"https://github.com/example/repo",
+			"http://example.com/repo",
+			"git@github.com:example/repo.git",
+		]) {
+			await expect(
+				addCommand("bad", { source: url, path: "skills/x", type: "skill" }, dir),
+			).rejects.toThrow(/--source.*alias|--repo/i);
+		}
+	});
+
 	test("errors when --repo and --local used together", async () => {
 		const dir = await setup();
 		await expect(
