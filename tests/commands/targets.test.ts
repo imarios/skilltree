@@ -26,6 +26,18 @@ afterEach(async () => {
 	if (tempDir) await rm(tempDir, { recursive: true, force: true });
 });
 
+async function captureSuccessLines(fn: () => Promise<void>): Promise<string[]> {
+	const lines: string[] = [];
+	const originalLog = console.log;
+	console.log = (...args: unknown[]) => lines.push(args.map(String).join(" "));
+	try {
+		await fn();
+	} finally {
+		console.log = originalLog;
+	}
+	return lines;
+}
+
 describe("targetsAddCommand", () => {
 	test("adds known agent to install_targets", async () => {
 		const dir = await makeTempDir();
@@ -78,6 +90,18 @@ describe("targetsAddCommand", () => {
 		const manifest = await readManifest(dir);
 		expect(manifest.install_targets).toContain("claude");
 		expect(manifest.install_targets).toContain("codex");
+	});
+
+	test("success output reminds the user to run `skilltree install` (issue #74)", async () => {
+		// Friction B: after `targets add` the new target's dir is empty until the
+		// user runs `skilltree install`. Output must prompt that next step.
+		const dir = await makeTempDir();
+		await writeManifestFile(dir, "install_targets:\n  - claude\ndependencies: {}\n");
+
+		const lines = await captureSuccessLines(() => targetsAddCommand("codex", dir));
+
+		const joined = lines.join("\n");
+		expect(joined).toMatch(/skilltree install/);
 	});
 });
 
@@ -150,6 +174,21 @@ describe("targetsDetectCommand", () => {
 		await writeManifestFile(dir, "dev_install_path: .claude\ndependencies: {}\n");
 
 		await expect(targetsDetectCommand(dir)).rejects.toThrow("targets migrate");
+	});
+
+	test("success output reminds the user to run `skilltree install` (issue #74)", async () => {
+		// Friction B: same reasoning as targets add — newly enrolled targets are
+		// empty on disk until install runs.
+		const dir = await makeTempDir();
+		await writeManifestFile(dir, "install_targets:\n  - claude\ndependencies: {}\n");
+		const fakeHome = join(dir, "fake-home");
+		await mkdir(join(fakeHome, ".claude"), { recursive: true });
+		await mkdir(join(fakeHome, ".codex"), { recursive: true });
+
+		const lines = await captureSuccessLines(() => targetsDetectCommand(dir, { homeDir: fakeHome }));
+
+		const joined = lines.join("\n");
+		expect(joined).toMatch(/skilltree install/);
 	});
 });
 

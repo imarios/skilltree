@@ -260,11 +260,14 @@ install_targets:
 ```
 
 ```bash
-skilltree install              # installs to both .claude/ and .codex/
-skilltree targets list          # see detected and configured agents
-skilltree targets add cursor    # add another agent
-skilltree targets detect        # auto-detect installed agents
+skilltree install                       # installs to both .claude/ and .codex/
+skilltree targets list                  # see detected and configured agents
+skilltree targets add cursor            # add another agent (then `skilltree install`)
+skilltree targets detect                # auto-detect installed agents
+skilltree init --target claude --target codex   # opt in at init time, skip detection
 ```
+
+By default `init` enrols only Claude Code if multiple agents are detected — interactive runs get a prompt to include the rest; CI/non-interactive runs stay on the safe `[claude]` default. Use `--target` (repeatable) or `--yes` to enrol others up front, or `skilltree targets add <agent>` / `skilltree targets detect` later.
 
 Migrating from `dev_install_path`? Run `skilltree targets migrate`.
 

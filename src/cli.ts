@@ -61,12 +61,21 @@ export function buildProgram(): Command {
 			"--scan",
 			"Scan the repo for existing skills, agents, and commands and register them as local deps",
 		)
-		.option("-y, --yes", "With --scan, include all discovered entries without prompting")
+		.option(
+			"-y, --yes",
+			"Skip prompts: include all discovered scan entries and enrol all detected agents",
+		)
+		.option(
+			"--target <name>",
+			"Explicit install target (skips detection). Repeat for multiple, e.g. --target claude --target codex",
+			(value: string, prev: string[] = []) => prev.concat(value),
+		)
 		.action(async (opts) => {
 			await initCommand(process.cwd(), {
 				global: opts.global,
 				scan: opts.scan,
 				yes: opts.yes,
+				targets: opts.target,
 			});
 		});
 
