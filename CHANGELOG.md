@@ -1,3 +1,9 @@
+## v0.27.2 (2026-05-17)
+
+### Fix
+
+- update --dry-run no longer mutates skilltree.lock (#87)
+
 ## v0.27.1 (2026-05-16)
 
 ### Fix
