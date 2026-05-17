@@ -253,17 +253,23 @@ skilltree search python --json
 
 ## `skilltree info <name>`
 
-Show detailed information about a skill or agent from registries.
+Show detailed information about a skill or agent. Looks across three layers in order:
+
+1. **`skilltree.lock`** — most authoritative (installed state: source, version, commit, integrity)
+2. **`skilltree.yml`** — manifest declaration (may not yet be installed)
+3. **Registries** — catalog of available skills
+
+If the name is found in multiple layers, each is shown as its own `[lockfile]` / `[manifest]` / `[registry: <name>]` section. Lockfile and manifest layers work even with no registries configured, so introspecting your own installed deps never asks you to set up a registry first.
 
 ```bash
 skilltree info python-coding
 skilltree info python-coding --json
 ```
 
-Shows entity type, registry, path, description, tags, available versions, and a copy-pasteable `add` command.
+Exit code is `0` when found in any layer, `1` only when the name is absent from lockfile, manifest, **and** all configured registries.
 
 **Flags:**
-- `--json` — Machine-readable JSON output
+- `--json` — Machine-readable JSON output (array of layer-tagged objects)
 
 ## `skilltree registry index`
 

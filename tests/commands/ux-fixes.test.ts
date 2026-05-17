@@ -116,7 +116,9 @@ describe("Fix #6: search/info exit codes", () => {
 		};
 		await writeRegistryIndex(index, cacheDir);
 
-		await expect(infoCommand("nonexistent", {}, configPath, cacheDir)).rejects.toThrow("not found");
+		await expect(infoCommand("nonexistent", { dir }, configPath, cacheDir)).rejects.toThrow(
+			"not found",
+		);
 	});
 
 	test("infoCommand directs user to 'registry update' when every cache is outdated (issue #25)", async () => {
@@ -144,7 +146,7 @@ describe("Fix #6: search/info exit codes", () => {
 			"utf-8",
 		);
 
-		await expect(infoCommand("python-coding", {}, configPath, cacheDir)).rejects.toThrow(
+		await expect(infoCommand("python-coding", { dir }, configPath, cacheDir)).rejects.toThrow(
 			"registry update",
 		);
 	});
@@ -172,7 +174,7 @@ describe("Fix #6: search/info exit codes", () => {
 		);
 
 		await expect(
-			infoCommand("python-coding", { json: true }, configPath, cacheDir),
+			infoCommand("python-coding", { json: true, dir }, configPath, cacheDir),
 		).rejects.toThrow("registry update");
 	});
 });

@@ -315,7 +315,7 @@ export function buildProgram(): Command {
 		.description("Show detailed information about a skill, agent, or command")
 		.option("--json", "Output results as JSON")
 		.action(async (name: string, opts) => {
-			await infoCommand(name, { json: opts.json });
+			await infoCommand(name, { json: opts.json, dir: process.cwd() });
 		});
 
 	program
