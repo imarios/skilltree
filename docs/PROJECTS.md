@@ -16,8 +16,6 @@ Project Naming Theme: Elements
 
 - **Carbon** (05/14/2026): Publication surface — `skilltree.yml` as registry-index fallback, `publish: false` for WIP local entities, `exclude:` + `.skilltreeignore` for file-level trim, unified visibility predicate across indexing/vendor/origin-manifest lookup, `check` lint for asymmetric publish state (resolves #63)
 
-- **Nitrogen** (05/17/2026): Preflight doctor — `skilltree doctor` command bundling manifest schema, lint, lockfile sync, target consistency, registry reachability, and frontmatter checks; text + `--json` output; `--global` flag (resolves #84, part of Authoring UX v1 #78)
-
 ## Completed Projects
 
-(none)
+- **Nitrogen** (05/17/2026 → 05/17/2026): Preflight doctor — `skilltree doctor` command bundling manifest schema, lint, lockfile sync, target consistency, registry reachability, and frontmatter checks; text + `--json` output; `--global` flag (resolves #84, part of Authoring UX v1 #78)
