@@ -12,6 +12,7 @@ import { infoCommand } from "./commands/info.js";
 import { initCommand } from "./commands/init.js";
 import { installCommand } from "./commands/install.js";
 import { listCommand } from "./commands/list.js";
+import { newCommand } from "./commands/new.js";
 import { outdatedCommand } from "./commands/outdated.js";
 import { projectsCommand } from "./commands/projects.js";
 import {
@@ -38,6 +39,7 @@ import { unvendorCommand, vendorCommand } from "./commands/vendor.js";
 import { verifyCommand } from "./commands/verify.js";
 import { whyCommand } from "./commands/why.js";
 import { pc } from "./core/ui.js";
+import type { EntityType } from "./types.js";
 
 /**
  * Build the full Commander program tree without invoking it. Exported so
@@ -97,6 +99,58 @@ export function buildProgram(): Command {
 		.option("-y, --yes", "Skip the glob-mode confirmation prompt")
 		.action(async (name: string, opts) => {
 			await addCommand(name, opts, process.cwd());
+		});
+
+	// `new` accepts two equivalent forms:
+	//   skilltree new <skill|agent|command> <name>      (subcommand form)
+	//   skilltree new <name> --type <skill|agent|command>
+	// Implemented as a single command with two positionals because nested
+	// subcommands would still leave the `--type` form needing a separate
+	// registration. Sniffing happens in the action handler. Issue #82.
+	program
+		.command("new <typeOrName> [name]")
+		.description(
+			"Scaffold a new skill, agent, or command with valid frontmatter\n\n" +
+				"Forms:\n" +
+				"  skilltree new skill <name>      (writes skills/<name>/SKILL.md)\n" +
+				"  skilltree new agent <name>      (writes agents/<name>.md)\n" +
+				"  skilltree new command <name>    (writes commands/<name>.md)\n" +
+				"  skilltree new <name> --type <type>",
+		)
+		.option("-D, --dev", "Register as dev-dependency")
+		.option("--no-register", "Scaffold only; skip the implicit `add --local`")
+		.option("-t, --type <type>", "Entity type (alternative to the subcommand form)")
+		.action(async (typeOrName: string, name: string | undefined, opts) => {
+			const knownTypes = new Set<EntityType>(["skill", "agent", "command"]);
+			let type: EntityType;
+			let entityName: string;
+
+			if (name !== undefined) {
+				// Subcommand form — first positional must be a known type.
+				if (!knownTypes.has(typeOrName as EntityType)) {
+					throw new Error(
+						`Unknown entity type "${typeOrName}". Use one of: skill, agent, command.`,
+					);
+				}
+				if (opts.type && opts.type !== typeOrName) {
+					throw new Error(
+						`Cannot combine subcommand form ("${typeOrName}") with --type ("${opts.type}").`,
+					);
+				}
+				type = typeOrName as EntityType;
+				entityName = name;
+			} else {
+				// `--type` form — first positional is the name.
+				if (!opts.type) {
+					throw new Error(
+						"Missing entity type. Use `skilltree new <skill|agent|command> <name>` or pass --type.",
+					);
+				}
+				type = opts.type as EntityType;
+				entityName = typeOrName;
+			}
+
+			await newCommand(type, entityName, { dev: opts.dev, register: opts.register }, process.cwd());
 		});
 
 	program

@@ -6,50 +6,61 @@ exports[`CLI help snapshots top-level --help is stable 1`] = `
 Dependency manager for AI agent skills
 
 Options:
-  -V, --version                 output the version number
-  -h, --help                    display help for command
+  -V, --version                      output the version number
+  -h, --help                         display help for command
 
 Commands:
-  init [options]                Initialize a new skilltree project
+  init [options]                     Initialize a new skilltree project
 
   Related:
     registry init   — seed popular community registries to install skills from
     targets detect  — auto-discover installed coding agents on this machine
-  add [options] <name>          Add a dependency
-  install [options]             Resolve and install dependencies
-  update [options] [name]       Update dependencies to latest versions
-  outdated [options] [name]     Preview which deps have newer versions available
-                                (read-only)
-  projects [options]            List skilltree-managed projects discoverable on
-                                this machine (read-only)
-  remove [options] <name>       Remove a dependency
-  verify [options]              Verify installed dependencies against lockfile
-  check [options]               Lint the project's skilltree.yml for design-time
-                                issues
-  list [options]                List installed dependencies
-  scan [options] <paths...>     Scan skills, agents, and commands for undeclared
-                                dependencies
-  teach [options]               Install the skilltree skill to all detected
-                                coding agents
-  vendor [options]              Copy all deps as real files for git commit
-                                (distribution mode)
-  unvendor [options]            Exit vendor mode, restore normal symlinked
-                                installs
-  deps                          Dependency graph commands
-  why [options] <name>          Show which top-level dependency pulled in <name>
+  add [options] <name>               Add a dependency
+  new [options] <typeOrName> [name]  Scaffold a new skill, agent, or command with valid frontmatter
 
-                                Walks the resolved graph backwards from <name>
-                                to every reachable top-level dep declared in
-                                skilltree.yml. Mirrors \`npm why\`.
-  registry                      Registry management commands
-  search [options] <query>      Search registries for skills, agents, and
-                                commands
-  info [options] <name>         Show detailed information about a skill, agent,
-                                or command
-  completion [options] [shell]  Output shell completion script (zsh or bash)
-  targets                       Manage install targets (coding agents)
-  cache                         Cache management commands
-  help [command]                display help for command
+  Forms:
+    skilltree new skill <name>      (writes skills/<name>/SKILL.md)
+    skilltree new agent <name>      (writes agents/<name>.md)
+    skilltree new command <name>    (writes commands/<name>.md)
+    skilltree new <name> --type <type>
+  install [options]                  Resolve and install dependencies
+  update [options] [name]            Update dependencies to latest versions
+  outdated [options] [name]          Preview which deps have newer versions
+                                     available (read-only)
+  projects [options]                 List skilltree-managed projects
+                                     discoverable on this machine (read-only)
+  remove [options] <name>            Remove a dependency
+  verify [options]                   Verify installed dependencies against
+                                     lockfile
+  check [options]                    Lint the project's skilltree.yml for
+                                     design-time issues
+  list [options]                     List installed dependencies
+  scan [options] <paths...>          Scan skills, agents, and commands for
+                                     undeclared dependencies
+  teach [options]                    Install the skilltree skill to all detected
+                                     coding agents
+  vendor [options]                   Copy all deps as real files for git commit
+                                     (distribution mode)
+  unvendor [options]                 Exit vendor mode, restore normal symlinked
+                                     installs
+  deps                               Dependency graph commands
+  why [options] <name>               Show which top-level dependency pulled in
+                                     <name>
+
+                                     Walks the resolved graph backwards from
+                                     <name> to every reachable top-level dep
+                                     declared in skilltree.yml. Mirrors \`npm
+                                     why\`.
+  registry                           Registry management commands
+  search [options] <query>           Search registries for skills, agents, and
+                                     commands
+  info [options] <name>              Show detailed information about a skill,
+                                     agent, or command
+  completion [options] [shell]       Output shell completion script (zsh or
+                                     bash)
+  targets                            Manage install targets (coding agents)
+  cache                              Cache management commands
+  help [command]                     display help for command
 "
 `;
 
@@ -91,6 +102,25 @@ Options:
   -g, --global                Add to global dependencies
   -y, --yes                   Skip the glob-mode confirmation prompt
   -h, --help                  display help for command
+"
+`;
+
+exports[`CLI help snapshots \`new --help\` is stable 1`] = `
+"Usage: skilltree new [options] <typeOrName> [name]
+
+Scaffold a new skill, agent, or command with valid frontmatter
+
+Forms:
+  skilltree new skill <name>      (writes skills/<name>/SKILL.md)
+  skilltree new agent <name>      (writes agents/<name>.md)
+  skilltree new command <name>    (writes commands/<name>.md)
+  skilltree new <name> --type <type>
+
+Options:
+  -D, --dev          Register as dev-dependency
+  --no-register      Scaffold only; skip the implicit \`add --local\`
+  -t, --type <type>  Entity type (alternative to the subcommand form)
+  -h, --help         display help for command
 "
 `;
 

@@ -310,6 +310,7 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | Command | Description |
 |---------|-------------|
 | `skilltree init` | Create `skilltree.yml` and update `.gitignore` |
+| `skilltree new <type> <name>` | Scaffold a new skill/agent/command with valid frontmatter and auto-register it |
 | `skilltree add <name>` | Add a dependency (remote, local, or dev) |
 | `skilltree install` | Resolve dependencies and install |
 | `skilltree update [name]` | Update to latest versions |
