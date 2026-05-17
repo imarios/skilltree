@@ -103,10 +103,11 @@ export function buildProgram(): Command {
 		.option("--no-verify", "Skip git ls-remote reachability check on --repo URLs")
 		.action(async (name: string, opts) => {
 			// Commander turns `--no-verify` into `opts.verify === false`. Translate
-			// to the `noVerify` flag the command expects so the rest of the option
-			// surface stays consistent with `--no-register` / `--no-X` idioms used
-			// elsewhere.
-			await addCommand(name, { ...opts, noVerify: opts.verify === false }, process.cwd());
+			// to the `noVerify` flag the command expects so the option surface
+			// stays consistent with the `--no-X` idiom; drop the `verify` key so
+			// it doesn't ride along on AddOptions as a stray field.
+			const { verify: _verify, ...rest } = opts;
+			await addCommand(name, { ...rest, noVerify: opts.verify === false }, process.cwd());
 		});
 
 	// `new` accepts two equivalent forms:
