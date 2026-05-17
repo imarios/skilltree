@@ -90,6 +90,25 @@ skilltree update --global         # Update global deps
 - `-n, --dry-run` — Preview version bumps without applying
 - `-g, --global` — Update global dependencies
 
+## `skilltree outdated [name]`
+
+Read-only preview of dependency drift. Reports which deps have newer semver tags available upstream without modifying the lockfile or manifest. Counterpart to `skilltree update`.
+
+```bash
+skilltree outdated                 # Show all deps with drift status
+skilltree outdated python-coding   # Filter to one dep
+skilltree outdated --json          # Machine-readable output
+skilltree outdated --check         # Exit 1 if any drift exists (CI gate)
+skilltree outdated --global        # Inspect global deps
+```
+
+**Flags:**
+- `--json` — Output results as JSON
+- `--check` — Exit 1 if any drift exists (CI-friendly)
+- `-g, --global` — Show global deps
+
+**Output columns:** `Name`, `Current` (semver pin / `@<short-sha>` / `local`), `Latest` (latest semver tag on the resolved repo), `Bump` (`major` / `minor` / `patch` / `—`). Local deps and unresolved deps show `—`; a network/cache failure for a remote shows `error` in the Bump column.
+
 ## `skilltree remove <name>`
 
 Remove a dependency from manifest, lockfile, and installed files.

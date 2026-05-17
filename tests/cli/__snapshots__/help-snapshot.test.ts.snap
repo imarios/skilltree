@@ -18,6 +18,8 @@ Commands:
   add [options] <name>          Add a dependency
   install [options]             Resolve and install dependencies
   update [options] [name]       Update dependencies to latest versions
+  outdated [options] [name]     Preview which deps have newer versions available
+                                (read-only)
   remove [options] <name>       Remove a dependency
   verify [options]              Verify installed dependencies against lockfile
   check [options]               Lint the project's skilltree.yml for design-time
@@ -107,6 +109,19 @@ Options:
   -n, --dry-run  Preview version bumps without applying
   -g, --global   Update global dependencies
   -h, --help     display help for command
+"
+`;
+
+exports[`CLI help snapshots \`outdated --help\` is stable 1`] = `
+"Usage: skilltree outdated [options] [name]
+
+Preview which deps have newer versions available (read-only)
+
+Options:
+  --json        Output results as JSON
+  --check       Exit 1 if any drift exists (CI-friendly)
+  -g, --global  Show global deps
+  -h, --help    display help for command
 "
 `;
 

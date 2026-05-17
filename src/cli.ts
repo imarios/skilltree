@@ -12,6 +12,7 @@ import { infoCommand } from "./commands/info.js";
 import { initCommand } from "./commands/init.js";
 import { installCommand } from "./commands/install.js";
 import { listCommand } from "./commands/list.js";
+import { outdatedCommand } from "./commands/outdated.js";
 import {
 	registryAddCommand,
 	registryInitCommand,
@@ -115,6 +116,20 @@ export function buildProgram(): Command {
 		.action(async (name: string | undefined, opts) => {
 			await updateCommand(process.cwd(), name, {
 				dryRun: opts.dryRun,
+				global: opts.global,
+			});
+		});
+
+	program
+		.command("outdated [name]")
+		.description("Preview which deps have newer versions available (read-only)")
+		.option("--json", "Output results as JSON")
+		.option("--check", "Exit 1 if any drift exists (CI-friendly)")
+		.option("-g, --global", "Show global deps")
+		.action(async (name: string | undefined, opts) => {
+			await outdatedCommand(process.cwd(), name, {
+				json: opts.json,
+				check: opts.check,
 				global: opts.global,
 			});
 		});
