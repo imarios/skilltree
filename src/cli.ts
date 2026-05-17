@@ -252,8 +252,10 @@ export function buildProgram(): Command {
 		.description(
 			"Preflight health check across schema, lint, lockfile, targets, registries, and frontmatter\n\nLifecycle: new → check → doctor → git tag",
 		)
-		.action(async () => {
-			await doctorCommand(process.cwd());
+		.option("--json", "Output results as JSON")
+		.option("-g, --global", "Run against the global manifest")
+		.action(async (opts) => {
+			await doctorCommand(process.cwd(), { json: opts.json, global: opts.global });
 		});
 
 	program

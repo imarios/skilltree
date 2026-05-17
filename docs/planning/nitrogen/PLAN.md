@@ -64,22 +64,24 @@ Ship the `doctor` command in text mode. Cover acceptance criteria 1–3 from the
 ### Per-phase DoD additions
 - [x] Manual smoke against this repo deferred — captured in SHORT_MEMORY as Phase 3 follow-up since Phase 2 stubs registry-reachability anyway.
 
-## Phase 3: --json + --global + registry reachability
+## Phase 3: --json + --global + registry reachability ✅ COMPLETE
 <!-- Spec: doctor.md D2, D9, D16–D19, D23–D24 -->
 
 Round out the surface: machine-readable output, global-manifest mode, the one network check, and the read-only invariant test.
 
 ### Tasks
-- [ ] `--json` flag emits the documented JSON shape. Snapshot test asserts shape stability. (D16–D19, D22)
-- [ ] `--global` flag: switches to `~/.skilltree/global.yaml`; project-scoped checks (lockfile, targets) emit `status: "skip"` rather than running. (D2)
-- [ ] Registry reachability (D9): for each registry in `~/.skilltree/config.yaml`, run `git ls-remote` with a 5s timeout. Reuse any existing timeout wrapper in `src/core/git.ts`. Warn on auth-required and on timeout; do not fail. (D9, Error Handling rows)
-- [ ] Read-only invariant test (D23): snapshot mtimes of every file under cwd before invocation, run `doctor`, assert no mtime changes. Covers all flag combos.
-- [ ] Tests: `--json` schema snapshot, `--global` skip behavior, unreachable registry → warn (mock `git ls-remote`), auth-required → warn, timeout → warn, identical exit codes between text and json modes.
-- [ ] Update help text + completion + commands.md to document `--json` and `--global`.
-- [ ] `bun test` green. `tsc` + biome clean.
+- [x] `--json` flag emits the documented JSON shape via `renderDoctorJson`. Snapshot test asserts shape stability (J1–J5).
+- [x] `--global` flag: switches to `~/.skilltree/global.yml`; project-scoped checks (lockfile, targets) emit `status: "skip"` with detail `"global mode"`. Lint/frontmatter/reachability still run.
+- [x] Registry reachability (D9): new `lsRemote(url, {timeoutMs})` helper in `src/core/git.ts` — Promise.race with setTimeout, 5s default. Auth/timeout/unreachable/other reason classification via stderr-text heuristics. Warn (not fail) on any non-ok outcome.
+- [x] `ReachabilityProbe` injection on `runDoctor(dir, opts)` lets tests bypass real network.
+- [x] Read-only invariant test (RO1, RO2): snapshot file mtimes pre/post, assert identical. Covers text and JSON modes.
+- [x] Tests: J1–J5 (json), G1–G4 (global), R1–R6 (reachability), C1–C3 (CLI), RO1–RO2 (read-only). 20 new cases.
+- [x] Network isolation: `runDoctorIsolated` wrapper + `runCli` defaults ensure no test hits the developer's `~/.skilltree/config.yaml`.
+- [x] Help snapshot regenerated; completion table updated; commands.md updated; README Key Flags table updated.
+- [x] `bun test` green: 1382/1382 (was 1362; +20 new). `tsc --noEmit` clean. `bunx biome check` clean.
 
 ### Per-phase DoD additions
-- Manual smoke against a real registry list (run on sir's machine, not CI) to confirm the 5s timeout actually fires when a registry is offline. Documented in `SHORT_MEMORY.md`.
+- [ ] Manual smoke against sir's real registry list (run on sir's machine, not CI) to confirm the 5s timeout fires when a registry is offline. Deferred to manual verification after merge.
 
 ## Project-level deliverables (across all phases)
 
@@ -93,4 +95,4 @@ Round out the surface: machine-readable output, global-manifest mode, the one ne
 
 Phase 1: ✅ COMPLETE
 Phase 2: ✅ COMPLETE
-Phase 3: ⏳ PENDING
+Phase 3: ✅ COMPLETE

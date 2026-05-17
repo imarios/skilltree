@@ -1,0 +1,28 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`runDoctor — --json output J1: JSON shape stable across clean run 1`] = `
+{
+  "names": [
+    "manifest-schema",
+    "lint",
+    "lockfile-sync",
+    "target-consistency",
+    "registry-reachability",
+    "frontmatter",
+  ],
+  "statuses": [
+    "pass",
+    "pass",
+    "pass",
+    "pass",
+    "pass",
+    "pass",
+  ],
+  "summaryKeys": [
+    "fail",
+    "pass",
+    "skip",
+    "warn",
+  ],
+}
+`;

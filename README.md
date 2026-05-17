@@ -349,7 +349,8 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 
 | Flag | Commands | Description |
 |------|----------|-------------|
-| `--global` | init, add, install, update, remove, list, verify, deps tree, why | Operate on global deps (`~/.skilltree/global.yaml` → `~/.claude/`) |
+| `--global` | init, add, install, update, remove, list, verify, deps tree, why, doctor | Operate on global deps (`~/.skilltree/global.yaml` → `~/.claude/`) |
+| `--json` | list, verify, outdated, search, info, scan, deps tree, doctor | Emit machine-readable JSON |
 | `--prod` | install | Skip dev-dependencies |
 | `--frozen` | install, vendor | Lockfile-only, error if out of sync (CI mode) |
 | `--force` | install, remove | Overwrite modified files / skip confirmation |

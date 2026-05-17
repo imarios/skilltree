@@ -1,28 +1,39 @@
 // `skilltree doctor` — preflight health check (issue #84, Nitrogen).
 //
-// Phase 2 ships text mode + exit codes + acceptance criteria 1–3:
-//   - Clean fresh project passes (exit 0)
-//   - Broken lockfile fails on lockfile-sync (exit 1)
-//   - Malformed SKILL.md fails on lint (exit 1)
-//
-// Phase 3 (separate commit) will wire --json, --global, and the real
-// registry-reachability check. For now reachability is a `skip` stub so
-// the surface is honestly labeled.
+// Phase 2 shipped text mode + exit codes + acceptance criteria 1–3.
+// Phase 3 adds --json, --global, and the real registry-reachability
+// check (with a 5s git ls-remote timeout). The read-only invariant is
+// asserted by test fixtures in `tests/commands/doctor.test.ts`.
 //
 // Spec: docs/specs/doctor.md.
 
+import { type LsRemoteOutcome, lsRemote } from "../core/git.js";
 import { diffManifestLockfile, readLockfile } from "../core/lockfile.js";
-import { loadManifestOrThrow, validateManifest } from "../core/manifest.js";
+import { loadManifestOrThrow, validateGlobalManifest, validateManifest } from "../core/manifest.js";
+import { listRegistries } from "../core/registry-config.js";
 import { dim, pc } from "../core/ui.js";
 import type { CheckResult, CheckStatus, CheckSummary, Manifest } from "../types.js";
 import { collectCheckIssues } from "./check.js";
 import { resolveTargets } from "./targets.js";
 
+/**
+ * Probe used by the registry-reachability check. Tests inject a synchronous
+ * mock so they never hit the network; production uses `lsRemote` from
+ * `src/core/git.ts`. Spec D9.
+ */
+export type ReachabilityProbe = (url: string) => Promise<LsRemoteOutcome>;
+
 export interface DoctorOptions {
-	/** Reserved for Phase 3. */
+	/** Emit JSON instead of the human-readable text table. Spec D2. */
 	json?: boolean;
-	/** Reserved for Phase 3. */
+	/** Run against the global manifest. Skips lockfile + target-consistency. Spec D2. */
 	global?: boolean;
+	/** Override path to the global manifest directory (testing). */
+	globalDir?: string;
+	/** Override path to the registries config file (testing). */
+	registryConfigPath?: string;
+	/** Override the network probe (testing). */
+	probe?: ReachabilityProbe;
 }
 
 export interface DoctorReport {
@@ -35,21 +46,22 @@ export interface DoctorReport {
  * No printing, no `process.exit`. Tests call this directly.
  *
  * Each check is wrapped so an unexpected exception inside one check becomes
- * a `fail` row instead of aborting the whole command (spec D-error-handling).
+ * a `fail` row instead of aborting the whole command (spec error-handling).
  */
-export async function runDoctor(dir: string, _opts?: DoctorOptions): Promise<DoctorReport> {
-	// Manifest is the input to almost every check. Load it once; if it fails
-	// to load, every dependent check short-circuits to `fail`.
+export async function runDoctor(dir: string, opts: DoctorOptions = {}): Promise<DoctorReport> {
+	const isGlobal = opts.global === true;
+	const probe = opts.probe ?? lsRemote;
+
 	let manifest: Manifest | null = null;
 	let manifestLoadError: string | undefined;
 	try {
-		manifest = await loadManifestOrThrow(dir);
+		manifest = await loadManifestOrThrow(dir, { global: isGlobal, globalDir: opts.globalDir });
 	} catch (err) {
 		manifestLoadError = err instanceof Error ? err.message : String(err);
 	}
 
 	const checks: CheckResult[] = [];
-	checks.push(checkManifestSchema(manifest, manifestLoadError));
+	checks.push(checkManifestSchema(manifest, manifestLoadError, isGlobal));
 
 	// Single `collectCheckIssues` call; share its result between the lint and
 	// frontmatter rows. Both rows summarize different facets of the same scan.
@@ -64,21 +76,26 @@ export async function runDoctor(dir: string, _opts?: DoctorOptions): Promise<Doc
 	}
 
 	checks.push(checkLint(summary, lintError, manifest));
-	checks.push(await checkLockfileSync(manifest, dir));
-	checks.push(await checkTargetConsistency(manifest));
-	checks.push(checkRegistryReachabilityStub());
+	checks.push(await checkLockfileSync(manifest, dir, isGlobal));
+	checks.push(await checkTargetConsistency(manifest, isGlobal));
+	checks.push(await checkRegistryReachability(probe, opts.registryConfigPath));
 	checks.push(checkFrontmatter(summary, lintError, manifest));
 
 	return { checks, summary: tallyStatuses(checks) };
 }
 
 /**
- * CLI wrapper. Calls `runDoctor`, renders to stdout, then exits 1 if any
- * check failed. Warnings do NOT affect exit code (spec D20–D21).
+ * CLI wrapper. Calls `runDoctor`, renders to stdout (text or JSON), then
+ * exits 1 if any check failed. Warnings do NOT affect exit code (spec D20–D21).
+ * Exit codes are identical between text and JSON modes (spec D22).
  */
-export async function doctorCommand(dir: string, opts?: DoctorOptions): Promise<void> {
+export async function doctorCommand(dir: string, opts: DoctorOptions = {}): Promise<void> {
 	const report = await runDoctor(dir, opts);
-	renderDoctor(report);
+	if (opts.json) {
+		renderDoctorJson(report);
+	} else {
+		renderDoctor(report);
+	}
 	if (report.summary.fail > 0) {
 		process.exit(1);
 	}
@@ -91,6 +108,7 @@ export async function doctorCommand(dir: string, opts?: DoctorOptions): Promise<
 function checkManifestSchema(
 	manifest: Manifest | null,
 	loadError: string | undefined,
+	isGlobal: boolean,
 ): CheckResult {
 	if (loadError !== undefined) {
 		return { name: "manifest-schema", status: "fail", detail: loadError };
@@ -98,7 +116,7 @@ function checkManifestSchema(
 	if (!manifest) {
 		return { name: "manifest-schema", status: "fail", detail: "manifest is empty" };
 	}
-	const errors = validateManifest(manifest);
+	const errors = isGlobal ? validateGlobalManifest(manifest) : validateManifest(manifest);
 	if (errors.length === 0) {
 		return { name: "manifest-schema", status: "pass" };
 	}
@@ -131,7 +149,14 @@ function checkLint(
 	};
 }
 
-async function checkLockfileSync(manifest: Manifest | null, dir: string): Promise<CheckResult> {
+async function checkLockfileSync(
+	manifest: Manifest | null,
+	dir: string,
+	isGlobal: boolean,
+): Promise<CheckResult> {
+	if (isGlobal) {
+		return { name: "lockfile-sync", status: "skip", detail: "global mode" };
+	}
 	if (!manifest) {
 		return { name: "lockfile-sync", status: "skip", detail: "no manifest" };
 	}
@@ -171,7 +196,13 @@ async function checkLockfileSync(manifest: Manifest | null, dir: string): Promis
 	}
 }
 
-async function checkTargetConsistency(manifest: Manifest | null): Promise<CheckResult> {
+async function checkTargetConsistency(
+	manifest: Manifest | null,
+	isGlobal: boolean,
+): Promise<CheckResult> {
+	if (isGlobal) {
+		return { name: "target-consistency", status: "skip", detail: "global mode" };
+	}
 	if (!manifest) {
 		return { name: "target-consistency", status: "skip", detail: "no manifest" };
 	}
@@ -202,13 +233,50 @@ async function checkTargetConsistency(manifest: Manifest | null): Promise<CheckR
 	}
 }
 
-function checkRegistryReachabilityStub(): CheckResult {
-	// Phase 3 replaces with a real `git ls-remote` per configured registry.
-	return {
-		name: "registry-reachability",
-		status: "skip",
-		detail: "deferred to phase 3",
-	};
+/**
+ * Spec D9: `git ls-remote` each configured registry with a 5s timeout.
+ * Warns (never fails) on unreachable / auth-required / timeout — the user
+ * may be offline or on a registry that requires SSH keys they haven't set
+ * up, and neither blocks publishing.
+ *
+ * `--global` mode still runs this check: registries live in
+ * `~/.skilltree/config.yaml` regardless of the manifest scope.
+ */
+async function checkRegistryReachability(
+	probe: ReachabilityProbe,
+	configPath: string | undefined,
+): Promise<CheckResult> {
+	try {
+		const registries = await listRegistries(configPath);
+		if (registries.length === 0) {
+			return {
+				name: "registry-reachability",
+				status: "pass",
+				detail: "no registries configured",
+			};
+		}
+		const warnings: string[] = [];
+		for (const reg of registries) {
+			const outcome = await probe(reg.repo);
+			if (!outcome.ok) {
+				warnings.push(`${reg.name} (${outcome.reason})`);
+			}
+		}
+		if (warnings.length === 0) {
+			return { name: "registry-reachability", status: "pass" };
+		}
+		return {
+			name: "registry-reachability",
+			status: "warn",
+			detail: warnings.join(", "),
+		};
+	} catch (err) {
+		return {
+			name: "registry-reachability",
+			status: "fail",
+			detail: err instanceof Error ? err.message : String(err),
+		};
+	}
 }
 
 function checkFrontmatter(
@@ -309,4 +377,17 @@ export function renderDoctor(report: DoctorReport): void {
 	const summary = parts.join(", ");
 	const glyph = fail > 0 ? pc.red("✘") : pc.yellow("⚠");
 	console.log(`${glyph} doctor: ${summary}`);
+}
+
+/**
+ * Render the report as JSON per spec D16–D19. Stable kebab-case `name`
+ * values; `detail` / `fix` omitted when absent. Exit codes identical to
+ * text mode (spec D22) — this function only writes; the caller (CLI)
+ * sets the exit.
+ *
+ * `JSON.stringify` naturally omits `undefined` fields, satisfying D19
+ * without per-field tweaking.
+ */
+export function renderDoctorJson(report: DoctorReport): void {
+	console.log(JSON.stringify(report, null, 2));
 }
