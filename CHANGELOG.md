@@ -1,3 +1,9 @@
+## v0.28.0 (2026-05-17)
+
+### Feat
+
+- **check**: lint local SKILL.md / agent / command frontmatter (#96)
+
 ## v0.27.6 (2026-05-17)
 
 ### Fix
