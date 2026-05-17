@@ -20,6 +20,8 @@ Commands:
   update [options] [name]       Update dependencies to latest versions
   outdated [options] [name]     Preview which deps have newer versions available
                                 (read-only)
+  projects [options]            List skilltree-managed projects discoverable on
+                                this machine (read-only)
   remove [options] <name>       Remove a dependency
   verify [options]              Verify installed dependencies against lockfile
   check [options]               Lint the project's skilltree.yml for design-time
@@ -130,6 +132,18 @@ Options:
   --check       Exit 1 if any drift exists (CI-friendly)
   -g, --global  Show global deps
   -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`projects --help\` is stable 1`] = `
+"Usage: skilltree projects [options]
+
+List skilltree-managed projects discoverable on this machine (read-only)
+
+Options:
+  --root <path>  Search root (default: $HOME)
+  --json         Output results as JSON
+  -h, --help     display help for command
 "
 `;
 

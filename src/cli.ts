@@ -13,6 +13,7 @@ import { initCommand } from "./commands/init.js";
 import { installCommand } from "./commands/install.js";
 import { listCommand } from "./commands/list.js";
 import { outdatedCommand } from "./commands/outdated.js";
+import { projectsCommand } from "./commands/projects.js";
 import {
 	registryAddCommand,
 	registryInitCommand,
@@ -141,6 +142,18 @@ export function buildProgram(): Command {
 				json: opts.json,
 				check: opts.check,
 				global: opts.global,
+			});
+		});
+
+	program
+		.command("projects")
+		.description("List skilltree-managed projects discoverable on this machine (read-only)")
+		.option("--root <path>", "Search root (default: $HOME)")
+		.option("--json", "Output results as JSON")
+		.action(async (opts) => {
+			await projectsCommand({
+				root: opts.root,
+				json: opts.json,
 			});
 		});
 

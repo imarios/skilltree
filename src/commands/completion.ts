@@ -116,6 +116,14 @@ const COMMANDS: CmdDef[] = [
 		],
 	},
 	{
+		name: "projects",
+		description: "List skilltree-managed projects discoverable on this machine (read-only)",
+		flags: [
+			{ long: "--root", description: "Search root (default: $HOME)" },
+			{ long: "--json", description: "Output results as JSON" },
+		],
+	},
+	{
 		name: "remove",
 		description: "Remove a dependency",
 		positionalComplete: "deps",

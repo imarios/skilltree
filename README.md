@@ -317,6 +317,7 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `skilltree remove <name>` | Remove a dependency |
 | `skilltree verify` | Check installed files against lockfile |
 | `skilltree list` | List installed dependencies |
+| `skilltree projects` | List skilltree-managed projects discoverable on this machine (read-only) |
 | `skilltree deps tree` | Show dependency tree |
 | `skilltree why <name>` | Reverse-lookup which top-level dep pulled in `<name>` |
 | `skilltree scan <paths...>` | Detect undeclared deps in skill body text |
