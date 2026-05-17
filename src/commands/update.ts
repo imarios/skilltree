@@ -42,16 +42,19 @@ async function updateAll(
 ): Promise<void> {
 	console.log(`Updating all ${isGlobal ? "global " : ""}dependencies...`);
 
-	// Delete lockfile to force full re-resolution
-	try {
-		if (isGlobal) {
-			const { path } = resolveGlobalLockfilePath(globalDir);
-			await rm(path);
-		} else {
-			await rm(`${dir}/skilltree.lock`);
+	// Delete lockfile to force full re-resolution.
+	// Skipped under --dry-run so we don't mutate state during a preview.
+	if (!dryRun) {
+		try {
+			if (isGlobal) {
+				const { path } = resolveGlobalLockfilePath(globalDir);
+				await rm(path);
+			} else {
+				await rm(`${dir}/skilltree.lock`);
+			}
+		} catch {
+			// No lockfile
 		}
-	} catch {
-		// No lockfile
 	}
 
 	await installCommand(dir, {
@@ -89,22 +92,32 @@ async function selectiveUpdate(
 		throw new Error(`"${name}" is not in ${isGlobal ? GLOBAL_MANIFEST : MANIFEST_NEW}.`);
 	}
 
-	// Clear lockfile entries for this dep (and same-repo siblings)
+	// Clear lockfile entries for this dep (and same-repo siblings).
+	// Under --dry-run we only count what would be cleared; we do not mutate
+	// the in-memory lockfile or write it back.
 	const targetRepo = isRemoteDependency(dep) ? dep.repo : undefined;
 	let removedCount = 0;
 	for (const [key, entry] of Object.entries(lockfile.packages)) {
 		if (key === name || (targetRepo && entry.repo === targetRepo)) {
-			delete lockfile.packages[key];
+			if (!dryRun) {
+				delete lockfile.packages[key];
+			}
 			removedCount++;
 		}
 	}
 
-	if (isGlobal) {
-		await writeGlobalLockfile(lockfile, globalDir);
-	} else {
-		await writeLockfile(dir, lockfile);
+	if (!dryRun) {
+		if (isGlobal) {
+			await writeGlobalLockfile(lockfile, globalDir);
+		} else {
+			await writeLockfile(dir, lockfile);
+		}
 	}
-	console.log(dim(`Cleared ${removedCount} lockfile entries for re-resolution.`));
+	console.log(
+		dim(
+			`${dryRun ? "Would clear" : "Cleared"} ${removedCount} lockfile entries for re-resolution.`,
+		),
+	);
 
 	await installCommand(dir, {
 		dryRun,

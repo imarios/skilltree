@@ -89,4 +89,42 @@ describe("updateCommand extended", () => {
 		const lockfile = parseLockfile(lockContent);
 		expect(lockfile.packages["my-skill"]).toBeDefined();
 	});
+
+	test("update --dry-run (all) does not delete the lockfile", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
+		);
+		await installCommand(dir, {});
+
+		const before = await readFile(join(dir, "skilltree.lock"), "utf-8");
+
+		// Bare update --dry-run should preview without touching the lockfile
+		await updateCommand(dir, undefined, { dryRun: true });
+
+		const after = await readFile(join(dir, "skilltree.lock"), "utf-8");
+		expect(after).toBe(before);
+	});
+
+	test("update <name> --dry-run does not clear lockfile entries", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
+		);
+		await installCommand(dir, {});
+
+		const before = await readFile(join(dir, "skilltree.lock"), "utf-8");
+		const beforeParsed = parseLockfile(before);
+		expect(beforeParsed.packages["my-skill"]).toBeDefined();
+
+		// Selective update --dry-run must not clear the entry
+		await updateCommand(dir, "my-skill", { dryRun: true });
+
+		const after = await readFile(join(dir, "skilltree.lock"), "utf-8");
+		expect(after).toBe(before);
+	});
 });
