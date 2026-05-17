@@ -1,3 +1,9 @@
+## v0.31.0 (2026-05-17)
+
+### Feat
+
+- **new**: scaffold new skill/agent/command with valid frontmatter (#112)
+
 ## v0.30.0 (2026-05-17)
 
 ### Feat
