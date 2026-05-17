@@ -7,11 +7,30 @@ import { resolveAll } from "../core/graph.js";
 import { loadManifestOrThrow } from "../core/manifest.js";
 import { expandTilde } from "../core/paths.js";
 import { dim, pc, warn } from "../core/ui.js";
-import type { Dependency, EntityType, Manifest } from "../types.js";
+import type { CheckSummary, Dependency, EntityType, Manifest } from "../types.js";
 import { isLocalDependency } from "../types.js";
 
 export interface CheckOptions {
 	strict?: boolean;
+}
+
+/**
+ * Pure-data form of the `check` lint pass. Used by `checkCommand` (which
+ * prints) and by `skilltree doctor` (which routes results into its
+ * structured table). Returns warnings and notes separately so callers can
+ * route them to the right output channel — notes never gate `--strict`.
+ *
+ * Spec: docs/specs/doctor.md §D6, §D10. Nitrogen Phase 1.
+ */
+export async function collectCheckIssues(manifest: Manifest, dir: string): Promise<CheckSummary> {
+	const result = await resolveAll(manifest, dir);
+	const lint = lintAsymmetricPublish(result.entities);
+	const frontmatter = await lintLocalFrontmatter(manifest, dir);
+	return {
+		lint,
+		frontmatterWarnings: frontmatter.warnings,
+		frontmatterNotes: frontmatter.notes,
+	};
 }
 
 /**
@@ -26,22 +45,19 @@ export interface CheckOptions {
  */
 export async function checkCommand(dir: string, opts: CheckOptions = {}): Promise<void> {
 	const manifest = await loadManifestOrThrow(dir);
-	const result = await resolveAll(manifest, dir);
+	const summary = await collectCheckIssues(manifest, dir);
 
-	const warnings = lintAsymmetricPublish(result.entities);
-	const frontmatter = await lintLocalFrontmatter(manifest, dir);
-
-	for (const w of warnings) {
+	for (const w of summary.lint) {
 		warn(w);
 	}
-	for (const w of frontmatter.warnings) {
+	for (const w of summary.frontmatterWarnings) {
 		warn(w);
 	}
-	for (const n of frontmatter.notes) {
+	for (const n of summary.frontmatterNotes) {
 		console.log(dim(`  ${n}`));
 	}
 
-	const issueCount = warnings.length + frontmatter.warnings.length;
+	const issueCount = summary.lint.length + summary.frontmatterWarnings.length;
 	if (issueCount === 0) {
 		console.log(pc.green("✔ No issues."));
 		return;
