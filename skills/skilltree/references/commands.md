@@ -296,14 +296,16 @@ skilltree registry index --check   # Exit 1 if stale (CI mode)
 Copy all dependencies as real files (no symlinks) for git commit. Enables distribution without upstream repo access.
 
 ```bash
-skilltree vendor              # Copy all deps, set vendor: true
-skilltree vendor --frozen     # Use lockfile only
-skilltree vendor --dry-run    # Show plan without making changes
+skilltree vendor                # Copy all deps, set vendor: true
+skilltree vendor --frozen       # Use lockfile only
+skilltree vendor --dry-run      # Show plan without making changes
+skilltree vendor --target codex # Pick a target when install_targets has 2+ entries
 ```
 
 **Flags:**
 - `--frozen` — Use lockfile only, error if out of sync
 - `-n, --dry-run` — Show plan without writing files
+- `--target <name>` — Select an install target by its raw `install_targets` entry (e.g. `claude`, `codex`). Required when the manifest has multiple targets configured; rejected on legacy `dev_install_path` manifests.
 
 Sets `vendor: true` in `skilltree.yml` and removes `.claude/skills/` and `.claude/agents/` from `.gitignore`.
 
@@ -312,12 +314,14 @@ Sets `vendor: true` in `skilltree.yml` and removes `.claude/skills/` and `.claud
 Exit vendor mode. Deletes vendored files and restores `.gitignore`.
 
 ```bash
-skilltree unvendor           # Errors if vendored files were modified
-skilltree unvendor --force   # Discard modifications and unvendor
+skilltree unvendor                # Errors if vendored files were modified
+skilltree unvendor --force        # Discard modifications and unvendor
+skilltree unvendor --target codex # Pick a target when install_targets has 2+ entries
 ```
 
 **Flags:**
 - `-f, --force` — Discard modified vendored files without error
+- `--target <name>` — Select an install target by its raw `install_targets` entry. Required when the manifest has multiple targets configured.
 
 Checks integrity of vendored files before deleting. If any were modified, errors with a list of changed files. Use `--force` to discard changes, or `skilltree vendor` to overwrite with fresh copies first.
 

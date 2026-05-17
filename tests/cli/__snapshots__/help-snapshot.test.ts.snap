@@ -191,9 +191,12 @@ exports[`CLI help snapshots \`vendor --help\` is stable 1`] = `
 Copy all deps as real files for git commit (distribution mode)
 
 Options:
-  --frozen       Use lockfile only, error if out of sync
-  -n, --dry-run  Show plan without making changes
-  -h, --help     display help for command
+  --frozen         Use lockfile only, error if out of sync
+  -n, --dry-run    Show plan without making changes
+  --target <name>  Select install target by raw install_targets entry (e.g.
+                   claude, codex). Required when multiple targets are
+                   configured.
+  -h, --help       display help for command
 "
 `;
 
@@ -203,9 +206,12 @@ exports[`CLI help snapshots \`unvendor --help\` is stable 1`] = `
 Exit vendor mode, restore normal symlinked installs
 
 Options:
-  -f, --force    Discard modified vendored files
-  -n, --dry-run  Show what would happen without making changes
-  -h, --help     display help for command
+  -f, --force      Discard modified vendored files
+  -n, --dry-run    Show what would happen without making changes
+  --target <name>  Select install target by raw install_targets entry (e.g.
+                   claude, codex). Required when multiple targets are
+                   configured.
+  -h, --help       display help for command
 "
 `;
 
