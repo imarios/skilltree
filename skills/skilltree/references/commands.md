@@ -48,6 +48,36 @@ skilltree add testing --dev --repo github.com/org/shared-skills --path skills/te
 - `--registry <name>` — When no `--repo`, resolve from this registry only (disambiguates multiple matches)
 - `-g, --global` — Add to global dependencies (~/.skilltree/global.yaml)
 
+## `skilltree new`
+
+Scaffold a new skill, agent, or command at the conventional path with valid frontmatter, then auto-register it as a local dependency.
+
+```bash
+# Subcommand form
+skilltree new skill my-skill           # writes skills/my-skill/SKILL.md
+skilltree new agent my-agent           # writes agents/my-agent.md
+skilltree new command my-command       # writes commands/my-command.md
+
+# --type form (equivalent)
+skilltree new my-skill --type skill
+
+# Scaffold only — don't touch the manifest
+skilltree new skill my-skill --no-register
+
+# Register under dev-dependencies
+skilltree new skill testing-helpers --dev
+```
+
+**Flags:**
+- `-D, --dev` — Register as dev-dependency
+- `--no-register` — Scaffold only; skip the implicit `add --local`
+- `-t, --type <skill|agent|command>` — Entity type (alternative to the subcommand form)
+
+**Behavior:**
+- Refuses to overwrite an existing file at the target path
+- After scaffolding, runs the equivalent of `skilltree add <name> --local <path> --type <type>`
+- Names must start with a letter or digit and contain only letters, digits, hyphens, and underscores
+
 ## `skilltree install`
 
 Resolve dependencies and install them.

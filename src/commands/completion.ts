@@ -85,6 +85,21 @@ const COMMANDS: CmdDef[] = [
 		],
 	},
 	{
+		name: "new",
+		description: "Scaffold a new skill, agent, or command with valid frontmatter",
+		flags: [
+			{ long: "--dev", short: "-D", description: "Register as dev-dependency" },
+			{ long: "--no-register", description: "Scaffold only; skip the implicit add --local" },
+			{
+				long: "--type",
+				short: "-t",
+				description: "Entity type (alternative to the subcommand form)",
+				takesArg: true,
+				valueComplete: "types",
+			},
+		],
+	},
+	{
 		name: "install",
 		description: "Resolve and install dependencies",
 		flags: [
