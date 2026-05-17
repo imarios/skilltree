@@ -586,3 +586,153 @@ describe("addCommand on a legacy .yaml manifest", () => {
 		);
 	});
 });
+
+describe("addCommand — --repo URL verification (#71)", () => {
+	test("calls lsRemoteFn for --repo deps and stays silent on reachable URL", async () => {
+		const dir = await setup();
+		const calls: string[] = [];
+		await addCommand(
+			"foo",
+			{
+				repo: "github.com/example/skills",
+				path: "skills/foo",
+				lsRemoteFn: async (url) => {
+					calls.push(url);
+					return { ok: true };
+				},
+			},
+			dir,
+		);
+		expect(calls).toContain("github.com/example/skills");
+		// Dep still added on success.
+		const manifest = await readManifest(dir);
+		expect(manifest.dependencies?.foo).toBeDefined();
+	});
+
+	test("warns but still writes the entry when URL is unreachable", async () => {
+		const dir = await setup();
+		const warnings: string[] = [];
+		const originalWarn = console.warn;
+		console.warn = (msg: string) => warnings.push(msg);
+		try {
+			await addCommand(
+				"unreach",
+				{
+					repo: "github.com/nope/nope",
+					path: "skills/unreach",
+					lsRemoteFn: async () => ({
+						ok: false,
+						reason: "unreachable",
+						detail: "could not resolve host",
+					}),
+				},
+				dir,
+			);
+		} finally {
+			console.warn = originalWarn;
+		}
+
+		// Entry written despite the probe failure — the URL might come back up,
+		// or the user might be authoring offline.
+		const manifest = await readManifest(dir);
+		expect(manifest.dependencies?.unreach).toBeDefined();
+		// Warning surfaces so the user knows the install will fail until the URL is fixed.
+		expect(warnings.some((w) => /unreach|could not reach|unreachable/i.test(w))).toBe(true);
+	});
+
+	test("emits a soft note (not a warning) on auth failure — proceeds anyway", async () => {
+		const dir = await setup();
+		const warnings: string[] = [];
+		const originalWarn = console.warn;
+		console.warn = (msg: string) => warnings.push(msg);
+		try {
+			await addCommand(
+				"private",
+				{
+					repo: "github.com/private/repo",
+					path: "skills/private",
+					lsRemoteFn: async () => ({
+						ok: false,
+						reason: "auth",
+						detail: "Authentication failed",
+					}),
+				},
+				dir,
+			);
+		} finally {
+			console.warn = originalWarn;
+		}
+
+		// Auth-required is normal for private repos; not a warning, just a note.
+		expect(warnings).toEqual([]);
+		const manifest = await readManifest(dir);
+		expect(manifest.dependencies?.private).toBeDefined();
+	});
+
+	test("emits a soft note on timeout — proceeds anyway", async () => {
+		const dir = await setup();
+		const warnings: string[] = [];
+		const originalWarn = console.warn;
+		console.warn = (msg: string) => warnings.push(msg);
+		try {
+			await addCommand(
+				"slow",
+				{
+					repo: "github.com/slow/repo",
+					path: "skills/slow",
+					lsRemoteFn: async () => ({
+						ok: false,
+						reason: "timeout",
+						detail: "timed out after 5000ms",
+					}),
+				},
+				dir,
+			);
+		} finally {
+			console.warn = originalWarn;
+		}
+		expect(warnings).toEqual([]);
+		const manifest = await readManifest(dir);
+		expect(manifest.dependencies?.slow).toBeDefined();
+	});
+
+	test("--no-verify (noVerify: true) skips the probe entirely", async () => {
+		const dir = await setup();
+		let probeCalled = false;
+		await addCommand(
+			"skipped",
+			{
+				repo: "github.com/whatever/repo",
+				path: "skills/skipped",
+				noVerify: true,
+				lsRemoteFn: async () => {
+					probeCalled = true;
+					return { ok: true };
+				},
+			},
+			dir,
+		);
+		expect(probeCalled).toBe(false);
+		const manifest = await readManifest(dir);
+		expect(manifest.dependencies?.skipped).toBeDefined();
+	});
+
+	test("does not probe local deps", async () => {
+		const dir = await setup();
+		await writeFile(join(dir, "local-skill.md"), "---\nname: local\n---\n");
+		let probeCalled = false;
+		await addCommand(
+			"local",
+			{
+				local: "./local-skill.md",
+				type: "agent",
+				lsRemoteFn: async () => {
+					probeCalled = true;
+					return { ok: true };
+				},
+			},
+			dir,
+		);
+		expect(probeCalled).toBe(false);
+	});
+});

@@ -113,6 +113,8 @@ Options:
   --registry <name>           Resolve from this registry (when no --repo)
   -g, --global                Add to global dependencies
   -y, --yes                   Skip the glob-mode confirmation prompt
+  --no-verify                 Skip git ls-remote reachability check on --repo
+                              URLs
   -h, --help                  display help for command
 "
 `;

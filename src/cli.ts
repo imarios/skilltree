@@ -100,8 +100,13 @@ export function buildProgram(): Command {
 		.option("--registry <name>", "Resolve from this registry (when no --repo)")
 		.option("-g, --global", "Add to global dependencies")
 		.option("-y, --yes", "Skip the glob-mode confirmation prompt")
+		.option("--no-verify", "Skip git ls-remote reachability check on --repo URLs")
 		.action(async (name: string, opts) => {
-			await addCommand(name, opts, process.cwd());
+			// Commander turns `--no-verify` into `opts.verify === false`. Translate
+			// to the `noVerify` flag the command expects so the rest of the option
+			// surface stays consistent with `--no-register` / `--no-X` idioms used
+			// elsewhere.
+			await addCommand(name, { ...opts, noVerify: opts.verify === false }, process.cwd());
 		});
 
 	// `new` accepts two equivalent forms:

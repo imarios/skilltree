@@ -3,6 +3,7 @@ import { createInterface } from "node:readline/promises";
 import semver from "semver";
 import { canonicalSource } from "../core/deps.js";
 import { MANIFEST_NEW } from "../core/filenames.js";
+import { type LsRemoteOutcome, lsRemote } from "../core/git.js";
 import { loadManifestOrThrow, writeGlobalManifest, writeManifest } from "../core/manifest.js";
 import { collapseTilde, expandTilde, getGlobalDir } from "../core/paths.js";
 import { loadFreshRegistryIndex } from "../core/registry-cache.js";
@@ -29,6 +30,13 @@ export interface AddOptions {
 	global?: boolean;
 	/** Skip the glob-mode confirmation prompt. */
 	yes?: boolean;
+	/**
+	 * Skip the `git ls-remote` reachability probe on `--repo` deps. Issue #71 —
+	 * the probe catches typo'd / unreachable URLs at add-time, but the user
+	 * may want to bypass it (offline, intermittent network, intentionally
+	 * pre-registering a not-yet-pushed repo).
+	 */
+	noVerify?: boolean;
 	// Test overrides (avoid touching real ~/.skilltree/)
 	configPath?: string;
 	cacheDir?: string;
@@ -37,6 +45,13 @@ export interface AddOptions {
 	askFn?: (question: string) => Promise<string>;
 	/** Test hook: override TTY detection. Defaults to process.stdout.isTTY. */
 	isInteractive?: boolean;
+	/**
+	 * Test hook: substitute the `git ls-remote` probe. Defaults to the real
+	 * `lsRemote` in non-test env, or a no-op in `NODE_ENV=test` to keep
+	 * existing tests off the network. Inject this in tests that want to
+	 * exercise the verification code path.
+	 */
+	lsRemoteFn?: (url: string, opts: { timeoutMs: number }) => Promise<LsRemoteOutcome>;
 }
 
 export async function addCommand(name: string, opts: AddOptions, dir: string): Promise<void> {
@@ -46,6 +61,7 @@ export async function addCommand(name: string, opts: AddOptions, dir: string): P
 	}
 	validateAddFlags(opts);
 	const dep = await buildDependency(name, opts, dir);
+	await verifyRepoIfNeeded(dep, opts);
 
 	const globalDir = opts.globalDir ?? getGlobalDir();
 	const manifest = await loadManifestOrThrow(dir, { global: opts.global, globalDir });
@@ -74,6 +90,45 @@ export async function addCommand(name: string, opts: AddOptions, dir: string): P
 	success(`Added ${name} to ${group}${opts.global ? " (global)" : ""}`);
 	const installCmd = opts.global ? "skilltree install --global" : "skilltree install";
 	console.log(dim(`  Run \`${installCmd}\` to install.`));
+}
+
+/**
+ * Probe a `--repo` dep with `git ls-remote` so typos / unreachable URLs
+ * surface at add-time instead of at install-time. Issue #71. Always
+ * proceeds with the write — the probe is advisory, not gating:
+ *
+ *   - reachable      → silent
+ *   - unreachable    → warning (probably a typo, install will fail)
+ *   - auth required  → soft note (normal for private repos)
+ *   - timeout/other  → soft note (transient or non-standard transport)
+ *
+ * Skipped for `--no-verify`, for non-`repo` deps (local + source-alias
+ * resolve their URL later), and in `NODE_ENV=test` unless the test
+ * explicitly injects an `lsRemoteFn`.
+ */
+async function verifyRepoIfNeeded(dep: Dependency, opts: AddOptions): Promise<void> {
+	if (opts.noVerify === true) return;
+	if (!("repo" in dep) || !dep.repo) return;
+	// Tests opt in by providing lsRemoteFn; bare tests skip the network probe.
+	if (opts.lsRemoteFn === undefined && process.env.NODE_ENV === "test") return;
+	const probe = opts.lsRemoteFn ?? lsRemote;
+	const outcome = await probe(dep.repo, { timeoutMs: 5000 });
+	if (outcome.ok) return;
+	if (outcome.reason === "unreachable") {
+		warn(
+			`could not reach ${dep.repo} (${outcome.detail}). Entry added, but install will fail unless the URL is correct.`,
+		);
+		return;
+	}
+	if (outcome.reason === "auth") {
+		console.log(dim(`  note: ${dep.repo} requires authentication — skipping verification.`));
+		return;
+	}
+	if (outcome.reason === "timeout") {
+		console.log(dim(`  note: verification timed out (${outcome.detail}) — skipping.`));
+		return;
+	}
+	console.log(dim(`  note: verification skipped (${outcome.detail}).`));
 }
 
 /** A literal `*` or `?` in a name signals user-intent glob expansion (Issue #14). */
