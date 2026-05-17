@@ -1,3 +1,9 @@
+## v0.30.0 (2026-05-17)
+
+### Feat
+
+- **projects**: add `skilltree projects` read-only inspection command (#111)
+
 ## v0.29.3 (2026-05-17)
 
 ### Refactor
