@@ -1,3 +1,9 @@
+## v0.28.1 (2026-05-17)
+
+### Fix
+
+- **info**: fall through to lockfile/manifest for installed deps (#98)
+
 ## v0.28.0 (2026-05-17)
 
 ### Feat
