@@ -1,3 +1,9 @@
+## v0.29.3 (2026-05-17)
+
+### Refactor
+
+- **ui**: extract shared printTable helper for list/outdated (#105)
+
 ## v0.29.2 (2026-05-17)
 
 ### Fix
