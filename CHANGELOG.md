@@ -1,3 +1,9 @@
+## v0.27.3 (2026-05-17)
+
+### Fix
+
+- **vendor**: register & forward --target, fix error vocabulary (#69) (#88)
+
 ## v0.27.2 (2026-05-17)
 
 ### Fix
