@@ -1,3 +1,10 @@
+## v0.29.0 (2026-05-17)
+
+### Feat
+
+- **why**: add `skilltree why <name>` reverse-lookup command (#100)
+- **outdated**: add read-only outdated command (closes #79) (#99)
+
 ## v0.28.1 (2026-05-17)
 
 ### Fix
