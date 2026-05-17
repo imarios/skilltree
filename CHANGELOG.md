@@ -1,3 +1,9 @@
+## v0.27.6 (2026-05-17)
+
+### Fix
+
+- **init**: stop silently enrolling every detected agent (#95)
+
 ## v0.27.5 (2026-05-17)
 
 ### Fix
