@@ -2,7 +2,7 @@ import { MANIFEST_NEW, manifestExists } from "../core/filenames.js";
 import { readGlobalLockfile, readLockfile } from "../core/lockfile.js";
 import { readManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
-import { dim, pc } from "../core/ui.js";
+import { type ColumnDef, dim, pc, printTable } from "../core/ui.js";
 import type { Lockfile } from "../types.js";
 
 export interface ListOptions {
@@ -94,47 +94,29 @@ function buildRows(lockfile: Lockfile): ListRow[] {
 	});
 }
 
-function printGlobalTable(rows: ListRow[]): void {
-	const widths = {
-		name: Math.max(4, ...rows.map((r) => r.name.length)),
-		type: Math.max(4, ...rows.map((r) => r.type.length)),
-		version: Math.max(7, ...rows.map((r) => r.version.length)),
-		source: Math.max(6, ...rows.map((r) => r.source.length)),
-	};
+// Shared column definitions. `dim` and `pc.green` etc. read like CSS classes —
+// the helper applies them per data cell and leaves the header bold.
+const NAME_COL: ColumnDef<ListRow> = { header: "Name", value: (r) => r.name, color: pc.cyan };
+const TYPE_COL: ColumnDef<ListRow> = { header: "Type", value: (r) => r.type, color: dim };
+const VERSION_COL: ColumnDef<ListRow> = {
+	header: "Version",
+	value: (r) => r.version,
+	color: pc.green,
+};
+const SOURCE_COL: ColumnDef<ListRow> = { header: "Source", value: (r) => r.source, color: dim };
 
-	console.log(
-		pc.bold(
-			`${"Name".padEnd(widths.name)}  ${"Type".padEnd(widths.type)}  ${"Version".padEnd(widths.version)}  Source`,
-		),
-	);
-	console.log(dim("-".repeat(widths.name + widths.type + widths.version + widths.source + 6)));
-	for (const row of rows) {
-		console.log(
-			`${pc.cyan(row.name.padEnd(widths.name))}  ${dim(row.type.padEnd(widths.type))}  ${pc.green(row.version.padEnd(widths.version))}  ${dim(row.source)}`,
-		);
-	}
+function printGlobalTable(rows: ListRow[]): void {
+	printTable(rows, [NAME_COL, TYPE_COL, VERSION_COL, SOURCE_COL]);
 }
 
 async function printProjectTable(rows: ListRow[], dir: string, globalDir: string): Promise<void> {
-	const widths = {
-		name: Math.max(4, ...rows.map((r) => r.name.length)),
-		type: Math.max(4, ...rows.map((r) => r.type.length)),
-		group: Math.max(5, ...rows.map((r) => r.group.length)),
-		version: Math.max(7, ...rows.map((r) => r.version.length)),
-		source: Math.max(6, ...rows.map((r) => r.source.length)),
-	};
-
-	const hdr = `${"Name".padEnd(widths.name)}  ${"Type".padEnd(widths.type)}  ${"Group".padEnd(widths.group)}  ${"Version".padEnd(widths.version)}  Source`;
-
-	console.log(pc.bold(hdr));
-	console.log(
-		dim("-".repeat(widths.name + widths.type + widths.group + widths.version + widths.source + 8)),
-	);
-	for (const row of rows) {
-		console.log(
-			`${pc.cyan(row.name.padEnd(widths.name))}  ${dim(row.type.padEnd(widths.type))}  ${dim(row.group.padEnd(widths.group))}  ${pc.green(row.version.padEnd(widths.version))}  ${dim(row.source)}`,
-		);
-	}
+	printTable(rows, [
+		NAME_COL,
+		TYPE_COL,
+		{ header: "Group", value: (r) => r.group, color: dim },
+		VERSION_COL,
+		SOURCE_COL,
+	]);
 
 	// Vendor mode indicator
 	try {
