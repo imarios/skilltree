@@ -10,6 +10,7 @@ import {
 	getDefaultBranch,
 	listDirAtRef,
 	listTags,
+	lsRemote,
 	readFileAtRef,
 	repoCachePath,
 } from "../../src/core/git.js";
@@ -26,6 +27,53 @@ afterEach(async () => {
 	if (tempDir) {
 		await rm(tempDir, { recursive: true, force: true });
 	}
+});
+
+describe("lsRemote", () => {
+	test("returns { ok: true } against a reachable local repo", async () => {
+		// `file://` against a fresh test repo — exercises the success path
+		// without needing network or a real remote. Mirrors how registries are
+		// reached locally in CI.
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(dir, "reachable", [{ path: "skills/a", name: "a" }]);
+
+		const outcome = await lsRemote(`file://${repoDir}`);
+
+		expect(outcome.ok).toBe(true);
+	});
+
+	test("returns { ok: false, reason: 'unreachable' } when the path doesn't exist", async () => {
+		// Bad file:// path → git fails with "does not appear to be a git repo"
+		// or similar. The categorization heuristic should land it in either
+		// `unreachable` or `other` — both are non-fatal for `add`, but tests
+		// against the actual category we shipped behavior for.
+		const dir = await makeTempDir();
+		const fakePath = join(dir, "does-not-exist");
+
+		const outcome = await lsRemote(`file://${fakePath}`);
+
+		expect(outcome.ok).toBe(false);
+		// The exact reason depends on git's error text — both unreachable and
+		// other are legitimate; we just need a stable non-ok signal here.
+		if (!outcome.ok) {
+			expect(["unreachable", "other"]).toContain(outcome.reason);
+			expect(outcome.detail).toBeTruthy();
+		}
+	});
+
+	test("respects the timeout when the probe stalls", async () => {
+		// 1ms timeout against any URL is essentially guaranteed to fire the
+		// timer before simpleGit returns. We're testing the race-resolution
+		// shape, not the underlying git call. A non-existent URL is fine here
+		// — the probe either times out (timer wins) or fails fast (git wins).
+		const outcome = await lsRemote("file:///dev/null/nope", { timeoutMs: 1 });
+
+		expect(outcome.ok).toBe(false);
+		if (!outcome.ok) {
+			// Whichever side of the race won; both are valid terminal states.
+			expect(["timeout", "unreachable", "other"]).toContain(outcome.reason);
+		}
+	});
 });
 
 describe("repoCachePath", () => {

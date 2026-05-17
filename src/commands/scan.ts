@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { entityNameFromPath, mdFileType } from "../core/entity-type.js";
+import { getSkillAgentIgnoreEntriesForTarget } from "../core/gitignore.js";
 import { readGlobalManifest, readManifest } from "../core/manifest.js";
 import type { ScanResult } from "../core/scanner.js";
 import { applyToFrontmatter, scanFiles, scanFileWithLlm } from "../core/scanner.js";
@@ -66,6 +68,45 @@ async function buildKnownEntities(
 }
 
 /**
+ * Build the default scan path list from the project's install targets when
+ * the user runs `skilltree scan` with no positional. Issue #125 — typing
+ * out `.claude/skills .claude/agents ...` every time was clumsy and
+ * required users to know the install layout of each enrolled agent.
+ *
+ * Resolves each `install_targets` entry through the agent registry (so
+ * codex → `.agents/`, copilot → `.github/`, etc. land correctly) and
+ * filters to paths that actually exist on disk — listing dirs that
+ * haven't been created yet would just produce noisy "no files found"
+ * output.
+ */
+async function defaultScanPaths(): Promise<string[]> {
+	const cwd = process.cwd();
+	let manifest: Awaited<ReturnType<typeof readManifest>>;
+	try {
+		manifest = await readManifest(cwd);
+	} catch {
+		throw new Error(
+			"No skilltree.yml found in the current directory. Run `skilltree init` first, or pass explicit paths (e.g. `skilltree scan .claude/skills`).",
+		);
+	}
+	const seen = new Set<string>();
+	const paths: string[] = [];
+	for (const target of manifest.install_targets ?? []) {
+		for (const entry of getSkillAgentIgnoreEntriesForTarget(target)) {
+			// `.claude/skills/` → `.claude/skills`. Trailing-slash stripping keeps
+			// `readdir`/`stat` happy (they don't care, but the display in error
+			// messages is cleaner without it).
+			const dir = entry.replace(/\/$/, "");
+			if (seen.has(dir)) continue;
+			seen.add(dir);
+			const abs = join(cwd, dir);
+			if (existsSync(abs)) paths.push(abs);
+		}
+	}
+	return paths;
+}
+
+/**
  * Collect names the scanner should treat as already-known, beyond the
  * hardcoded `BUILTIN_HARNESS_COMMANDS` set. Unions the project manifest's
  * `scan.ignore` with the global manifest's, ignoring missing manifests
@@ -92,8 +133,9 @@ async function loadExtraIgnores(): Promise<Set<string>> {
 }
 
 export async function scanCommand(paths: string[], options: ScanOptions): Promise<void> {
+	const effectivePaths = paths.length > 0 ? paths : await defaultScanPaths();
 	const allFiles: string[] = [];
-	for (const p of paths) {
+	for (const p of effectivePaths) {
 		const files = await collectMdFiles(p);
 		allFiles.push(...files);
 	}

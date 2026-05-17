@@ -11,6 +11,7 @@ skilltree init --global     # Global manifest (~/.skilltree/global.yaml)
 
 **Flags:**
 - `-g, --global` — Initialize global dependencies instead of project
+- `-f, --force` — Overwrite an existing `skilltree.yml` (works on legacy `.yaml` too)
 
 Creates `skilltree.yml` with project name from directory, adds `.claude/skills/` and `.claude/agents/` to `.gitignore`.
 
@@ -47,6 +48,11 @@ skilltree add testing --dev --repo github.com/org/shared-skills --path skills/te
 - `-t, --type <skill|agent|command>` — Override type inference (commands install to `.claude/commands/`)
 - `--registry <name>` — When no `--repo`, resolve from this registry only (disambiguates multiple matches)
 - `-g, --global` — Add to global dependencies (~/.skilltree/global.yaml)
+- `--no-verify` — Skip the `git ls-remote` reachability check on `--repo` URLs (offline / pre-registering an unpushed repo)
+
+**Validation:**
+- For `--repo <url>`: probes the URL with `git ls-remote` (5s timeout). Unreachable URLs warn but still write the entry; auth-required URLs print a soft note. Use `--no-verify` to skip the probe.
+- For `--source <alias>`: must be an alias name registered under the manifest's `sources:` block. URLs are refused — use `--repo` for direct URLs.
 
 ## `skilltree new`
 
@@ -75,6 +81,7 @@ skilltree new skill testing-helpers --dev
 
 **Behavior:**
 - Refuses to overwrite an existing file at the target path
+- Requires `skilltree.yml` in the current dir (unless `--no-register`) — fails fast without writing any files when missing
 - After scaffolding, runs the equivalent of `skilltree add <name> --local <path> --type <type>`
 - Names must start with a letter or digit and contain only letters, digits, hyphens, and underscores
 
@@ -289,17 +296,20 @@ skilltree why bar --global          # inspect global lockfile
 - `--json` — Output paths as JSON
 - `-g, --global` — Inspect the global lockfile
 
-## `skilltree scan <paths...>`
+## `skilltree scan [paths...]`
 
 Detect undeclared dependencies in skill body text using regex patterns.
 
 ```bash
-skilltree scan ./skills/                    # Scan all skills
-skilltree scan --check ./skills/            # Pre-commit mode (exit 1 if gaps)
-skilltree scan --apply ./skills/            # Auto-update frontmatter
-skilltree scan --llm ./skills/              # LLM-assisted deep scan
-skilltree scan --json ./skills/             # Machine-readable output
+skilltree scan                              # Scan the project's install-target dirs (.claude/skills, etc.)
+skilltree scan ./skills/                    # Scan an explicit path
+skilltree scan --check                      # Pre-commit mode (exit 1 if gaps)
+skilltree scan --apply                      # Auto-update frontmatter
+skilltree scan --llm                        # LLM-assisted deep scan
+skilltree scan --json                       # Machine-readable output
 ```
+
+With no `<paths>`, scans the project's resolved install-target directories (e.g. `.claude/skills`, `.claude/agents`, `.claude/commands`, plus equivalents for codex/cursor/gemini). Requires `skilltree.yml`. Pass explicit paths to scan elsewhere.
 
 **Flags:**
 - `--check` — Exit 1 if undeclared deps found (pre-commit safe)

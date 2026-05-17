@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { initCommand } from "../../src/commands/init.js";
 import { classifyEntityFile, scanCommand } from "../../src/commands/scan.js";
 import type { EntityType } from "../../src/types.js";
 
@@ -38,6 +39,57 @@ function captureConsole(): { logs: string[]; restore: () => void } {
 	console.log = (...args: unknown[]) => logs.push(args.join(" "));
 	return { logs, restore: () => (console.log = originalLog) };
 }
+
+describe("scanCommand — default paths from install targets (#125)", () => {
+	test("with no positional paths, scans the project's install-target directories", async () => {
+		// Seed an installed-shape skill under .claude/ (the default target) with
+		// an undeclared body reference. The scan should pick it up without the
+		// user having to spell out the dirs.
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "empty-home");
+		await mkdir(fakeHome, { recursive: true });
+		await initCommand(dir, { homeDir: fakeHome });
+
+		// Body references "obscure-helper-xyz" — not declared in frontmatter and
+		// not in any ignore list — so it should surface as undeclared.
+		await createSkill(
+			join(dir, ".claude/skills"),
+			"auto-scan-me",
+			[],
+			"This skill calls the obscure-helper-xyz skill to do its work.",
+		);
+
+		const cwd = process.cwd();
+		process.chdir(dir);
+		const { logs, restore } = captureConsole();
+		try {
+			await scanCommand([], {});
+		} finally {
+			restore();
+			process.chdir(cwd);
+		}
+
+		const output = logs.join("\n");
+		// Two signals that the default-paths code path ran: the file was
+		// discovered (no "No .md files found"), and the undeclared dep surfaced.
+		expect(output).not.toContain("No .md files found");
+		expect(output).toContain("auto-scan-me");
+	});
+
+	test("with no positional paths and no manifest, errors clearly", async () => {
+		// Without a manifest there's nothing to derive defaults from. Surface a
+		// clear actionable error instead of a generic "missing argument" or a
+		// silent "no .md files found".
+		const dir = await makeTempDir();
+		const cwd = process.cwd();
+		process.chdir(dir);
+		try {
+			await expect(scanCommand([], {})).rejects.toThrow(/skilltree\.yml|paths/i);
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+});
 
 describe("scanCommand", () => {
 	test("reports no files found for empty directory", async () => {

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -127,6 +128,39 @@ describe("initCommand", () => {
 		await mkdir(fakeHome, { recursive: true });
 		await writeFile(join(dir, "skilltree.yaml"), "name: legacy\ndependencies: {}\n");
 		await expect(initCommand(dir, { homeDir: fakeHome })).rejects.toThrow(/skilltree\.yaml/);
+	});
+
+	test("--force overwrites an existing skilltree.yml without prompting (#126)", async () => {
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "empty-home");
+		await mkdir(fakeHome, { recursive: true });
+		// Seed an existing manifest with content we can detect after overwrite.
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			"name: old\ndependencies:\n  marker: { local: ./x }\n",
+		);
+
+		await initCommand(dir, { homeDir: fakeHome, force: true });
+
+		const manifest = await readManifest(dir);
+		// New manifest replaces the old one — the marker dep is gone.
+		expect(manifest.dependencies?.marker).toBeUndefined();
+		expect(manifest.name).not.toBe("old");
+	});
+
+	test("--force also overwrites a legacy .yaml manifest (#126)", async () => {
+		// --force should clear whichever existing manifest is on disk, not just
+		// the canonical .yml — otherwise legacy projects can't re-init.
+		const dir = await makeTempDir();
+		const fakeHome = join(dir, "empty-home");
+		await mkdir(fakeHome, { recursive: true });
+		await writeFile(join(dir, "skilltree.yaml"), "name: legacy\ndependencies: {}\n");
+
+		await initCommand(dir, { homeDir: fakeHome, force: true });
+
+		// After --force, only the canonical .yml should remain; the legacy file is gone.
+		expect(existsSync(join(dir, "skilltree.yml"))).toBe(true);
+		expect(existsSync(join(dir, "skilltree.yaml"))).toBe(false);
 	});
 
 	test("--scan with --yes registers discovered skills and agents as local deps", async () => {

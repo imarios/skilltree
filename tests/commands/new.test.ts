@@ -263,6 +263,34 @@ describe("`new` CLI handler — argument sniffing errors", () => {
 	});
 });
 
+describe("newCommand — no skilltree.yml (#120)", () => {
+	test("fails fast without writing files when no manifest exists", async () => {
+		// In a dir without skilltree.yml, the registration step would fail
+		// downstream — but only after the file was already written, leaving an
+		// orphan on disk. Fail-fast keeps the FS clean.
+		const dir = await mkdtemp(join(tmpdir(), "skilltree-new-orphan-"));
+		try {
+			await expect(newCommand("skill", "orphan", {}, dir)).rejects.toThrow(/no skilltree\.yml/i);
+			expect(existsSync(join(dir, "skills", "orphan", "SKILL.md"))).toBe(false);
+			expect(existsSync(join(dir, "skills", "orphan"))).toBe(false);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("--no-register still works without a manifest (scaffold-only mode)", async () => {
+		// The user explicitly opted out of manifest registration, so absence
+		// of skilltree.yml is fine — they just want the template.
+		const dir = await mkdtemp(join(tmpdir(), "skilltree-new-scaffold-only-"));
+		try {
+			await newCommand("skill", "scaffold-only", { register: false }, dir);
+			expect(existsSync(join(dir, "skills", "scaffold-only", "SKILL.md"))).toBe(true);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+});
+
 describe("newCommand — CLI parity (subcommand form vs --type)", () => {
 	test("--type produces the same scaffold as the subcommand form", async () => {
 		// We invoke newCommand directly with the type argument here — both CLI

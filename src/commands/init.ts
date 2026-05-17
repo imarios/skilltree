@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { rm, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { detectInstalledAgents, resolveTarget } from "../core/agents.js";
@@ -38,6 +38,12 @@ export interface InitOptions {
 	scan?: boolean;
 	yes?: boolean;
 	/**
+	 * Overwrite an existing manifest non-interactively. Issue #126 — CI scripts
+	 * and automation can't re-initialize a project without manually deleting
+	 * the manifest first.
+	 */
+	force?: boolean;
+	/**
 	 * Explicit install targets (from repeatable `--target` flag). When set,
 	 * detection is bypassed entirely — the user has already told us what they want.
 	 * Issue #74.
@@ -67,13 +73,22 @@ export async function initCommand(dir: string, options?: InitOptions): Promise<v
 	// actually wanted `targets add` or `targets detect`. Issue #74 (Friction A).
 	const existing = findExistingManifest(dir);
 	if (existing) {
-		throw new Error(
-			`${existing} already exists.\n` +
-				`  To add a coding agent to this project, run:\n` +
-				`    skilltree targets add <agent>      (e.g. claude, codex)\n` +
-				`    skilltree targets detect           (auto-add any newly-installed agents)\n` +
-				`  To start fresh, remove ${existing} first.`,
-		);
+		if (options?.force) {
+			// --force: clear the existing manifest so the rest of initCommand
+			// can proceed as if starting fresh. We remove the actual on-disk
+			// file (which may be `.yaml`, not just the canonical `.yml`) so a
+			// legacy project's re-init lands on `.yml` cleanly.
+			await rm(`${dir}/${existing}`);
+		} else {
+			throw new Error(
+				`${existing} already exists.\n` +
+					`  To add a coding agent to this project, run:\n` +
+					`    skilltree targets add <agent>      (e.g. claude, codex)\n` +
+					`    skilltree targets detect           (auto-add any newly-installed agents)\n` +
+					`  To overwrite, re-run with --force.\n` +
+					`  To start fresh manually, remove ${existing} first.`,
+			);
+		}
 	}
 
 	const installTargets = await selectInstallTargets(options);

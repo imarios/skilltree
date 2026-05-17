@@ -56,6 +56,7 @@ const COMMANDS: CmdDef[] = [
 				short: "-y",
 				description: "Include all discovered entries without prompting",
 			},
+			{ long: "--force", short: "-f", description: "Overwrite an existing skilltree.yml" },
 		],
 	},
 	{
@@ -82,6 +83,7 @@ const COMMANDS: CmdDef[] = [
 				valueComplete: "registries",
 			},
 			{ long: "--global", short: "-g", description: "Add to global dependencies" },
+			{ long: "--no-verify", description: "Skip git ls-remote check on --repo URLs" },
 		],
 	},
 	{

@@ -71,6 +71,7 @@ export function buildProgram(): Command {
 			"-y, --yes",
 			"Skip prompts: include all discovered scan entries and enrol all detected agents",
 		)
+		.option("-f, --force", "Overwrite an existing skilltree.yml")
 		.option(
 			"--target <name>",
 			"Explicit install target (skips detection). Repeat for multiple, e.g. --target claude --target codex",
@@ -81,6 +82,7 @@ export function buildProgram(): Command {
 				global: opts.global,
 				scan: opts.scan,
 				yes: opts.yes,
+				force: opts.force,
 				targets: opts.target,
 			});
 		});
@@ -98,8 +100,14 @@ export function buildProgram(): Command {
 		.option("--registry <name>", "Resolve from this registry (when no --repo)")
 		.option("-g, --global", "Add to global dependencies")
 		.option("-y, --yes", "Skip the glob-mode confirmation prompt")
+		.option("--no-verify", "Skip git ls-remote reachability check on --repo URLs")
 		.action(async (name: string, opts) => {
-			await addCommand(name, opts, process.cwd());
+			// Commander turns `--no-verify` into `opts.verify === false`. Translate
+			// to the `noVerify` flag the command expects so the option surface
+			// stays consistent with the `--no-X` idiom; drop the `verify` key so
+			// it doesn't ride along on AddOptions as a stray field.
+			const { verify: _verify, ...rest } = opts;
+			await addCommand(name, { ...rest, noVerify: opts.verify === false }, process.cwd());
 		});
 
 	// `new` accepts two equivalent forms:
@@ -268,8 +276,13 @@ export function buildProgram(): Command {
 		});
 
 	program
-		.command("scan <paths...>")
-		.description("Scan skills, agents, and commands for undeclared dependencies")
+		.command("scan [paths...]")
+		.description(
+			"Scan skills, agents, and commands for undeclared dependencies\n\n" +
+				"With no <paths>, scans the project's install-target directories " +
+				"(`.claude/skills`, etc.) derived from skilltree.yml. Pass explicit " +
+				"paths to scan elsewhere.",
+		)
 		.option("--check", "Exit 1 if undeclared deps found (pre-commit mode)")
 		.option("--apply", "Auto-update frontmatter with detected deps (regex only)")
 		.option("--llm", "Use LLM for deep dependency detection (requires ANTHROPIC_API_KEY)")
