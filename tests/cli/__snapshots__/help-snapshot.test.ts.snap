@@ -40,8 +40,14 @@ Commands:
 
                                      Lifecycle: new → check → doctor → git tag
   list [options]                     List installed dependencies
-  scan [options] <paths...>          Scan skills, agents, and commands for
+  scan [options] [paths...]          Scan skills, agents, and commands for
                                      undeclared dependencies
+
+                                     With no <paths>, scans the project's
+                                     install-target directories
+                                     (\`.claude/skills\`, etc.) derived from
+                                     skilltree.yml. Pass explicit paths to scan
+                                     elsewhere.
   teach [options]                    Install the skilltree skill to all detected
                                      coding agents
   vendor [options]                   Copy all deps as real files for git commit
@@ -249,9 +255,13 @@ Options:
 `;
 
 exports[`CLI help snapshots \`scan --help\` is stable 1`] = `
-"Usage: skilltree scan [options] <paths...>
+"Usage: skilltree scan [options] [paths...]
 
 Scan skills, agents, and commands for undeclared dependencies
+
+With no <paths>, scans the project's install-target directories
+(\`.claude/skills\`, etc.) derived from skilltree.yml. Pass explicit paths to scan
+elsewhere.
 
 Options:
   --check     Exit 1 if undeclared deps found (pre-commit mode)

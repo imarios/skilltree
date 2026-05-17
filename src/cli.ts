@@ -270,8 +270,13 @@ export function buildProgram(): Command {
 		});
 
 	program
-		.command("scan <paths...>")
-		.description("Scan skills, agents, and commands for undeclared dependencies")
+		.command("scan [paths...]")
+		.description(
+			"Scan skills, agents, and commands for undeclared dependencies\n\n" +
+				"With no <paths>, scans the project's install-target directories " +
+				"(`.claude/skills`, etc.) derived from skilltree.yml. Pass explicit " +
+				"paths to scan elsewhere.",
+		)
 		.option("--check", "Exit 1 if undeclared deps found (pre-commit mode)")
 		.option("--apply", "Auto-update frontmatter with detected deps (regex only)")
 		.option("--llm", "Use LLM for deep dependency detection (requires ANTHROPIC_API_KEY)")
