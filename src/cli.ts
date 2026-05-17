@@ -71,6 +71,7 @@ export function buildProgram(): Command {
 			"-y, --yes",
 			"Skip prompts: include all discovered scan entries and enrol all detected agents",
 		)
+		.option("-f, --force", "Overwrite an existing skilltree.yml")
 		.option(
 			"--target <name>",
 			"Explicit install target (skips detection). Repeat for multiple, e.g. --target claude --target codex",
@@ -81,6 +82,7 @@ export function buildProgram(): Command {
 				global: opts.global,
 				scan: opts.scan,
 				yes: opts.yes,
+				force: opts.force,
 				targets: opts.target,
 			});
 		});

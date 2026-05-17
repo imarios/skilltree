@@ -84,6 +84,7 @@ Options:
                    register them as local deps
   -y, --yes        Skip prompts: include all discovered scan entries and enrol
                    all detected agents
+  -f, --force      Overwrite an existing skilltree.yml
   --target <name>  Explicit install target (skips detection). Repeat for
                    multiple, e.g. --target claude --target codex
   -h, --help       display help for command
