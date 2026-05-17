@@ -696,6 +696,41 @@ describe("addCommand — --repo URL verification (#71)", () => {
 		expect(manifest.dependencies?.slow).toBeDefined();
 	});
 
+	test("emits a soft note on the catch-all 'other' reason — proceeds anyway", async () => {
+		// Any outcome shape we don't explicitly classify lands in the `other`
+		// branch — exotic transport errors, unusual stderr text, etc.
+		const dir = await setup();
+		const warnings: string[] = [];
+		const logs: string[] = [];
+		const originalWarn = console.warn;
+		const originalLog = console.log;
+		console.warn = (msg: string) => warnings.push(msg);
+		console.log = (msg: string) => logs.push(msg);
+		try {
+			await addCommand(
+				"exotic",
+				{
+					repo: "github.com/exotic/repo",
+					path: "skills/exotic",
+					lsRemoteFn: async () => ({
+						ok: false,
+						reason: "other",
+						detail: "weird stderr message",
+					}),
+				},
+				dir,
+			);
+		} finally {
+			console.warn = originalWarn;
+			console.log = originalLog;
+		}
+		// No console.warn — this is a quieter signal than `unreachable`.
+		expect(warnings).toEqual([]);
+		expect(logs.some((l) => /verification skipped|weird stderr/i.test(l))).toBe(true);
+		const manifest = await readManifest(dir);
+		expect(manifest.dependencies?.exotic).toBeDefined();
+	});
+
 	test("--no-verify (noVerify: true) skips the probe entirely", async () => {
 		const dir = await setup();
 		let probeCalled = false;
