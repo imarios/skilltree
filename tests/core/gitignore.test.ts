@@ -1,9 +1,23 @@
 import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AGENT_REGISTRY } from "../../src/core/agents.js";
 import {
 	getSkillAgentIgnoreEntries,
 	getSkillAgentIgnoreEntriesForTarget,
+	removeGitignoreEntries,
 } from "../../src/core/gitignore.js";
+
+async function withTempDir(fn: (dir: string) => Promise<void>) {
+	const dir = await mkdtemp(join(tmpdir(), "skilltree-gitignore-"));
+	try {
+		await fn(dir);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+}
 
 describe("getSkillAgentIgnoreEntries", () => {
 	test("strips trailing slash and emits skills/agents/commands entries", () => {
@@ -67,5 +81,47 @@ describe("getSkillAgentIgnoreEntriesForTarget", () => {
 				expect(ig.startsWith(`${entry.dir}/`)).toBe(true);
 			}
 		}
+	});
+});
+
+describe("removeGitignoreEntries", () => {
+	test("deletes .gitignore when removing the last meaningful entry", async () => {
+		await withTempDir(async (dir) => {
+			await writeFile(
+				join(dir, ".gitignore"),
+				".claude/skills/\n.claude/agents/\n.claude/commands/\n",
+				"utf-8",
+			);
+
+			const removed = await removeGitignoreEntries(dir, [
+				".claude/skills/",
+				".claude/agents/",
+				".claude/commands/",
+			]);
+
+			expect(removed).toEqual([".claude/skills/", ".claude/agents/", ".claude/commands/"]);
+			expect(existsSync(join(dir, ".gitignore"))).toBe(false);
+		});
+	});
+
+	test("deletes .gitignore when only comments and blanks remain", async () => {
+		await withTempDir(async (dir) => {
+			await writeFile(join(dir, ".gitignore"), "# skilltree entries\n\n.claude/skills/\n", "utf-8");
+
+			await removeGitignoreEntries(dir, [".claude/skills/"]);
+
+			expect(existsSync(join(dir, ".gitignore"))).toBe(false);
+		});
+	});
+
+	test("keeps unrelated entries after removing managed entries", async () => {
+		await withTempDir(async (dir) => {
+			await writeFile(join(dir, ".gitignore"), "node_modules/\n.claude/skills/\n", "utf-8");
+
+			const removed = await removeGitignoreEntries(dir, [".claude/skills/"]);
+
+			expect(removed).toEqual([".claude/skills/"]);
+			expect(await readFile(join(dir, ".gitignore"), "utf-8")).toBe("node_modules/\n");
+		});
 	});
 });

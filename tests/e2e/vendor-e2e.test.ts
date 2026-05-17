@@ -89,9 +89,7 @@ describe("vendor e2e", () => {
 
 		await vendorCommand(dir, {});
 
-		const gitignore = await readFile(join(dir, ".gitignore"), "utf-8");
-		expect(gitignore).not.toContain(".claude/skills/");
-		expect(gitignore).not.toContain(".claude/agents/");
+		expect(existsSync(join(dir, ".gitignore"))).toBe(false);
 	});
 
 	test("vendor --dry-run makes no changes", async () => {
@@ -159,7 +157,10 @@ describe("vendor e2e", () => {
 
 		const skillPath = join(dir, ".claude", "skills", "my-skill");
 		expect(existsSync(skillPath)).toBe(true);
-		const gitignoreBefore = await readFile(join(dir, ".gitignore"), "utf-8");
+		const gitignorePath = join(dir, ".gitignore");
+		const gitignoreBefore = existsSync(gitignorePath)
+			? await readFile(gitignorePath, "utf-8")
+			: null;
 
 		// Capture stdout so we can assert dry-run advertised itself
 		const logs: string[] = [];
@@ -179,7 +180,9 @@ describe("vendor e2e", () => {
 		expect(manifest.vendor).toBe(true);
 
 		// .gitignore unchanged
-		const gitignoreAfter = await readFile(join(dir, ".gitignore"), "utf-8");
+		const gitignoreAfter = existsSync(gitignorePath)
+			? await readFile(gitignorePath, "utf-8")
+			: null;
 		expect(gitignoreAfter).toBe(gitignoreBefore);
 
 		const output = logs.join("\n");
