@@ -373,4 +373,50 @@ describe("removeCommand", () => {
 		await expect(stat(join(installBase, "skills", "parent"))).rejects.toThrow();
 		await expect(stat(join(installBase, "skills", "child"))).rejects.toThrow();
 	});
+
+	// Regression: issue #102. Orphan detection walks `entry.dependencies`
+	// (entity names) but indexes by `lockfile.packages[key]` (YAML alias).
+	// When a transitive child is aliased, the walk fails to mark it reachable
+	// and the orphan sweeper silently deletes a still-needed entry.
+	test("does not orphan an aliased transitive that's kept alive only by a sibling root (issue #102)", async () => {
+		const dir = await setup();
+		await addCommand("unrelated", { repo: "github.com/user/repo", path: "skills/unrelated" }, dir);
+		// `pc` is NOT in the manifest — it's a pure transitive of task-builder,
+		// reachable only via the entity name `python-coding`. This is exactly
+		// the case where the orphan-walk's name-vs-key lookup goes wrong.
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			[
+				"dependencies:",
+				"  unrelated:",
+				"    repo: github.com/user/repo",
+				"    path: skills/unrelated",
+				"  task-builder:",
+				"    repo: github.com/user/repo",
+				"    path: skills/task-builder",
+				"",
+			].join("\n"),
+		);
+		await writeFile(
+			join(dir, "skilltree.lock"),
+			[
+				"lockfile_version: 1",
+				"packages:",
+				"  unrelated: {type: skill, group: prod, repo: github.com/user/repo, path: skills/unrelated, version: 1.0.0, commit: abc, dependencies: []}",
+				"  pc: {type: skill, group: prod, repo: github.com/user/repo, path: skills/pc, version: 1.0.0, commit: abc, name: python-coding, dependencies: []}",
+				"  task-builder: {type: skill, group: prod, repo: github.com/user/repo, path: skills/task-builder, version: 1.0.0, commit: abc, dependencies: [python-coding]}",
+				"",
+			].join("\n"),
+		);
+
+		// Remove the unrelated dep. `pc` is still kept alive by `task-builder`
+		// (transitively, via the name `python-coding`). It must NOT be swept
+		// as an orphan.
+		await removeCommand("unrelated", dir, { force: true });
+
+		const lockfile = await readLockfile(dir);
+		expect(lockfile?.packages.pc).toBeDefined();
+		expect(lockfile?.packages["task-builder"]).toBeDefined();
+		expect(lockfile?.packages.unrelated).toBeUndefined();
+	});
 });
