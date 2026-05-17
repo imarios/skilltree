@@ -40,7 +40,10 @@ repos:
     hooks:
       - id: auto-setup-on-bump
         name: Auto-setup after version bump
-        entry: bash -c 'PREV=$(git diff HEAD@{1} HEAD -- package.json | grep "^-.*\"version\"" | sed "s/.*\"\([0-9][^\"]*\)\".*/\1/"); CURR=$(grep "\"version\"" package.json | head -1 | sed "s/.*\"\([0-9][^\"]*\)\".*/\1/"); if [ -n "$PREV" ] && [ "$PREV" != "$CURR" ]; then echo "Version changed $PREV → $CURR, running make setup..."; make setup; fi'
+        # Calls `make setup-bump` (not `make setup`) so a transient failure in
+        # the contributor's *personal* global manifest doesn't leave the
+        # bumped binary uninstalled. See issue #92.
+        entry: bash -c 'PREV=$(git diff HEAD@{1} HEAD -- package.json | grep "^-.*\"version\"" | sed "s/.*\"\([0-9][^\"]*\)\".*/\1/"); CURR=$(grep "\"version\"" package.json | head -1 | sed "s/.*\"\([0-9][^\"]*\)\".*/\1/"); if [ -n "$PREV" ] && [ "$PREV" != "$CURR" ]; then echo "Version changed $PREV → $CURR, running make setup-bump..."; make setup-bump; fi'
         language: system
         stages: [post-merge]
         always_run: true

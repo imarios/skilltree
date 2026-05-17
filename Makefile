@@ -1,5 +1,5 @@
 BUN := $(HOME)/.bun/bin/bun
-.PHONY: help install test lint format typecheck check build clean dev setup release eval eval-llm demo gh-demo
+.PHONY: help install test lint format typecheck check build clean dev setup setup-bump release eval eval-llm demo gh-demo
 .DEFAULT_GOAL := help
 
 help: ## Show available targets
@@ -47,14 +47,21 @@ setup: build ## Build and install binary + skill + completions
 	@mkdir -p $(HOME)/.skilltree/bin $(HOME)/.skilltree/completions
 	@rm -f $(HOME)/.skilltree/bin/skilltree
 	@cp dist/skilltree $(HOME)/.skilltree/bin/skilltree
-	@$(BUN) run src/cli.ts teach > /dev/null
+	@# Issue #92: skip `teach` on the post-merge bump path. `teach` resolves
+	@# the contributor's *personal* global manifest, so transient failures
+	@# there would otherwise leave the bumped binary uninstalled.
+	@if [ -z "$(SKILTREE_SKIP_TEACH)" ]; then $(BUN) run src/cli.ts teach > /dev/null; fi
 	@$(BUN) run src/cli.ts completion zsh > $(HOME)/.skilltree/completions/_skilltree
 	@$(BUN) run src/cli.ts completion bash > $(HOME)/.skilltree/completions/skilltree.bash
 	@echo ""
 	@echo "  \033[1mskilltree v$$(grep '"version"' package.json | head -1 | sed 's/.*"\([0-9][^"]*\)".*/\1/') installed\033[0m"
 	@echo ""
 	@echo "  \033[32m✔\033[0m Binary     → ~/.skilltree/bin/skilltree"
-	@echo "  \033[32m✔\033[0m Skill      → ~/.claude/skills/skilltree/"
+	@if [ -z "$(SKILTREE_SKIP_TEACH)" ]; then \
+		echo "  \033[32m✔\033[0m Skill      → ~/.claude/skills/skilltree/"; \
+	else \
+		echo "  \033[33m·\033[0m Skill      → not refreshed (run \`make setup\` to refresh global skill)"; \
+	fi
 	@echo "  \033[32m✔\033[0m Completions → ~/.skilltree/completions/"
 	@echo ""
 	@if echo "$$PATH" | grep -q "$(HOME)/.skilltree/bin"; then \
@@ -86,6 +93,9 @@ setup: build ## Build and install binary + skill + completions
 	@echo "  To seed community registries:"
 	@echo "    \033[36mskilltree registry init\033[0m"
 	@echo ""
+
+setup-bump: ## Post-bump variant of setup: binary + completions only, skips `teach` (used by post-merge hook; see issue #92)
+	@$(MAKE) setup SKILTREE_SKIP_TEACH=1
 
 demo: ## Record demo GIF + MP4 locally (no publish)
 	@command -v vhs >/dev/null || (echo "Error: vhs not installed. Run: brew install vhs"; exit 1)
