@@ -119,7 +119,11 @@ git commit -m "bump python-coding to 2.2.0"
 ```yaml
 # skilltree.yml
 name: my-bootstrap-project
+install_targets:
+  - claude
+  - codex
 vendor: true                          # set by skilltree vendor/unvendor
+vendored_target: codex                # set by skilltree vendor --target
 
 dependencies:
   python-coding:
@@ -131,6 +135,13 @@ dependencies:
 ```
 
 `vendor:` is a boolean, default `false`. Set automatically by `skilltree vendor` and `skilltree unvendor`. Can be set manually.
+
+`vendored_target:` records which `install_targets` entry was used the last time `skilltree vendor` ran. `skilltree unvendor` consults it to clean up the directory that was actually vendored — without it, a `--target` typo could silently no-op while still flipping `vendor: false`. Two rules:
+
+- `unvendor` (no `--target`) uses the recorded target. On a multi-target manifest, the user no longer has to repeat what skilltree already knows.
+- `unvendor --target Y` where Y disagrees with the recorded target hard-errors. The actually-vendored directory stays untouched.
+
+Legacy manifests with `vendor: true` and no `vendored_target:` (single-target, `dev_install_path`, or hand-edited) still work — `unvendor` falls back to the original resolution rules.
 
 ## How Each Dep Type Is Vendored
 
