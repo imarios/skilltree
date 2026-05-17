@@ -54,16 +54,44 @@ interface ListRow {
 	group: string;
 	version: string;
 	source: string;
+	/** Resolved commit SHA — present for remote deps, omitted for `source: local`. */
+	commit?: string;
+}
+
+/** Short SHA convention used elsewhere in the codebase (see graph.ts install warnings). */
+const SHORT_SHA_LEN = 7;
+
+/**
+ * Display label for a lockfile entry's version column.
+ *
+ * Falls back to `@<short-sha>` for unpinned remote deps (issue #76) so users
+ * still see a meaningful identifier instead of a bare `-`. Local deps keep
+ * their `"local"` label; the literal `"-"` only appears when neither version
+ * nor commit is recorded.
+ */
+function versionLabel(entry: Lockfile["packages"][string]): string {
+	if (entry.version !== undefined) return entry.version;
+	if (entry.source === "local") return "local";
+	if (entry.commit) return `@${entry.commit.slice(0, SHORT_SHA_LEN)}`;
+	return "-";
 }
 
 function buildRows(lockfile: Lockfile): ListRow[] {
-	return Object.entries(lockfile.packages).map(([key, entry]) => ({
-		name: entry.name ?? key,
-		type: entry.type,
-		group: entry.group,
-		version: entry.version ?? (entry.source === "local" ? "local" : "-"),
-		source: entry.source === "local" ? entry.path : (entry.repo ?? "-"),
-	}));
+	return Object.entries(lockfile.packages).map(([key, entry]) => {
+		const row: ListRow = {
+			name: entry.name ?? key,
+			type: entry.type,
+			group: entry.group,
+			version: versionLabel(entry),
+			source: entry.source === "local" ? entry.path : (entry.repo ?? "-"),
+		};
+		// Surface the full commit for non-local entries so `--json` consumers
+		// can resolve unpinned deps without re-parsing the lockfile (issue #76).
+		if (entry.source !== "local" && entry.commit) {
+			row.commit = entry.commit;
+		}
+		return row;
+	});
 }
 
 function printGlobalTable(rows: ListRow[]): void {

@@ -134,4 +134,58 @@ describe("listCommand extended", () => {
 		expect(logs.some((l) => l.includes("2.1.3"))).toBe(true);
 		expect(logs.some((l) => l.includes("github.com/org/skills"))).toBe(true);
 	});
+
+	test("unpinned remote dep shows @<short-sha> instead of '-' (issue #76)", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-"));
+		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
+		await writeFile(
+			join(tempDir, "skilltree.lock"),
+			"lockfile_version: 1\npackages:\n  unpinned-skill:\n    type: skill\n    group: prod\n    repo: github.com/org/skills\n    path: skills/unpinned-skill\n    commit: a56045e1234567890abcdef0123456789abcdef0\n    dependencies: []\n",
+		);
+
+		const { logs, restore } = captureConsole();
+		try {
+			await listCommand(tempDir);
+		} finally {
+			restore();
+		}
+		// Should surface the commit SHA, not a literal "-"
+		expect(logs.some((l) => l.includes("@a56045e"))).toBe(true);
+		// Must NOT show the unhelpful "-" placeholder in the version column
+		const dataRows = logs.filter((l) => l.includes("unpinned-skill"));
+		expect(dataRows.some((l) => / - /.test(l))).toBe(false);
+	});
+
+	test("--json includes commit field and omits '-' version for unpinned remote dep (issue #76)", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-"));
+		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
+		await writeFile(
+			join(tempDir, "skilltree.lock"),
+			"lockfile_version: 1\npackages:\n  unpinned-skill:\n    type: skill\n    group: prod\n    repo: github.com/org/skills\n    path: skills/unpinned-skill\n    commit: a56045e1234567890abcdef0123456789abcdef0\n    dependencies: []\n  pinned-skill:\n    type: skill\n    group: prod\n    repo: github.com/org/skills\n    path: skills/pinned-skill\n    version: 2.1.3\n    commit: deadbeefcafebabe1234567890abcdef01234567\n    dependencies: []\n",
+		);
+
+		const { logs, restore } = captureConsole();
+		try {
+			await listCommand(tempDir, { json: true });
+		} finally {
+			restore();
+		}
+
+		const json = JSON.parse(logs.join("")) as Array<{
+			name: string;
+			version?: string;
+			commit?: string;
+		}>;
+		const unpinned = json.find((r) => r.name === "unpinned-skill");
+		const pinned = json.find((r) => r.name === "pinned-skill");
+
+		// Unpinned: no literal "-" for version, commit surfaced
+		expect(unpinned).toBeDefined();
+		expect(unpinned?.version).not.toBe("-");
+		expect(unpinned?.commit).toBe("a56045e1234567890abcdef0123456789abcdef0");
+
+		// Pinned: version preserved, commit still surfaced
+		expect(pinned?.version).toBe("2.1.3");
+		expect(pinned?.commit).toBe("deadbeefcafebabe1234567890abcdef01234567");
+	});
 });
