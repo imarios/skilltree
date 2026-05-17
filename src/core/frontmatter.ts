@@ -1,3 +1,4 @@
+import semver from "semver";
 import YAML from "yaml";
 import type { SkillFrontmatter } from "../types.js";
 
@@ -81,4 +82,219 @@ export function getDeclaredDeps(fm: SkillFrontmatter): string[] {
 	for (const d of fm.dependencies ?? []) deps.add(d);
 	for (const d of fm.skills ?? []) deps.add(d);
 	return [...deps];
+}
+
+// ---------------------------------------------------------------------------
+// Frontmatter lint (issue #83)
+// ---------------------------------------------------------------------------
+
+/**
+ * One issue produced by `validateFrontmatter`. `kind` drives presentation
+ * AND the `--strict` exit-1 condition:
+ *
+ *   warning — printed via `warn(...)`, counts toward `--strict` exit 1.
+ *             Examples: missing required field, type mismatch, invalid semver.
+ *             Will become an outright error in v1.0 (see issue #83).
+ *
+ *   note    — printed dim, never gates `--strict`. Examples: unknown
+ *             frontmatter key (so authors learn the supported shape).
+ */
+export interface FrontmatterIssue {
+	kind: "warning" | "note";
+	field?: string;
+	message: string;
+}
+
+/**
+ * Fields recognized in SKILL.md / agent .md / command .md frontmatter.
+ * Anything else becomes a "unknown frontmatter key" note. The keys mirror
+ * what `parseFrontmatter` actually reads (above) plus `version`, which the
+ * linter validates but the runtime does not consume today.
+ */
+const KNOWN_FRONTMATTER_KEYS = new Set([
+	"name",
+	"description",
+	"version",
+	"dependencies",
+	"skills",
+]);
+
+/**
+ * Validate the YAML frontmatter of a SKILL.md / agent .md / command .md.
+ *
+ * Returns a flat list of issues — empty means the file is clean. The lint
+ * is intentionally permissive: optional fields are validated only when
+ * present, unknown keys are notes (not warnings), and the parser is shared
+ * with `parseFrontmatter` semantics (e.g., `skills:` accepts either a
+ * comma-separated string or a YAML array).
+ *
+ * The caller (currently `skilltree check`) is responsible for prefixing
+ * messages with the file path and routing warnings vs notes to the right
+ * output channel. Keeping the validator path-agnostic also makes it
+ * straightforward to unit-test.
+ *
+ * Issue #83 / Authoring UX v1 (#78).
+ */
+export function validateFrontmatter(
+	content: string,
+	context: { entityName: string },
+): FrontmatterIssue[] {
+	const shell = extractFrontmatterYaml(content);
+	if ("issue" in shell) return [shell.issue];
+
+	const parsed = parseFrontmatterMapping(shell.yaml);
+	if ("issue" in parsed) return [parsed.issue];
+
+	const fm = parsed.mapping;
+	return [
+		...checkName(fm, context.entityName),
+		...checkDescription(fm),
+		...checkVersion(fm),
+		...checkDependencies(fm),
+		...checkSkills(fm),
+		...collectUnknownKeyNotes(fm),
+	];
+}
+
+/**
+ * Locate the `---` … `---` block at the head of the file and return the
+ * raw YAML content between them. Single-issue early returns isolate the
+ * "structural" failures (missing/empty/malformed delimiters) so the
+ * field-level checks can assume a parseable mapping.
+ */
+function extractFrontmatterYaml(content: string): { yaml: string } | { issue: FrontmatterIssue } {
+	const trimmed = content.trimStart();
+	if (!trimmed.startsWith("---")) {
+		return { issue: { kind: "warning", message: "missing frontmatter" } };
+	}
+	const endIndex = trimmed.indexOf("---", 3);
+	if (endIndex === -1) {
+		return {
+			issue: { kind: "warning", message: "malformed frontmatter: missing closing ---" },
+		};
+	}
+	const yaml = trimmed.slice(3, endIndex).trim();
+	if (!yaml) return { issue: { kind: "warning", message: "empty frontmatter" } };
+	return { yaml };
+}
+
+function parseFrontmatterMapping(
+	yamlContent: string,
+): { mapping: Record<string, unknown> } | { issue: FrontmatterIssue } {
+	try {
+		const raw = YAML.parse(yamlContent);
+		if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+			return { issue: { kind: "warning", message: "frontmatter must be a YAML mapping" } };
+		}
+		return { mapping: raw as Record<string, unknown> };
+	} catch (e) {
+		const detail = e instanceof Error ? e.message : String(e);
+		return {
+			issue: { kind: "warning", message: `malformed YAML in frontmatter: ${detail}` },
+		};
+	}
+}
+
+function warning(field: string, message: string): FrontmatterIssue {
+	return { kind: "warning", field, message };
+}
+
+function checkName(fm: Record<string, unknown>, expectedName: string): FrontmatterIssue[] {
+	if (fm.name === undefined) return [warning("name", "missing required field 'name'")];
+	if (typeof fm.name !== "string") {
+		return [warning("name", `'name' must be a string, got ${describeType(fm.name)}`)];
+	}
+	if (fm.name !== expectedName) {
+		return [
+			warning(
+				"name",
+				`'name' is "${fm.name}", expected "${expectedName}" (must match manifest key)`,
+			),
+		];
+	}
+	return [];
+}
+
+function checkDescription(fm: Record<string, unknown>): FrontmatterIssue[] {
+	if (fm.description === undefined) {
+		return [warning("description", "missing required field 'description'")];
+	}
+	if (typeof fm.description !== "string" || fm.description.trim() === "") {
+		return [warning("description", "'description' must be a non-empty string")];
+	}
+	return [];
+}
+
+function checkVersion(fm: Record<string, unknown>): FrontmatterIssue[] {
+	if (fm.version === undefined) return [];
+	const ver = fm.version;
+	if (typeof ver === "string" && semver.valid(ver)) return [];
+	const display = typeof ver === "string" ? `'${ver}'` : describeType(ver);
+	return [warning("version", `version ${display} is not valid semver`)];
+}
+
+function checkDependencies(fm: Record<string, unknown>): FrontmatterIssue[] {
+	if (fm.dependencies === undefined) return [];
+	if (!Array.isArray(fm.dependencies)) {
+		return [
+			warning(
+				"dependencies",
+				`'dependencies' must be an array of strings, got ${describeType(fm.dependencies)}`,
+			),
+		];
+	}
+	const badEntry = fm.dependencies.find((entry) => typeof entry !== "string");
+	if (badEntry !== undefined) {
+		return [
+			warning(
+				"dependencies",
+				`'dependencies' entries must be strings, got ${describeType(badEntry)}`,
+			),
+		];
+	}
+	return [];
+}
+
+/**
+ * `skills:` mirrors `parseCommaSeparatedOrArray` above — array of strings
+ * OR a comma-separated string are both valid. Anything else is a warning.
+ */
+function checkSkills(fm: Record<string, unknown>): FrontmatterIssue[] {
+	if (fm.skills === undefined) return [];
+	const skills = fm.skills;
+	if (typeof skills === "string") return [];
+	if (!Array.isArray(skills)) {
+		return [
+			warning(
+				"skills",
+				`'skills' must be an array of strings or comma-separated string, got ${describeType(skills)}`,
+			),
+		];
+	}
+	const badEntry = skills.find((entry) => typeof entry !== "string");
+	if (badEntry !== undefined) {
+		return [warning("skills", `'skills' entries must be strings, got ${describeType(badEntry)}`)];
+	}
+	return [];
+}
+
+/**
+ * Unknown keys — emitted as dim notes, never gate --strict. Helps authors
+ * catch typos and learn the supported shape (e.g., `agents:` is a common
+ * guess that isn't actually consumed).
+ */
+function collectUnknownKeyNotes(fm: Record<string, unknown>): FrontmatterIssue[] {
+	const notes: FrontmatterIssue[] = [];
+	for (const key of Object.keys(fm)) {
+		if (!KNOWN_FRONTMATTER_KEYS.has(key)) {
+			notes.push({ kind: "note", field: key, message: `unknown frontmatter key '${key}'` });
+		}
+	}
+	return notes;
+}
+
+function describeType(value: unknown): string {
+	if (value === null) return "null";
+	if (Array.isArray(value)) return "array";
+	return typeof value;
 }
