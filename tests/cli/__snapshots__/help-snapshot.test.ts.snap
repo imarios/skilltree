@@ -34,6 +34,11 @@ Commands:
   unvendor [options]            Exit vendor mode, restore normal symlinked
                                 installs
   deps                          Dependency graph commands
+  why [options] <name>          Show which top-level dependency pulled in <name>
+
+                                Walks the resolved graph backwards from <name>
+                                to every reachable top-level dep declared in
+                                skilltree.yml. Mirrors \`npm why\`.
   registry                      Registry management commands
   search [options] <query>      Search registries for skills, agents, and
                                 commands
@@ -258,6 +263,22 @@ Options:
   --dedupe      Stop recursion under already-printed subtrees (terse, cargo-tree
                 default style)
   -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`why --help\` is stable 1`] = `
+"Usage: skilltree why [options] <name>
+
+Show which top-level dependency pulled in <name>
+
+Walks the resolved graph backwards from <name> to every reachable top-level dep
+declared in skilltree.yml. Mirrors \`npm why\`.
+
+Options:
+  -t, --type <type>  Disambiguate when <name> matches multiple entity types
+  --json             Output paths as JSON
+  -g, --global       Inspect the global lockfile
+  -h, --help         display help for command
 "
 `;
 

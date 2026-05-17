@@ -35,6 +35,7 @@ import { teachCommand } from "./commands/teach.js";
 import { updateCommand } from "./commands/update.js";
 import { unvendorCommand, vendorCommand } from "./commands/vendor.js";
 import { verifyCommand } from "./commands/verify.js";
+import { whyCommand } from "./commands/why.js";
 import { pc } from "./core/ui.js";
 
 /**
@@ -262,6 +263,23 @@ export function buildProgram(): Command {
 				global: opts.global,
 				json: opts.json,
 				dedupe: opts.dedupe,
+			});
+		});
+
+	program
+		.command("why <name>")
+		.description(
+			"Show which top-level dependency pulled in <name>\n\nWalks the resolved graph backwards from <name> to every reachable top-level dep declared in skilltree.yml. Mirrors `npm why`.",
+		)
+		.option("-t, --type <type>", "Disambiguate when <name> matches multiple entity types")
+		.option("--json", "Output paths as JSON")
+		.option("-g, --global", "Inspect the global lockfile")
+		.action(async (name: string, opts) => {
+			await whyCommand(name, {
+				dir: process.cwd(),
+				global: opts.global,
+				type: opts.type,
+				json: opts.json,
 			});
 		});
 
