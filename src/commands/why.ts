@@ -1,4 +1,4 @@
-import { readGlobalLockfile, readLockfile } from "../core/lockfile.js";
+import { buildNameIndex, readGlobalLockfile, readLockfile } from "../core/lockfile.js";
 import { readGlobalManifest, readManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
 import { dim, pc } from "../core/ui.js";
@@ -85,10 +85,7 @@ export async function whyCommand(target: string, opts?: WhyOptions): Promise<voi
 		return undefined;
 	};
 
-	// 3. Build reverse adjacency: child name → set of parent keys.
-	//    Mirrors `deps tree`: entries' `dependencies` lists are looked up
-	//    directly against `lockfile.packages` (works when YAML key == name,
-	//    the common case).
+	// 3. Build reverse adjacency: child YAML key → set of parent YAML keys.
 	const parentsOf = buildReverseAdjacency(lockfile);
 
 	// 4. Walk upward from the target, recording every path that ends at a
@@ -133,16 +130,19 @@ function findMatches(
 }
 
 function buildReverseAdjacency(lockfile: Lockfile): Map<string, Set<string>> {
+	// Translate child references (entity names) → YAML keys so the upward
+	// walk's keys line up with the matched target's YAML key. See
+	// `buildNameIndex` for the underlying alias-vs-name issue.
+	const nameIndex = buildNameIndex(lockfile);
 	const parentsOf = new Map<string, Set<string>>();
 	for (const [parentKey, entry] of Object.entries(lockfile.packages)) {
 		for (const childName of entry.dependencies) {
-			// childName references either a YAML key or a name. We index by the
-			// raw string used in the dependencies array — the reverse lookup
-			// will match what callers ask for (their target key).
-			let parents = parentsOf.get(childName);
+			const childKey = nameIndex.get(childName);
+			if (childKey === undefined) continue; // dangling reference; skip silently
+			let parents = parentsOf.get(childKey);
 			if (!parents) {
 				parents = new Set();
-				parentsOf.set(childName, parents);
+				parentsOf.set(childKey, parents);
 			}
 			parents.add(parentKey);
 		}

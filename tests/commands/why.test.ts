@@ -210,6 +210,43 @@ describe("why command", () => {
 		expect(firstPath[0].group).toBe("dependencies");
 	});
 
+	// Regression: issue #102. The reverse-adjacency map is keyed by the names
+	// found in `entry.dependencies`, but the matched target's key is the YAML
+	// alias. When alias ≠ name, those keys don't line up and incoming edges to
+	// the aliased target are silently lost.
+	test("finds aliased target when reached transitively (issue #102)", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "python-coding");
+		await createLocalSkill(join(dir, "skills"), "task-builder", ["python-coding"]);
+
+		// `pc` is the alias; entity name is `python-coding`. task-builder pulls
+		// in python-coding by name. `why python-coding` must trace back to
+		// task-builder via the aliased entry.
+		await writeManifest(
+			dir,
+			[
+				"dependencies:",
+				"  pc:",
+				"    local: ./skills/python-coding",
+				"    name: python-coding",
+				"  task-builder:",
+				"    local: ./skills/task-builder",
+				"",
+			].join("\n"),
+		);
+		await installCommand(dir, {});
+
+		const lines = await captureConsole(() => whyCommand("python-coding", { dir, json: true }));
+		const out = JSON.parse(lines.join("\n")) as {
+			name: string;
+			paths: Array<Array<{ name: string }>>;
+		};
+		// task-builder must appear as a root of some path even though pc is the
+		// matched YAML key.
+		expect(out.paths.length).toBeGreaterThanOrEqual(1);
+		expect(out.paths.some((p) => p[0]?.name === "task-builder")).toBe(true);
+	});
+
 	test("--json shape: target IS a top-level dep", async () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "solo");

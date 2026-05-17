@@ -19,6 +19,7 @@ import {
 } from "../core/installer.js";
 import {
 	buildLockfile,
+	buildNameIndex,
 	diffManifestLockfile,
 	entitiesFromLockfile,
 	readGlobalLockfile,
@@ -538,12 +539,11 @@ function validateFrozenLocalDeps(
 	const expanded = expandSources(manifest);
 	const allDeps = { ...expanded.dependencies, ...expanded["dev-dependencies"] };
 	const errors: string[] = [];
-	const resolutionContext = new Map<string, string>();
 
-	// Build context for checking
-	for (const [key] of Object.entries(lockfile.packages)) {
-		resolutionContext.set(key, key);
-	}
+	// Frontmatter references entities by name; the lockfile is keyed by
+	// YAML alias. `nameIndex.has(dep)` resolves either form (see
+	// `buildNameIndex`).
+	const nameIndex = buildNameIndex(lockfile);
 
 	for (const [key, entry] of Object.entries(lockfile.packages)) {
 		const manifestDep = allDeps[key];
@@ -562,7 +562,7 @@ function validateFrozenLocalDeps(
 			const fmDeps = (fm ? getDeclaredDeps(fm) : []).filter((d) => d !== (entry.name ?? key));
 
 			for (const dep of fmDeps) {
-				if (!lockfile.packages[dep] && !resolutionContext.has(dep)) {
+				if (!nameIndex.has(dep)) {
 					errors.push(
 						`--frozen: local dep "${key}" declares new transitive dependency "${dep}" not in lockfile.\nRun \`skilltree install\` to update the lockfile.`,
 					);

@@ -448,4 +448,116 @@ describe("deps tree rendering", () => {
 		expect(lines[3]).toBe("└── branch-b (skill, local)");
 		expect(lines[4]).toBe("    └── leaf-b (skill, local)");
 	});
+
+	// Regression: issue #102. When a top-level dep is aliased (YAML key ≠ entity
+	// name), transitive references to its name from a sibling's frontmatter must
+	// still resolve. The lockfile keys by YAML alias, but `entry.dependencies`
+	// holds entity names — so a naive `packages[depName]` lookup misses the
+	// aliased entry and silently truncates the subtree.
+	test("transitive lookup resolves aliased YAML keys (issue #102)", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "python-coding");
+		await createLocalSkill(join(dir, "skills"), "task-builder", ["python-coding"]);
+
+		// `pc` is the YAML alias; the entity name is `python-coding`.
+		// task-builder's frontmatter references `python-coding` (the name),
+		// so the transitive edge from task-builder must resolve to `pc`'s entry.
+		await writeManifest(
+			dir,
+			[
+				"dependencies:",
+				"  pc:",
+				"    local: ./skills/python-coding",
+				"    name: python-coding",
+				"  task-builder:",
+				"    local: ./skills/task-builder",
+				"",
+			].join("\n"),
+		);
+		await installCommand(dir, {});
+
+		const lines = await captureConsole(() => depsTreeCommand(dir));
+
+		// task-builder must show python-coding as a transitive child, not be a
+		// leaf. With the bug, lines for task-builder's subtree would end here.
+		const taskBuilderIdx = lines.findIndex((l) => l.startsWith("task-builder"));
+		expect(taskBuilderIdx).toBeGreaterThanOrEqual(0);
+		const childLine = lines[taskBuilderIdx + 1];
+		expect(childLine).toBeDefined();
+		expect(childLine).toMatch(/└── python-coding/);
+	});
+
+	// Same alias bug, second symptom: when an aliased entry is reachable
+	// both as a root (under its YAML key) and as a transitive (under its
+	// entity name), the dedup tracker treats them as two different entities
+	// because it keys on the rendered string. `--dedupe` must still suppress
+	// the second occurrence (issue #102).
+	test("--dedupe suppresses transitive duplicate of an aliased root (issue #102)", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "python-coding");
+		await createLocalSkill(join(dir, "skills"), "task-builder", ["python-coding"]);
+
+		await writeManifest(
+			dir,
+			[
+				"dependencies:",
+				"  pc:",
+				"    local: ./skills/python-coding",
+				"    name: python-coding",
+				"  task-builder:",
+				"    local: ./skills/task-builder",
+				"",
+			].join("\n"),
+		);
+		await installCommand(dir, {});
+
+		const lines = await captureConsole(() => depsTreeCommand(dir, { dedupe: true }));
+		// `pc` is rendered as a canonical root. Under task-builder's subtree,
+		// the same entity (referenced by its name `python-coding`) must be
+		// suppressed with a `deduped` marker — not rendered as a fresh entry.
+		const taskBuilderIdx = lines.findIndex((l) => l.startsWith("task-builder"));
+		const childLine = lines[taskBuilderIdx + 1];
+		expect(childLine).toBeDefined();
+		// The dedup label proves the dedup tracker recognized this as the
+		// same entity it already printed under the YAML key alias.
+		expect(childLine).toContain("deduped");
+	});
+
+	test("json: transitive lookup resolves aliased YAML keys (issue #102)", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "python-coding");
+		await createLocalSkill(join(dir, "skills"), "task-builder", ["python-coding"]);
+
+		await writeManifest(
+			dir,
+			[
+				"dependencies:",
+				"  pc:",
+				"    local: ./skills/python-coding",
+				"    name: python-coding",
+				"  task-builder:",
+				"    local: ./skills/task-builder",
+				"",
+			].join("\n"),
+		);
+		await installCommand(dir, {});
+
+		const jsonLines: string[] = [];
+		const original = console.log;
+		console.log = (...args: unknown[]) => jsonLines.push(args.join(" "));
+		try {
+			await depsTreeCommand(dir, { json: true });
+		} finally {
+			console.log = original;
+		}
+		const tree = JSON.parse(jsonLines.join("\n")) as Array<{
+			name: string;
+			dependencies: Array<{ name: string }>;
+		}>;
+		const taskBuilder = tree.find((n) => n.name === "task-builder");
+		expect(taskBuilder).toBeDefined();
+		// python-coding must surface as a child even though it's stored under
+		// the YAML key `pc`.
+		expect(taskBuilder?.dependencies.map((d) => d.name)).toContain("python-coding");
+	});
 });

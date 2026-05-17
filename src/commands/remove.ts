@@ -4,6 +4,7 @@ import { createInterface } from "node:readline";
 import { GLOBAL_MANIFEST, MANIFEST_NEW } from "../core/filenames.js";
 import { getTargetPath } from "../core/installer.js";
 import {
+	buildNameIndex,
 	readGlobalLockfile,
 	readLockfile,
 	writeGlobalLockfile,
@@ -278,11 +279,15 @@ async function cleanOrphans(
 }
 
 function findDependents(name: string, lockfile: Lockfile): string[] {
+	// `name` is the YAML key the user is removing. `entry.dependencies`
+	// contains entity NAMES (frontmatter), so a raw `.includes(name)` misses
+	// aliased entries. Translate via the name index so the check matches
+	// whether a sibling references the target by either form (issue #102).
+	const nameIndex = buildNameIndex(lockfile);
 	const dependents: string[] = [];
 	for (const [key, entry] of Object.entries(lockfile.packages)) {
-		if (entry.dependencies.includes(name)) {
-			dependents.push(key);
-		}
+		const referencesTarget = entry.dependencies.some((dep) => nameIndex.get(dep) === name);
+		if (referencesTarget) dependents.push(key);
 	}
 	return dependents;
 }
@@ -306,16 +311,21 @@ function findOrphans(
 	]);
 	if (exclude) manifestKeys.delete(exclude);
 
+	// Walk children by YAML key so aliased entries stay reachable. Without
+	// the translation, `walk("python-coding")` for an entry keyed `pc`
+	// silently failed to mark `pc` reachable and the sweeper deleted it
+	// (issue #102).
+	const nameIndex = buildNameIndex(lockfile);
 	const reachable = new Set<string>();
 
 	function walk(key: string): void {
 		if (reachable.has(key)) return;
 		reachable.add(key);
 		const entry = lockfile.packages[key];
-		if (entry) {
-			for (const dep of entry.dependencies) {
-				walk(dep);
-			}
+		if (!entry) return;
+		for (const dep of entry.dependencies) {
+			const depKey = nameIndex.get(dep);
+			if (depKey !== undefined) walk(depKey);
 		}
 	}
 

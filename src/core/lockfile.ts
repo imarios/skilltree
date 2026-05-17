@@ -64,6 +64,37 @@ export function buildLockfile(
 }
 
 /**
+ * Build a `name → YAML key` index for a lockfile.
+ *
+ * Background (issue #102): `LockfileEntry.dependencies` is a list of entity
+ * **names** (read from frontmatter), but `lockfile.packages` is keyed by the
+ * **YAML alias** the user authored. Whenever a graph reader walks
+ * `entry.dependencies` and needs the corresponding entry, it must translate
+ * name → key first. In the common case (alias == name) the translation is
+ * identity; when the user aliased the entry (e.g. `pc:` with `name:
+ * python-coding`), the raw `packages[depName]` lookup silently misses.
+ *
+ * The index includes identity entries (`key → key`) for every package so
+ * callers can `index.get(ref) ?? ref` uniformly, regardless of whether the
+ * reference they hold is a name or a key.
+ *
+ * Type-level disambiguation (two entries sharing a name across types) is out
+ * of scope: lockfile `dependencies` lists are plain strings with no type
+ * tag, so the last write wins — matching the install-time resolver's own
+ * "last-one-wins" name resolution (see `useExistingResolution` in graph.ts).
+ */
+export function buildNameIndex(lockfile: Lockfile): Map<string, string> {
+	const index = new Map<string, string>();
+	for (const [key, entry] of Object.entries(lockfile.packages)) {
+		index.set(key, key);
+		if (entry.name !== undefined && entry.name !== key) {
+			index.set(entry.name, key);
+		}
+	}
+	return index;
+}
+
+/**
  * Serialize a lockfile to YAML string.
  */
 export function serializeLockfile(lockfile: Lockfile): string {
@@ -106,40 +137,46 @@ function assertAcyclic(lockfile: Lockfile): void {
 	const GREY = 1;
 	const BLACK = 2;
 	const color = new Map<string, number>();
-	for (const name of Object.keys(lockfile.packages)) color.set(name, WHITE);
+	for (const key of Object.keys(lockfile.packages)) color.set(key, WHITE);
+
+	// Resolve child references (entity names) → YAML keys so cycles routed
+	// through aliased entries are still caught. See `buildNameIndex`.
+	const nameIndex = buildNameIndex(lockfile);
 
 	// Iterative DFS to keep stack depth bounded on deep graphs.
 	for (const start of color.keys()) {
 		if (color.get(start) !== WHITE) continue;
-		// Each frame: [name, indexOfNextChildToVisit]
+		// Each frame: [yamlKey, indexOfNextChildToVisit]
 		const stack: Array<[string, number]> = [[start, 0]];
 		color.set(start, GREY);
 		while (stack.length > 0) {
 			const top = stack[stack.length - 1];
 			if (!top) break;
-			const [name, idx] = top;
-			const deps = lockfile.packages[name]?.dependencies ?? [];
+			const [key, idx] = top;
+			const deps = lockfile.packages[key]?.dependencies ?? [];
 			if (idx >= deps.length) {
-				color.set(name, BLACK);
+				color.set(key, BLACK);
 				stack.pop();
 				continue;
 			}
 			top[1] = idx + 1;
-			const child = deps[idx];
-			if (!child || !lockfile.packages[child]) continue;
-			const c = color.get(child);
+			const childRef = deps[idx];
+			if (!childRef) continue;
+			const childKey = nameIndex.get(childRef);
+			if (!childKey) continue;
+			const c = color.get(childKey);
 			if (c === GREY) {
 				const cycle = [
-					...stack.map(([n]) => n).slice(stack.findIndex(([n]) => n === child)),
-					child,
+					...stack.map(([n]) => n).slice(stack.findIndex(([n]) => n === childKey)),
+					childKey,
 				];
 				throw new Error(
 					`Lockfile is corrupt: dependency cycle detected: ${cycle.join(" → ")}. The resolver rejects cycles, so this lockfile was hand-edited or written by an incompatible tool. Run 'skilltree install' to regenerate.`,
 				);
 			}
 			if (c === WHITE) {
-				color.set(child, GREY);
-				stack.push([child, 0]);
+				color.set(childKey, GREY);
+				stack.push([childKey, 0]);
 			}
 		}
 	}
@@ -306,6 +343,9 @@ function isReachableFromManifest(
 	lockfile: Lockfile,
 	manifestKeys: Set<string>,
 ): boolean {
+	// `entry.dependencies` references children by name; resolve to YAML keys
+	// via the name index. See `buildNameIndex`.
+	const nameIndex = buildNameIndex(lockfile);
 	const visited = new Set<string>();
 
 	function walk(key: string): boolean {
@@ -314,7 +354,10 @@ function isReachableFromManifest(
 		if (key === target) return true;
 		const entry = lockfile.packages[key];
 		if (!entry) return false;
-		return entry.dependencies.some((dep) => walk(dep));
+		return entry.dependencies.some((dep) => {
+			const depKey = nameIndex.get(dep);
+			return depKey !== undefined && walk(depKey);
+		});
 	}
 
 	for (const mk of manifestKeys) {
