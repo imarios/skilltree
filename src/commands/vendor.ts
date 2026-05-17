@@ -41,7 +41,9 @@ export interface VendorOptions {
 }
 
 /**
- * Resolve which install target a vendor/unvendor invocation should act on.
+ * Pick which raw `install_targets` entry a vendor/unvendor invocation should
+ * act on. Returns `undefined` for legacy manifests (no `install_targets`),
+ * signalling the caller to fall back to `getDevInstallPath`.
  *
  * The contract — same for both commands so users don't have to relearn:
  *
@@ -56,16 +58,15 @@ export interface VendorOptions {
  *
  *   - Legacy manifest (no `install_targets`, uses `dev_install_path` or
  *       defaults): `--target` is rejected — there are no named targets
- *       to pick from. Falls back to `getDevInstallPath()`.
+ *       to pick from. Returns `undefined`.
  *
- * Returns the resolved on-disk path relative to the project root (e.g.
- * ".claude"). Throws a user-facing `Error` for any contract violation.
+ * Throws a user-facing `Error` for any contract violation.
  */
-function resolveVendorTarget(
+function pickRawTarget(
 	manifest: Manifest,
 	cmd: "vendor" | "unvendor",
 	target: string | undefined,
-): string {
+): string | undefined {
 	const rawTargets = manifest.install_targets;
 
 	if (!rawTargets || rawTargets.length === 0) {
@@ -75,7 +76,7 @@ function resolveVendorTarget(
 				`${cmd}: --target is only valid when install_targets is configured. This manifest uses the legacy dev_install_path — drop --target or migrate with \`skilltree targets migrate\`.`,
 			);
 		}
-		return getDevInstallPath(manifest);
+		return undefined;
 	}
 
 	if (rawTargets.length > 1 && target === undefined) {
@@ -92,7 +93,26 @@ function resolveVendorTarget(
 		throw new Error(`${cmd}: no install target available (internal invariant)`);
 	}
 	assertKnownTarget(cmd, selected, rawTargets);
-	return resolveTarget(selected);
+	return selected;
+}
+
+/**
+ * Resolve the on-disk install path for a vendor/unvendor invocation.
+ *
+ * Wraps `pickRawTarget`: returns the resolved path relative to the project
+ * root (e.g. ".claude"). For legacy manifests, falls back to
+ * `getDevInstallPath()`. See `pickRawTarget` for the full contract.
+ */
+function resolveVendorTarget(
+	manifest: Manifest,
+	cmd: "vendor" | "unvendor",
+	target: string | undefined,
+): string {
+	const raw = pickRawTarget(manifest, cmd, target);
+	if (raw === undefined) {
+		return getDevInstallPath(manifest);
+	}
+	return resolveTarget(raw);
 }
 
 /**
@@ -120,7 +140,9 @@ export async function vendorCommand(dir: string, options: VendorOptions): Promis
 	validateManifestOrThrow(manifest);
 	warnLegacyInstallPath(manifest);
 
-	const devInstallPath = resolveVendorTarget(manifest, "vendor", options.target);
+	const rawTarget = pickRawTarget(manifest, "vendor", options.target);
+	const devInstallPath =
+		rawTarget === undefined ? getDevInstallPath(manifest) : resolveTarget(rawTarget);
 	const installBase = join(dir, devInstallPath);
 
 	const existingLockfile = await readLockfile(dir);
@@ -189,8 +211,14 @@ export async function vendorCommand(dir: string, options: VendorOptions): Promis
 	await writeLockfile(dir, lockfile);
 	console.log(dim("Updated skilltree.lock"));
 
-	// Set vendor: true in manifest
+	// Set vendor: true in manifest. Also record which target was vendored
+	// (issue #89) so `unvendor` can clean up the right directory without
+	// re-asking the user. Legacy manifests with no named target stay legacy:
+	// recording a fabricated name would later trip the "unknown target" check.
 	manifest.vendor = true;
+	if (rawTarget !== undefined) {
+		manifest.vendored_target = rawTarget;
+	}
 	await writeManifest(dir, manifest);
 	console.log(dim(`Updated ${MANIFEST_NEW} (vendor: true)`));
 
@@ -220,7 +248,29 @@ export async function unvendorCommand(dir: string, options?: UnvendorOptions): P
 		return;
 	}
 
-	const devInstallPath = resolveVendorTarget(manifest, "unvendor", options?.target);
+	// Cross-check --target against the recorded `vendored_target` (issue #89).
+	// Three cases:
+	//   - User supplied --target AND a target was recorded that doesn't match
+	//     → hard-error. Acting on the user's value would leave the actually-
+	//     vendored directory orphaned.
+	//   - User omitted --target AND a target was recorded
+	//     → use the recorded one. Multi-target manifests no longer need the
+	//     user to repeat what skilltree already knows.
+	//   - Otherwise (legacy `vendor: true` boolean, no `vendored_target:`)
+	//     → fall through to the original resolveVendorTarget contract.
+	const recordedTarget = manifest.vendored_target;
+	if (
+		recordedTarget !== undefined &&
+		options?.target !== undefined &&
+		options.target !== recordedTarget
+	) {
+		throw new Error(
+			`unvendor: --target '${options.target}' does not match the recorded vendored target '${recordedTarget}'.\nRun \`skilltree unvendor --target ${recordedTarget}\` (or drop --target) to clean up the directory that was actually vendored.`,
+		);
+	}
+	const effectiveTarget = options?.target ?? recordedTarget;
+
+	const devInstallPath = resolveVendorTarget(manifest, "unvendor", effectiveTarget);
 	const installBase = join(dir, devInstallPath);
 	const lockfile = await readLockfile(dir);
 
@@ -258,6 +308,7 @@ export async function unvendorCommand(dir: string, options?: UnvendorOptions): P
 	}
 
 	delete manifest.vendor;
+	delete manifest.vendored_target;
 	await writeManifest(dir, manifest);
 	console.log(dim(`Updated ${MANIFEST_NEW} (vendor: false)`));
 

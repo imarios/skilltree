@@ -36,6 +36,10 @@ export function parseManifest(content: string): Manifest {
 		manifest.vendor = raw.vendor;
 	}
 
+	if (typeof raw.vendored_target === "string") {
+		manifest.vendored_target = raw.vendored_target;
+	}
+
 	if (Array.isArray(raw.install_targets)) {
 		manifest.install_targets = raw.install_targets as string[];
 	}
@@ -421,7 +425,10 @@ export function validateGlobalManifest(manifest: Manifest): string[] {
 	if (manifest.install_path) {
 		errors.push("Global manifest does not support install_path. Use install_targets instead.");
 	}
-	if (manifest.vendor) {
+	// `vendor` and `vendored_target` are siblings — both are project-only and
+	// share one error message. Use `||` (not `&&`) so a hand-edit that drops
+	// `vendor:` but leaves `vendored_target:` still trips the rule.
+	if (manifest.vendor || manifest.vendored_target !== undefined) {
 		errors.push("Global manifest does not support vendor mode.");
 	}
 

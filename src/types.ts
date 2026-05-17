@@ -65,6 +65,16 @@ export interface Manifest {
 	install_targets?: string[]; // Agent names or literal paths (e.g., ["claude", "./custom"])
 	src_install_path?: string; // Where application runtime skills go (optional)
 	vendor?: boolean; // Vendor mode: all deps copied (no symlinks), committed to git
+	/**
+	 * Records which `install_targets` entry was used the last time
+	 * `skilltree vendor` ran, so `skilltree unvendor` can clean up the right
+	 * directory without re-asking the user. Issue #89.
+	 *
+	 * Set by `vendor --target <X>` (or `vendor` on a single-target manifest)
+	 * and cleared by `unvendor`. Legacy manifests with `dev_install_path` do
+	 * not record this — there are no named targets to record.
+	 */
+	vendored_target?: string;
 	sources?: Record<string, string>;
 	dependencies?: Record<string, Dependency>;
 	"dev-dependencies"?: Record<string, Dependency>;
