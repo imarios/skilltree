@@ -109,6 +109,24 @@ skilltree outdated --global        # Inspect global deps
 
 **Output columns:** `Name`, `Current` (semver pin / `@<short-sha>` / `local`), `Latest` (latest semver tag on the resolved repo), `Bump` (`major` / `minor` / `patch` / `—`). Local deps and unresolved deps show `—`; a network/cache failure for a remote shows `error` in the Bump column.
 
+## `skilltree projects`
+
+Read-only inventory of skilltree-managed projects discoverable on this machine. Walks the filesystem from `--root` (default `$HOME`) and reports every directory that contains a `skilltree.yml` / `skilltree.yaml`. Counterpart to `skilltree list`, but cross-project — useful when you have many checkouts and want to know what's where.
+
+```bash
+skilltree projects                           # Walk $HOME
+skilltree projects --root ~/Projects         # Limit to a subtree
+skilltree projects --json                    # Machine-readable output
+```
+
+**Flags:**
+- `--root <path>` — Search root (default: `$HOME`)
+- `--json` — Output results as JSON
+
+**Output columns:** `Path`, `Deps` (count of `dependencies` + `dev-dependencies`), `Vendor` (`yes` if `vendor: true`), `Last install` (relative mtime of `skilltree.lock`, or `—` when no lockfile exists).
+
+**Discovery rules:** Skips `node_modules/`, `.git/`, `.skilltree/cache/`, `dist/`, `build/`, and hidden dirs (except `.claude/`). Stops descending once a manifest is found. Does not cross filesystem boundaries or follow symlink cycles. Unparseable manifests are skipped with a warning.
+
 ## `skilltree remove <name>`
 
 Remove a dependency from manifest, lockfile, and installed files.
