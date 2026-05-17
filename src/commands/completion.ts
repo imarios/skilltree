@@ -106,6 +106,16 @@ const COMMANDS: CmdDef[] = [
 		],
 	},
 	{
+		name: "outdated",
+		description: "Preview which deps have newer versions available (read-only)",
+		positionalComplete: "deps",
+		flags: [
+			{ long: "--json", description: "Output results as JSON" },
+			{ long: "--check", description: "Exit 1 if any drift exists" },
+			{ long: "--global", short: "-g", description: "Show global deps" },
+		],
+	},
+	{
 		name: "remove",
 		description: "Remove a dependency",
 		positionalComplete: "deps",

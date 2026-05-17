@@ -313,6 +313,7 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `skilltree add <name>` | Add a dependency (remote, local, or dev) |
 | `skilltree install` | Resolve dependencies and install |
 | `skilltree update [name]` | Update to latest versions |
+| `skilltree outdated [name]` | Preview which deps have newer versions (read-only) |
 | `skilltree remove <name>` | Remove a dependency |
 | `skilltree verify` | Check installed files against lockfile |
 | `skilltree list` | List installed dependencies |
