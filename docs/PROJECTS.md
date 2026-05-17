@@ -18,4 +18,4 @@ Project Naming Theme: Elements
 
 ## Completed Projects
 
-(none)
+- **Nitrogen** (05/17/2026 → 05/17/2026): Preflight doctor — `skilltree doctor` command bundling manifest schema, lint, lockfile sync, target consistency, registry reachability, and frontmatter checks; text + `--json` output; `--global` flag (resolves #84, part of Authoring UX v1 #78)

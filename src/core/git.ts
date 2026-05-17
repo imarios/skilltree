@@ -16,6 +16,81 @@ export function repoCachePath(repoUrl: string): string {
 }
 
 /**
+ * Outcome of a non-mutating `git ls-remote` probe. Used by `skilltree doctor`
+ * (Nitrogen Phase 3) to check whether a registry URL is reachable without
+ * pulling anything into the cache.
+ *
+ * `reason` discriminates between authentication failures (the URL is real
+ * but our credentials don't permit access), transport timeouts (network
+ * stall or DNS lag), name-resolution / connection failures (`unreachable`),
+ * and anything else simpleGit surfaces (`other`).
+ */
+export type LsRemoteOutcome =
+	| { ok: true }
+	| { ok: false; reason: "timeout" | "auth" | "unreachable" | "other"; detail: string };
+
+/**
+ * Probe a remote URL with `git ls-remote` and a hard timeout. Read-only:
+ * never writes to the cache, never updates refs. The 5s default matches
+ * spec D9 for the doctor reachability check.
+ *
+ * Implementation: races `simpleGit().listRemote([url])` against a setTimeout.
+ * On timeout the underlying git process keeps running until git itself
+ * gives up; we don't bother killing it because the outcome has already
+ * been reported. Auth-failure detection uses stderr-text heuristics
+ * (`Authentication failed`, `could not read Username`, `Permission denied`).
+ */
+export async function lsRemote(
+	url: string,
+	opts: { timeoutMs?: number } = {},
+): Promise<LsRemoteOutcome> {
+	const timeoutMs = opts.timeoutMs ?? 5000;
+	const cloneUrl = toGitCloneUrl(url);
+	const git = simpleGit();
+	const probe: Promise<LsRemoteOutcome> = git
+		.listRemote([cloneUrl])
+		.then(() => ({ ok: true as const }))
+		.catch((err: unknown): LsRemoteOutcome => {
+			const detail = err instanceof Error ? err.message : String(err);
+			const lc = detail.toLowerCase();
+			if (
+				lc.includes("authentication failed") ||
+				lc.includes("could not read username") ||
+				lc.includes("permission denied")
+			) {
+				return { ok: false, reason: "auth", detail };
+			}
+			if (
+				lc.includes("could not resolve") ||
+				lc.includes("connection refused") ||
+				lc.includes("connection timed out") ||
+				lc.includes("network is unreachable") ||
+				lc.includes("name or service not known")
+			) {
+				return { ok: false, reason: "unreachable", detail };
+			}
+			return { ok: false, reason: "other", detail };
+		});
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeout = new Promise<LsRemoteOutcome>((resolve) => {
+		timer = setTimeout(
+			() =>
+				resolve({
+					ok: false,
+					reason: "timeout",
+					detail: `timed out after ${timeoutMs}ms`,
+				}),
+			timeoutMs,
+		);
+	});
+	try {
+		return await Promise.race([probe, timeout]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+
+/**
  * Ensure a bare repo is cached locally. Clones if missing, fetches if existing.
  */
 export async function ensureCached(repoUrl: string): Promise<string> {

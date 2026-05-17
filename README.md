@@ -148,6 +148,8 @@ dependencies:
 
 Run `skilltree check` to catch the asymmetric-publish footgun: a published entity that transitively depends on a `publish: false` same-repo entity will install fine for you but fail for consumers. The check reports the chain so the fix is obvious. `check` also lints the frontmatter of every local `SKILL.md` / agent / command — missing `name:`, missing `description:`, invalid semver in `version:`, or a malformed `skills:` block become warnings (and exit 1 under `--strict`).
 
+For an "am I ready to publish?" preflight, run **`skilltree doctor`** — it bundles `check` with manifest-schema validation, lockfile-sync verification, target consistency, registry reachability, and frontmatter lint into one verb. Exit 0 means every check passed; exit 1 means at least one failed. The natural lifecycle is `new → check → doctor → git tag`.
+
 This is **authoring intent, not access control** — anyone with git access to your repo can read every file regardless of these flags. They're about what your repo *offers*, not what it *protects*.
 
 ### Global Dependencies
@@ -317,6 +319,8 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `skilltree outdated [name]` | Preview which deps have newer versions (read-only) |
 | `skilltree remove <name>` | Remove a dependency |
 | `skilltree verify` | Check installed files against lockfile |
+| `skilltree check` | Lint `skilltree.yml` for design-time issues (asymmetric publish, frontmatter) |
+| `skilltree doctor` | Preflight: schema + lint + lockfile sync + targets + registries + frontmatter |
 | `skilltree list` | List installed dependencies |
 | `skilltree projects` | List skilltree-managed projects discoverable on this machine (read-only) |
 | `skilltree deps tree` | Show dependency tree |
@@ -345,7 +349,8 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 
 | Flag | Commands | Description |
 |------|----------|-------------|
-| `--global` | init, add, install, update, remove, list, verify, deps tree, why | Operate on global deps (`~/.skilltree/global.yaml` → `~/.claude/`) |
+| `--global` | init, add, install, update, remove, list, verify, deps tree, why, doctor | Operate on global deps (`~/.skilltree/global.yaml` → `~/.claude/`) |
+| `--json` | list, verify, outdated, search, info, scan, deps tree, doctor | Emit machine-readable JSON |
 | `--prod` | install | Skip dev-dependencies |
 | `--frozen` | install, vendor | Lockfile-only, error if out of sync (CI mode) |
 | `--force` | install, remove | Overwrite modified files / skip confirmation |

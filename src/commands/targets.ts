@@ -1,3 +1,5 @@
+import { stat } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 import {
 	detectInstalledAgents,
 	getKnownAgentNames,
@@ -10,6 +12,7 @@ import {
 	removeGitignoreEntries,
 } from "../core/gitignore.js";
 import { loadManifestOrThrow, writeManifest } from "../core/manifest.js";
+import { expandTilde, isLocalSource } from "../core/paths.js";
 import { dim, success, warn } from "../core/ui.js";
 import type { Manifest } from "../types.js";
 
@@ -42,6 +45,75 @@ function ensureInstallTargets(manifest: Manifest): string[] {
 		manifest.install_targets = ["claude"];
 	}
 	return manifest.install_targets;
+}
+
+/**
+ * Per-entry resolution result for `resolveTargets`. Doctor's D8 target-
+ * consistency check consumes these to surface per-target problems without
+ * crashing on the first bad entry. Spec: docs/specs/doctor.md §D8.
+ */
+export interface TargetResolution {
+	target: string;
+	ok: boolean;
+	/** The resolved directory (agent dir for known bare words, literal otherwise). */
+	path?: string;
+	/** Present when `ok === false`. */
+	error?: string;
+}
+
+/**
+ * Non-throwing variant of `resolveTarget` over a list of targets. Each entry
+ * is resolved independently; an unknown agent or missing path becomes a
+ * `{ok: false}` row instead of throwing. For literal paths (containing `/`
+ * or starting with `~`) the helper also `stat`s the path and reports it as
+ * `ok: false` if missing.
+ *
+ * Used by `skilltree doctor` (Nitrogen Phase 2) for the D8 target-
+ * consistency check.
+ */
+export async function resolveTargets(targets: string[]): Promise<TargetResolution[]> {
+	const out: TargetResolution[] = [];
+	for (const target of targets) {
+		out.push(await resolveOneTarget(target));
+	}
+	return out;
+}
+
+async function resolveOneTarget(target: string): Promise<TargetResolution> {
+	let resolvedPath: string;
+	try {
+		resolvedPath = resolveTarget(target);
+	} catch (err) {
+		return {
+			target,
+			ok: false,
+			error: err instanceof Error ? err.message : String(err),
+		};
+	}
+
+	// Bare-word agent inputs ("claude" → ".claude") are project-relative
+	// install destinations that may or may not exist yet — the install step
+	// creates them. Don't probe those. Literal-path inputs (./, /, ~/) are
+	// user-supplied directories we expect to exist; probe them so a typo'd
+	// path doesn't silently install nowhere.
+	if (!isLocalSource(target)) {
+		return { target, ok: true, path: resolvedPath };
+	}
+
+	const expanded = expandTilde(resolvedPath);
+	const probe = isAbsolute(expanded) ? expanded : join(process.cwd(), expanded);
+	try {
+		await stat(probe);
+	} catch {
+		return {
+			target,
+			ok: false,
+			path: resolvedPath,
+			error: `path does not exist: ${resolvedPath}`,
+		};
+	}
+
+	return { target, ok: true, path: resolvedPath };
 }
 
 interface TargetsListRow {

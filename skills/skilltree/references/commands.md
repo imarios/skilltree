@@ -203,6 +203,50 @@ skilltree check --strict
 
 Each warning shows the chain (`A → B → C (publish: false)`) so the fix is obvious: either remove `publish: false` on the leaf or break the dependency chain.
 
+## `skilltree doctor`
+
+Preflight health check bundling every per-area inspection into one verb. Run before `git tag` to confirm "am I ready to publish?"; run after `git clone` to confirm "is this project healthy?"
+
+```bash
+skilltree doctor
+skilltree doctor --json
+skilltree doctor --global
+```
+
+**Flags:**
+- `--json` — Emit the report as JSON instead of the text table. Exit codes unchanged.
+- `--global` — Run against `~/.skilltree/global.yml`. Project-scoped checks (lockfile, target-consistency) become `skip` rows; registry-reachability still runs (registries are global config).
+
+Checks performed (in order):
+
+1. **manifest-schema** — `skilltree.yml` parses and validates.
+2. **lint** — wraps `skilltree check` (asymmetric publish + frontmatter validity).
+3. **lockfile-sync** — `skilltree.lock` has no `added` / `removed` / `changed` entries vs the manifest.
+4. **target-consistency** — every `install_targets` entry resolves through the agent registry or is a literal path that exists.
+5. **registry-reachability** — each configured registry reachable via `git ls-remote` (5s timeout). Auth-required and timeout are reported as warnings, not failures.
+6. **frontmatter** — same as lint #2; reported separately for output readability.
+
+Exit codes:
+
+- `0` — all checks passed (warnings are allowed).
+- `1` — at least one check failed.
+
+JSON shape (stable across versions; `detail` and `fix` are omitted when absent):
+
+```json
+{
+  "checks": [
+    { "name": "manifest-schema", "status": "pass" },
+    { "name": "lockfile-sync", "status": "fail", "detail": "1 added (foo)", "fix": "Run `skilltree install` to sync" }
+  ],
+  "summary": { "pass": 4, "warn": 1, "fail": 1, "skip": 0 }
+}
+```
+
+Read-only: `doctor` never writes to disk, mutates the manifest, or touches the cache. The only network call is the per-registry `git ls-remote` from #5.
+
+Lifecycle: `new → check → doctor → git tag`.
+
 ## `skilltree list`
 
 Show installed dependencies in a table.

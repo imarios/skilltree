@@ -145,6 +145,42 @@ export interface RegistryIndex {
 	entities: IndexEntry[];
 }
 
+// --- Doctor / check result types ---
+
+/**
+ * Status of one health check run by `skilltree doctor` (Nitrogen, issue #84).
+ * - `pass`: the check ran and found nothing wrong.
+ * - `fail`: the check ran and found a blocking issue. Exits 1.
+ * - `warn`: the check ran and found a non-blocking issue (e.g., auth-required
+ *   registry skipped). Does not affect exit code.
+ * - `skip`: the check did not run (e.g., project-scoped check under `--global`).
+ */
+export type CheckStatus = "pass" | "fail" | "warn" | "skip";
+
+/**
+ * Result row emitted by one doctor check. `name` is a stable kebab-case
+ * identifier; `detail` and `fix` are user-facing strings, optional when absent.
+ * See docs/specs/doctor.md §D16–D19.
+ */
+export interface CheckResult {
+	name: string;
+	status: CheckStatus;
+	detail?: string;
+	fix?: string;
+}
+
+/**
+ * Output of `collectCheckIssues` — the pure data form of `skilltree check`.
+ * `lint` and `frontmatterWarnings` are warning-class strings (count toward
+ * doctor's lint `fail`/`warn`); `frontmatterNotes` are dim notes that never
+ * gate.
+ */
+export interface CheckSummary {
+	lint: string[];
+	frontmatterWarnings: string[];
+	frontmatterNotes: string[];
+}
+
 // --- Type guards ---
 
 export function isRemoteDependency(dep: Dependency): dep is RemoteDependency {

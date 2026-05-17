@@ -159,6 +159,15 @@ const COMMANDS: CmdDef[] = [
 		flags: [{ long: "--strict", description: "Exit 1 if any warnings are found" }],
 	},
 	{
+		name: "doctor",
+		description:
+			"Preflight health check across schema, lint, lockfile, targets, registries, and frontmatter",
+		flags: [
+			{ long: "--json", description: "Output results as JSON" },
+			{ long: "--global", short: "-g", description: "Run against the global manifest" },
+		],
+	},
+	{
 		name: "list",
 		description: "List installed dependencies",
 		flags: [

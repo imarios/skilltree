@@ -34,6 +34,11 @@ Commands:
                                      lockfile
   check [options]                    Lint the project's skilltree.yml for
                                      design-time issues
+  doctor [options]                   Preflight health check across schema, lint,
+                                     lockfile, targets, registries, and
+                                     frontmatter
+
+                                     Lifecycle: new → check → doctor → git tag
   list [options]                     List installed dependencies
   scan [options] <paths...>          Scan skills, agents, and commands for
                                      undeclared dependencies
@@ -212,6 +217,21 @@ Lint the project's skilltree.yml for design-time issues
 Options:
   --strict    Exit 1 if any warnings are found
   -h, --help  display help for command
+"
+`;
+
+exports[`CLI help snapshots \`doctor --help\` is stable 1`] = `
+"Usage: skilltree doctor [options]
+
+Preflight health check across schema, lint, lockfile, targets, registries, and
+frontmatter
+
+Lifecycle: new → check → doctor → git tag
+
+Options:
+  --json        Output results as JSON
+  -g, --global  Run against the global manifest
+  -h, --help    display help for command
 "
 `;
 

@@ -7,6 +7,7 @@ import { cacheCleanCommand } from "./commands/cache.js";
 import { checkCommand } from "./commands/check.js";
 import { completionCommand } from "./commands/completion.js";
 import { depsTreeCommand } from "./commands/deps.js";
+import { doctorCommand } from "./commands/doctor.js";
 import { indexCommand } from "./commands/index-cmd.js";
 import { infoCommand } from "./commands/info.js";
 import { initCommand } from "./commands/init.js";
@@ -244,6 +245,17 @@ export function buildProgram(): Command {
 		.option("--strict", "Exit 1 if any warnings are found")
 		.action(async (opts) => {
 			await checkCommand(process.cwd(), { strict: opts.strict });
+		});
+
+	program
+		.command("doctor")
+		.description(
+			"Preflight health check across schema, lint, lockfile, targets, registries, and frontmatter\n\nLifecycle: new → check → doctor → git tag",
+		)
+		.option("--json", "Output results as JSON")
+		.option("-g, --global", "Run against the global manifest")
+		.action(async (opts) => {
+			await doctorCommand(process.cwd(), { json: opts.json, global: opts.global });
 		});
 
 	program
