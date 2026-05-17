@@ -10,7 +10,7 @@ import {
 	removeGitignoreEntries,
 } from "../core/gitignore.js";
 import { loadManifestOrThrow, writeManifest } from "../core/manifest.js";
-import { success, warn } from "../core/ui.js";
+import { dim, success, warn } from "../core/ui.js";
 import type { Manifest } from "../types.js";
 
 interface TargetsOpts {
@@ -131,6 +131,10 @@ export async function targetsAddCommand(
 	if (added.length > 0) {
 		success(`Updated .gitignore (added ${added.join(", ")})`);
 	}
+	// Parity with `add` (issue #74, Friction B): the new target's install dir is
+	// empty until `install` runs. Make that step explicit so users aren't left
+	// wondering why `.<target>/skills/` is blank.
+	console.log(dim("  Run `skilltree install` to populate the new target."));
 }
 
 export async function targetsRemoveCommand(
@@ -197,6 +201,9 @@ export async function targetsDetectCommand(dir: string, opts?: TargetsOpts): Pro
 		if (addedToIgnore.length > 0) {
 			success(`Updated .gitignore (added ${addedToIgnore.join(", ")})`);
 		}
+		// Parity with `targets add` (issue #74, Friction B): new dirs are empty
+		// until `install` runs.
+		console.log(dim("  Run `skilltree install` to populate the new target(s)."));
 	} else {
 		console.log("All detected agents already in install_targets.");
 	}

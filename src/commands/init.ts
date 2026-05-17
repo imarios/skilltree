@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { detectInstalledAgents } from "../core/agents.js";
+import { detectInstalledAgents, resolveTarget } from "../core/agents.js";
 import {
 	findExistingGlobalManifest,
 	findExistingManifest,
@@ -37,6 +37,12 @@ export interface InitOptions {
 	globalDir?: string; // Override global manifest dir (testing + --global flow)
 	scan?: boolean;
 	yes?: boolean;
+	/**
+	 * Explicit install targets (from repeatable `--target` flag). When set,
+	 * detection is bypassed entirely — the user has already told us what they want.
+	 * Issue #74.
+	 */
+	targets?: string[];
 	/** Test override: pick which discovered entries to include, bypassing interactive prompt. */
 	selectFn?: (entries: LocalEntry[]) => Promise<LocalEntry[]>;
 	/** Test override: canned answer for the interactive prompt — exercises the prompt pipeline without readline. */
@@ -55,20 +61,22 @@ export async function initCommand(dir: string, options?: InitOptions): Promise<v
 	// Guard: refuse to overwrite existing manifest. Report the actual on-disk
 	// name so a project on the legacy .yaml extension doesn't get a misleading
 	// "skilltree.yml already exists" — they don't have one.
+	//
+	// The hint points at the *right* next-step commands. The previous "remove it
+	// or edit it directly" hint sent users to do manual YAML surgery when they
+	// actually wanted `targets add` or `targets detect`. Issue #74 (Friction A).
 	const existing = findExistingManifest(dir);
 	if (existing) {
-		throw new Error(`${existing} already exists. Remove it first or edit it directly.`);
+		throw new Error(
+			`${existing} already exists.\n` +
+				`  To add a coding agent to this project, run:\n` +
+				`    skilltree targets add <agent>      (e.g. claude, codex)\n` +
+				`    skilltree targets detect           (auto-add any newly-installed agents)\n` +
+				`  To start fresh, remove ${existing} first.`,
+		);
 	}
 
-	// Auto-detect installed agents
-	const detected = await detectInstalledAgents(options?.homeDir);
-	const installTargets = detected.length > 0 ? detected : ["claude"];
-
-	if (detected.length > 0) {
-		console.log(dim(`Detected agents: ${detected.join(", ")}`));
-	} else {
-		console.log(dim("No agents detected — defaulting to claude"));
-	}
+	const installTargets = await selectInstallTargets(options);
 
 	// Optional repo scan for in-tree skills and agents.
 	const dependencies: Record<string, Dependency> = {};
@@ -131,6 +139,122 @@ async function initGlobal(globalDirOverride?: string): Promise<void> {
 
 	await writeGlobalManifest(manifest, globalDir);
 	success(`Created ${globalDir}/${GLOBAL_MANIFEST}`);
+}
+
+/**
+ * Decide which agents to enrol as install_targets. Resolution order — designed
+ * so detection is treated as a *suggestion*, not an enrolment (issue #74):
+ *
+ *  1. `--target <name>` (one or more) → caller knows exactly what they want;
+ *     skip detection entirely.
+ *  2. None detected → safe default `[claude]`.
+ *  3. Exactly one detected → enrol it silently. The obvious thing is correct.
+ *  4. Multiple detected + `--yes` → enrol all. Preserves the pre-#74 behaviour
+ *     as an opt-in.
+ *  5. Multiple detected + interactive (TTY or `askFn`) → prompt
+ *     "Include all? [Y/n/1,3,5]".
+ *  6. Multiple detected + non-interactive (CI / pipe) → default to `[claude]`.
+ *     Reversible with `skilltree targets detect` later.
+ *
+ * Returns at least one target — install_targets cannot be empty.
+ */
+async function selectInstallTargets(options?: InitOptions): Promise<string[]> {
+	// 1. Explicit --target wins. Validate each up front (resolveTarget throws on
+	// unknown bare words) and dedupe so `--target claude --target claude` yields
+	// a sensible manifest. Same validation that `targets add` already enforces.
+	if (options?.targets && options.targets.length > 0) {
+		const seen = new Set<string>();
+		const uniq: string[] = [];
+		for (const t of options.targets) {
+			resolveTarget(t); // throws for unknown bare words; literal paths pass through
+			if (!seen.has(t)) {
+				seen.add(t);
+				uniq.push(t);
+			}
+		}
+		console.log(dim(`Using --target: ${uniq.join(", ")}`));
+		return uniq;
+	}
+
+	const detected = await detectInstalledAgents(options?.homeDir);
+
+	// 2. Nothing detected → safe default.
+	if (detected.length === 0) {
+		console.log(dim("No agents detected — defaulting to claude"));
+		return ["claude"];
+	}
+
+	// 3. Single detection is unambiguous — never prompt.
+	if (detected.length === 1) {
+		console.log(dim(`Detected agent: ${detected[0]}`));
+		return [...detected];
+	}
+
+	console.log(dim(`Detected agents: ${detected.join(", ")}`));
+
+	// 4. --yes preserves the pre-#74 behaviour as an opt-in.
+	if (options?.yes) return [...detected];
+
+	// 5 & 6. Prompt if we can; otherwise CI-safe default.
+	const interactive = options?.isInteractive ?? Boolean(process.stdout.isTTY);
+	const ask = options?.askFn ?? (interactive ? readlineAsk : null);
+	if (!ask) {
+		console.log(
+			dim(
+				"Non-interactive context — enrolling claude only. " +
+					"Run `skilltree targets detect` (or `skilltree targets add <agent>`) to enrol others.",
+			),
+		);
+		return ["claude"];
+	}
+
+	const picked = await promptForTargetSelection(detected, ask);
+	// "n" / empty selection → fall back to [claude] rather than producing an
+	// invalid empty install_targets.
+	if (picked.length === 0) {
+		console.log(dim("No agents selected — defaulting to claude."));
+		return ["claude"];
+	}
+	return picked;
+}
+
+async function promptForTargetSelection(agents: string[], ask: AskFn): Promise<string[]> {
+	console.log("\nEnrol detected agents as install targets?\n");
+	let idx = 1;
+	for (const a of agents) {
+		console.log(`  [${idx}] ${a}`);
+		idx++;
+	}
+	console.log("");
+	const answer = (await ask("Include all? [Y/n/1,3,5] ")).trim();
+	return parseAgentSelectionAnswer(answer, agents);
+}
+
+/**
+ * Same grammar as `parseSelectionAnswer` (empty / y → all, n → none, comma
+ * indices → subset), but operating on a plain string list. Kept as its own
+ * function rather than generalising because the caller's empty-result
+ * handling differs (we fall back to [claude] instead of accepting empty).
+ */
+export function parseAgentSelectionAnswer(answer: string, agents: string[]): string[] {
+	const trimmed = answer.trim();
+	if (trimmed === "" || trimmed.toLowerCase() === "y") return [...agents];
+	if (trimmed.toLowerCase() === "n") return [];
+
+	const indices = trimmed
+		.split(",")
+		.map((s) => Number.parseInt(s.trim(), 10))
+		.filter((n) => Number.isInteger(n) && n >= 1 && n <= agents.length);
+
+	const selected: string[] = [];
+	const seen = new Set<number>();
+	for (const i of indices) {
+		if (seen.has(i)) continue;
+		seen.add(i);
+		const agent = agents[i - 1];
+		if (agent) selected.push(agent);
+	}
+	return selected;
 }
 
 /**

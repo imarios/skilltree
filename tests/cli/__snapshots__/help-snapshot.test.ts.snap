@@ -54,11 +54,14 @@ Related:
   targets detect  — auto-discover installed coding agents on this machine
 
 Options:
-  -g, --global  Initialize global dependencies
-  --scan        Scan the repo for existing skills, agents, and commands and
-                register them as local deps
-  -y, --yes     With --scan, include all discovered entries without prompting
-  -h, --help    display help for command
+  -g, --global     Initialize global dependencies
+  --scan           Scan the repo for existing skills, agents, and commands and
+                   register them as local deps
+  -y, --yes        Skip prompts: include all discovered scan entries and enrol
+                   all detected agents
+  --target <name>  Explicit install target (skips detection). Repeat for
+                   multiple, e.g. --target claude --target codex
+  -h, --help       display help for command
 "
 `;
 
