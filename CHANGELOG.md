@@ -1,3 +1,9 @@
+## v0.27.5 (2026-05-17)
+
+### Fix
+
+- **list**: surface resolved commit SHA for unpinned remote deps (#93)
+
 ## v0.27.4 (2026-05-17)
 
 ### Fix
