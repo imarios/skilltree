@@ -1,3 +1,10 @@
+## v0.29.2 (2026-05-17)
+
+### Fix
+
+- **graph-readers**: resolve aliased entries in transitive walks (#106)
+- **setup**: skip teach on post-merge bump (closes #92) (#104)
+
 ## v0.29.1 (2026-05-17)
 
 ### Fix
