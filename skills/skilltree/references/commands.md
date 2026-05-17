@@ -162,6 +162,22 @@ skilltree deps tree --global
 **Flags:**
 - `-g, --global` — Show global dependency tree
 
+## `skilltree why <name>`
+
+Reverse-lookup which top-level dependency pulled in `<name>`. Reads the lockfile only and walks the resolved graph backwards from the target to every reachable top-level dep. Mirrors the `npm why` / `cargo why` mental model — useful when you spot something installed and want to know who's responsible for it.
+
+```bash
+skilltree why python-coding
+skilltree why foo --type agent      # disambiguate a name shared by skill+agent
+skilltree why something --json      # machine-readable
+skilltree why bar --global          # inspect global lockfile
+```
+
+**Flags:**
+- `-t, --type <type>` — Disambiguate when `<name>` matches multiple entity types (`skill`, `agent`, `command`)
+- `--json` — Output paths as JSON
+- `-g, --global` — Inspect the global lockfile
+
 ## `skilltree scan <paths...>`
 
 Detect undeclared dependencies in skill body text using regex patterns.

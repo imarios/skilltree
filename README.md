@@ -314,6 +314,7 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `skilltree verify` | Check installed files against lockfile |
 | `skilltree list` | List installed dependencies |
 | `skilltree deps tree` | Show dependency tree |
+| `skilltree why <name>` | Reverse-lookup which top-level dep pulled in `<name>` |
 | `skilltree scan <paths...>` | Detect undeclared deps in skill body text |
 | `skilltree vendor` | Enter vendor mode (copy deps, commit to git) |
 | `skilltree unvendor` | Exit vendor mode (restore symlinks + gitignore) |
@@ -338,7 +339,7 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 
 | Flag | Commands | Description |
 |------|----------|-------------|
-| `--global` | init, add, install, update, remove, list, verify, deps tree | Operate on global deps (`~/.skilltree/global.yaml` → `~/.claude/`) |
+| `--global` | init, add, install, update, remove, list, verify, deps tree, why | Operate on global deps (`~/.skilltree/global.yaml` → `~/.claude/`) |
 | `--prod` | install | Skip dev-dependencies |
 | `--frozen` | install, vendor | Lockfile-only, error if out of sync (CI mode) |
 | `--force` | install, remove | Overwrite modified files / skip confirmation |

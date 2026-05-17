@@ -199,6 +199,20 @@ const COMMANDS: CmdDef[] = [
 		],
 	},
 	{
+		name: "why",
+		description: "Show which top-level dependency pulled in <name>",
+		flags: [
+			{
+				long: "--type",
+				short: "-t",
+				description: "Disambiguate when <name> matches multiple entity types",
+				takesArg: true,
+			},
+			{ long: "--json", description: "Output paths as JSON" },
+			{ long: "--global", short: "-g", description: "Inspect the global lockfile" },
+		],
+	},
+	{
 		name: "registry",
 		description: "Registry management commands",
 		subcommands: [
