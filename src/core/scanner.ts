@@ -1,5 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { entityNameFromPath } from "./entity-type.js";
+import { basename } from "node:path";
+import type { SkillFrontmatter } from "../types.js";
+import { entityNameFromPath, mdFileType } from "./entity-type.js";
 import { getDeclaredDeps, parseFrontmatter } from "./frontmatter.js";
 import { llmScanContent } from "./llm.js";
 
@@ -296,8 +298,43 @@ export async function scanFiles(filePaths: string[], opts?: ScanOptions): Promis
 }
 
 /**
+ * The two frontmatter keys we'll ever write deps under. `dependencies:` is the
+ * SKILL.md / command convention; `skills:` is the agent convention. Both are
+ * read by `parseFrontmatter`; only one should ever be written for any given
+ * file. Issue #68.
+ */
+type DepsKey = "dependencies" | "skills";
+
+/**
+ * Decide which frontmatter key `applyToFrontmatter` should merge into.
+ *
+ * Priority (issue #68):
+ *   1. Existing non-empty `dependencies:` list → write there.
+ *   2. Else existing non-empty `skills:` list → write there.
+ *   3. Else fall back to the convention for the file type:
+ *      - SKILL.md  → `dependencies:`
+ *      - agent .md → `skills:`
+ *      - command .md → `dependencies:` (no command-specific key today)
+ *
+ * The non-chosen key, when both happen to exist, is left untouched — the
+ * reader (`getDeclaredDeps`) already unions both, so preserving the orthogonal
+ * key keeps author intent. This is the writer-side counterpart to the
+ * reader's tolerance.
+ */
+function chooseDepsKey(filePath: string, fm: SkillFrontmatter): DepsKey {
+	if ((fm.dependencies ?? []).length > 0) return "dependencies";
+	if ((fm.skills ?? []).length > 0) return "skills";
+	if (basename(filePath) === "SKILL.md") return "dependencies";
+	return mdFileType(filePath) === "agent" ? "skills" : "dependencies";
+}
+
+/**
  * Apply detected dependencies to frontmatter.
- * Adds undeclared deps to the dependencies list.
+ *
+ * Merges into whichever existing deps key the author chose (or the file-type
+ * convention when neither is present) and writes exactly one deps block —
+ * never a parallel `dependencies:`/`skills:` pair. See `chooseDepsKey` and
+ * issue #68 for the full rules.
  */
 export async function applyToFrontmatter(filePath: string, newDeps: string[]): Promise<void> {
 	const content = await readFile(filePath, "utf-8");
@@ -305,24 +342,29 @@ export async function applyToFrontmatter(filePath: string, newDeps: string[]): P
 
 	if (!frontmatter) return;
 
-	const existing = frontmatter.dependencies ?? [];
+	const targetKey = chooseDepsKey(filePath, frontmatter);
+	const existing = frontmatter[targetKey] ?? [];
 	const merged = [...new Set([...existing, ...newDeps])].sort();
 
 	// Rebuild frontmatter
 	const depsYaml =
-		merged.length > 0 ? `dependencies:\n${merged.map((d) => `  - ${d}`).join("\n")}` : "";
+		merged.length > 0 ? `${targetKey}:\n${merged.map((d) => `  - ${d}`).join("\n")}` : "";
 
 	// Find frontmatter boundaries
 	const firstDelim = content.indexOf("---");
 	const secondDelim = content.indexOf("---", firstDelim + 3);
 	const existingFm = content.slice(firstDelim + 3, secondDelim).trim();
 
-	// Remove existing dependencies block from frontmatter
+	// Strip the existing block for the *target* key only. The other deps key,
+	// if present, is left in place — `chooseDepsKey` already preferred it if
+	// it was non-empty, so reaching here means the orthogonal key holds no
+	// dep list we'd overwrite. (Empty `dependencies: []` / `skills: []`
+	// scalars are preserved verbatim; harmless and round-trip-friendly.)
 	const fmLines = existingFm.split("\n");
 	const filteredLines: string[] = [];
 	let inDepBlock = false;
 	for (const line of fmLines) {
-		if (line.startsWith("dependencies:")) {
+		if (line.startsWith(`${targetKey}:`)) {
 			inDepBlock = true;
 			continue;
 		}
