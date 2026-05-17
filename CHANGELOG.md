@@ -1,3 +1,9 @@
+## v0.33.0 (2026-05-17)
+
+### Feat
+
+- **cli**: authoring input-validation hardening (#71, #120, #122, #125, #126) (#127)
+
 ## v0.32.0 (2026-05-17)
 
 ### Feat
