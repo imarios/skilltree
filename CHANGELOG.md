@@ -1,3 +1,9 @@
+## v0.32.0 (2026-05-17)
+
+### Feat
+
+- **doctor**: preflight health check command (closes #84) (#113)
+
 ## v0.31.0 (2026-05-17)
 
 ### Feat
