@@ -602,3 +602,142 @@ describe("applyToFrontmatter", () => {
 		expect(content).toContain("- task-builder");
 	});
 });
+
+describe("applyToFrontmatter — merge into existing key (issue #68)", () => {
+	test("merges into existing `skills:` list and does NOT add a `dependencies:` block", async () => {
+		const dir = await makeTempDir();
+		const skillDir = join(dir, "agent-style-skill");
+		await mkdir(skillDir, { recursive: true });
+		const filePath = join(skillDir, "SKILL.md");
+		await writeFile(
+			filePath,
+			"---\nname: agent-style-skill\ndescription: A skill that uses the agent `skills:` convention\nskills:\n  - already-declared\n---\n\nUse the python-coding skill.\n",
+		);
+
+		await applyToFrontmatter(filePath, ["python-coding"]);
+
+		const content = await readFile(filePath, "utf-8");
+		expect(content).toContain("- already-declared");
+		expect(content).toContain("- python-coding");
+		// Must NOT create a parallel `dependencies:` block alongside `skills:`
+		expect(content).not.toMatch(/^dependencies:/m);
+		// Original key is still present
+		expect(content).toMatch(/^skills:/m);
+		// New dep appears under the skills block
+		expect(content).toMatch(/skills:[\s\S]*- python-coding/);
+	});
+
+	test("prefers existing `dependencies:` over `skills:` when both are present", async () => {
+		const dir = await makeTempDir();
+		const skillDir = join(dir, "both-keys");
+		await mkdir(skillDir, { recursive: true });
+		const filePath = join(skillDir, "SKILL.md");
+		await writeFile(
+			filePath,
+			"---\nname: both-keys\ndependencies:\n  - dep-one\nskills:\n  - skill-one\n---\n\nUse the task-builder skill.\n",
+		);
+
+		await applyToFrontmatter(filePath, ["task-builder"]);
+
+		const content = await readFile(filePath, "utf-8");
+		// New dep is merged into the preferred (dependencies:) key
+		expect(content).toMatch(/dependencies:[\s\S]*- task-builder/);
+		// The orthogonal `skills:` key is preserved untouched
+		expect(content).toMatch(/^skills:/m);
+		expect(content).toContain("- skill-one");
+		// dep-one is still present in the dependencies list
+		expect(content).toMatch(/dependencies:[\s\S]*- dep-one/);
+	});
+
+	test("falls back to `skills:` for agent .md files when no deps key exists", async () => {
+		const dir = await makeTempDir();
+		const agentsDir = join(dir, "agents");
+		await mkdir(agentsDir, { recursive: true });
+		const filePath = join(agentsDir, "my-agent.md");
+		await writeFile(
+			filePath,
+			"---\nname: my-agent\ndescription: An agent\n---\n\nUse the python-coding skill.\n",
+		);
+
+		await applyToFrontmatter(filePath, ["python-coding"]);
+
+		const content = await readFile(filePath, "utf-8");
+		expect(content).toMatch(/^skills:/m);
+		expect(content).toContain("- python-coding");
+		expect(content).not.toMatch(/^dependencies:/m);
+	});
+
+	test("falls back to `dependencies:` for command .md files when no deps key exists", async () => {
+		const dir = await makeTempDir();
+		const cmdDir = join(dir, "commands");
+		await mkdir(cmdDir, { recursive: true });
+		const filePath = join(cmdDir, "my-cmd.md");
+		await writeFile(
+			filePath,
+			"---\nname: my-cmd\ndescription: A command\n---\n\nRun /hypothesis afterwards.\n",
+		);
+
+		await applyToFrontmatter(filePath, ["hypothesis"]);
+
+		const content = await readFile(filePath, "utf-8");
+		expect(content).toMatch(/^dependencies:/m);
+		expect(content).toContain("- hypothesis");
+		expect(content).not.toMatch(/^skills:/m);
+	});
+
+	test("falls back to `dependencies:` for SKILL.md when both deps keys are absent", async () => {
+		const dir = await makeTempDir();
+		const skillDir = join(dir, "fresh");
+		await mkdir(skillDir, { recursive: true });
+		const filePath = join(skillDir, "SKILL.md");
+		await writeFile(
+			filePath,
+			"---\nname: fresh\ndescription: A fresh skill\n---\n\nUse the python-coding skill.\n",
+		);
+
+		await applyToFrontmatter(filePath, ["python-coding"]);
+
+		const content = await readFile(filePath, "utf-8");
+		expect(content).toMatch(/^dependencies:/m);
+		expect(content).toContain("- python-coding");
+		expect(content).not.toMatch(/^skills:/m);
+	});
+
+	test("falls back to convention when both keys are present but empty (skills: [])", async () => {
+		const dir = await makeTempDir();
+		const skillDir = join(dir, "empty-both");
+		await mkdir(skillDir, { recursive: true });
+		const filePath = join(skillDir, "SKILL.md");
+		await writeFile(
+			filePath,
+			"---\nname: empty-both\ndependencies: []\nskills: []\n---\n\nUse the python-coding skill.\n",
+		);
+
+		await applyToFrontmatter(filePath, ["python-coding"]);
+
+		const content = await readFile(filePath, "utf-8");
+		// SKILL.md convention wins when both are empty
+		expect(content).toMatch(/dependencies:[\s\S]*- python-coding/);
+	});
+
+	test("merged list is sorted alphabetically", async () => {
+		const dir = await makeTempDir();
+		const skillDir = join(dir, "sorted");
+		await mkdir(skillDir, { recursive: true });
+		const filePath = join(skillDir, "SKILL.md");
+		await writeFile(
+			filePath,
+			"---\nname: sorted\nskills:\n  - zebra\n  - alpha\n---\n\nUse the mango skill.\n",
+		);
+
+		await applyToFrontmatter(filePath, ["mango"]);
+
+		const content = await readFile(filePath, "utf-8");
+		const skillsBlock = content.match(/skills:\n((?: {2}- .+\n?)+)/)?.[1] ?? "";
+		const items = skillsBlock
+			.split("\n")
+			.map((l) => l.replace(/^ {2}- /, "").trim())
+			.filter((l) => l.length > 0);
+		expect(items).toEqual(["alpha", "mango", "zebra"]);
+	});
+});
