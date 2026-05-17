@@ -146,7 +146,7 @@ dependencies:
 - **`exclude:`** trims files from the entity when consumers install or vendor it. Gitignore-style globs, relative to the entity root.
 - **`.skilltreeignore`** (repo root): gitignore-style patterns that apply to every published entity. Useful for cross-cutting noise (`.DS_Store`, `*.log`).
 
-Run `skilltree check` to catch the asymmetric-publish footgun: a published entity that transitively depends on a `publish: false` same-repo entity will install fine for you but fail for consumers. The check reports the chain so the fix is obvious.
+Run `skilltree check` to catch the asymmetric-publish footgun: a published entity that transitively depends on a `publish: false` same-repo entity will install fine for you but fail for consumers. The check reports the chain so the fix is obvious. `check` also lints the frontmatter of every local `SKILL.md` / agent / command — missing `name:`, missing `description:`, invalid semver in `version:`, or a malformed `skills:` block become warnings (and exit 1 under `--strict`).
 
 This is **authoring intent, not access control** — anyone with git access to your repo can read every file regardless of these flags. They're about what your repo *offers*, not what it *protects*.
 

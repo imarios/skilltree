@@ -129,6 +129,10 @@ export async function addTagToRepo(
 
 /**
  * Create a local skill directory (not a git repo) for local dep testing.
+ *
+ * The fixture writes a well-formed frontmatter (name + description) so the
+ * file passes `skilltree check`'s frontmatter lint by default — tests that
+ * need malformed frontmatter should write SKILL.md directly.
  */
 export async function createLocalSkill(
 	baseDir: string,
@@ -142,7 +146,10 @@ export async function createLocalSkill(
 		? `dependencies:\n${dependencies.map((d) => `  - ${d}`).join("\n")}`
 		: "";
 
-	await writeFile(join(skillDir, "SKILL.md"), `---\nname: ${name}\n${deps}\n---\n\n# ${name}\n`);
+	await writeFile(
+		join(skillDir, "SKILL.md"),
+		`---\nname: ${name}\ndescription: Test skill ${name}\n${deps}\n---\n\n# ${name}\n`,
+	);
 
 	return skillDir;
 }
