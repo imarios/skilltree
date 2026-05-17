@@ -1,5 +1,6 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { findExistingManifest } from "../core/filenames.js";
 import { dim, success } from "../core/ui.js";
 import type { EntityType } from "../types.js";
 import { addCommand } from "./add.js";
@@ -37,6 +38,17 @@ export async function newCommand(
 ): Promise<void> {
 	validateEntityType(type);
 	validateName(name);
+
+	// Issue #120: when we're going to register the new entity (the default),
+	// require the manifest up front. Without this check, the file gets written
+	// to disk and *then* `addCommand` fails to load the manifest — leaving
+	// orphan files behind on a failed `new`. Skipped for `--no-register` since
+	// that mode is explicit scaffold-only and doesn't touch the manifest.
+	if (opts.register !== false && !findExistingManifest(dir)) {
+		throw new Error(
+			"No skilltree.yml found. Run `skilltree init` first, or pass --no-register to scaffold without registering.",
+		);
+	}
 
 	const target = resolveTargetPath(type, name, dir);
 	await assertNoCollision(target.displayPath, target.absPath);
