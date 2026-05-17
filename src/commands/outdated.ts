@@ -4,7 +4,7 @@ import { ensureCached, listTags } from "../core/git.js";
 import { readGlobalLockfile, readLockfile } from "../core/lockfile.js";
 import { getGlobalDir } from "../core/paths.js";
 import { filterSemverTags } from "../core/resolver.js";
-import { dim, pc } from "../core/ui.js";
+import { type ColumnDef, dim, pc, printTable } from "../core/ui.js";
 import type { EntityType, LockfileEntry } from "../types.js";
 
 export interface OutdatedOptions {
@@ -83,7 +83,7 @@ export async function outdatedCommand(
 	if (opts?.json) {
 		console.log(JSON.stringify(rows, null, 2));
 	} else {
-		printTable(rows);
+		printOutdatedTable(rows);
 	}
 
 	if (opts?.check && rows.some((r) => r.bump !== null)) {
@@ -173,32 +173,31 @@ function classifyBump(current: string, latest: string): "major" | "minor" | "pat
 	return "patch";
 }
 
-function printTable(rows: OutdatedRow[]): void {
-	const display = rows.map((r) => ({
+/** Em-dash placeholder used in the human-facing table for null `latest`/`bump`. */
+const EMDASH = "—";
+
+interface DisplayRow {
+	name: string;
+	current: string;
+	latest: string;
+	bump: string;
+}
+
+const OUTDATED_COLUMNS: ColumnDef<DisplayRow>[] = [
+	{ header: "Name", value: (r) => r.name, color: pc.cyan },
+	{ header: "Current", value: (r) => r.current },
+	{ header: "Latest", value: (r) => r.latest, color: pc.green },
+	{ header: "Bump", value: (r) => r.bump, color: colorBump },
+];
+
+function printOutdatedTable(rows: OutdatedRow[]): void {
+	const display: DisplayRow[] = rows.map((r) => ({
 		name: r.name,
 		current: r.current,
-		latest: r.latest ?? "—",
-		bump: r.bump ?? "—",
+		latest: r.latest ?? EMDASH,
+		bump: r.bump ?? EMDASH,
 	}));
-
-	const widths = {
-		name: Math.max(4, ...display.map((r) => r.name.length)),
-		current: Math.max(7, ...display.map((r) => r.current.length)),
-		latest: Math.max(6, ...display.map((r) => r.latest.length)),
-		bump: Math.max(4, ...display.map((r) => r.bump.length)),
-	};
-
-	console.log(
-		pc.bold(
-			`${"Name".padEnd(widths.name)}  ${"Current".padEnd(widths.current)}  ${"Latest".padEnd(widths.latest)}  Bump`,
-		),
-	);
-	console.log(dim("-".repeat(widths.name + widths.current + widths.latest + widths.bump + 6)));
-	for (const row of display) {
-		console.log(
-			`${pc.cyan(row.name.padEnd(widths.name))}  ${row.current.padEnd(widths.current)}  ${pc.green(row.latest.padEnd(widths.latest))}  ${colorBump(row.bump)}`,
-		);
-	}
+	printTable(display, OUTDATED_COLUMNS);
 }
 
 function colorBump(bump: string): string {

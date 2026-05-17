@@ -33,6 +33,76 @@ export const label = (msg: string) => pc.blue(msg);
 /** Naive English pluralizer: returns `word` for n=1, `${word}s` otherwise. */
 export const pluralize = (word: string, n: number): string => (n === 1 ? word : `${word}s`);
 
+/** Column gutter (2 spaces) between adjacent cells in printTable output. */
+const TABLE_GUTTER = "  ";
+
+/**
+ * Declarative column descriptor for {@link printTable}.
+ *
+ * - `value` extracts the string contents of the cell for a given row.
+ * - `color` optionally wraps each data cell (NOT the header) in a colorizer
+ *   like `pc.cyan` or our `dim` helper.
+ * - `minWidth` overrides the default minimum width (= `header.length`).
+ *   The actual rendered width is `max(minWidth ?? header.length, ...cellLens)`.
+ */
+export interface ColumnDef<T> {
+	header: string;
+	value: (row: T) => string;
+	color?: (cell: string) => string;
+	minWidth?: number;
+}
+
+/**
+ * Render a bold header, dim divider, and per-row cells for `rows` using the
+ * declarative `columns`. Centralizes the width/gutter logic that previously
+ * lived inline in `list` and `outdated` (issue #101).
+ *
+ * Conventions:
+ * - Columns are padded with `padEnd` to the same width across header and rows.
+ * - The trailing column is NOT padded — colors on the final cell wouldn't
+ *   benefit from trailing whitespace, matching the prior hand-written tables.
+ * - Divider length matches the visible header length (gutters included), so
+ *   the underline lines up regardless of column count.
+ * - Empty `rows` still prints the header + divider (callers should short-
+ *   circuit earlier with a friendlier "no deps" message when appropriate).
+ */
+export function printTable<T>(rows: T[], columns: ColumnDef<T>[]): void {
+	if (columns.length === 0) return;
+
+	// Pre-extract cell strings once so we don't call `value(row)` twice.
+	const cells: string[][] = rows.map((r) => columns.map((c) => c.value(r)));
+
+	const widths = columns.map((col, i) => {
+		const min = col.minWidth ?? col.header.length;
+		let max = min;
+		for (const row of cells) {
+			const len = row[i]?.length ?? 0;
+			if (len > max) max = len;
+		}
+		return max;
+	});
+
+	const lastIdx = columns.length - 1;
+	const headerLine = columns
+		.map((col, i) => (i === lastIdx ? col.header : col.header.padEnd(widths[i] ?? 0)))
+		.join(TABLE_GUTTER);
+	console.log(pc.bold(headerLine));
+
+	const totalWidth = widths.reduce((a, b) => a + b, 0) + TABLE_GUTTER.length * lastIdx;
+	console.log(dim("-".repeat(totalWidth)));
+
+	for (const row of cells) {
+		const line = row
+			.map((cell, i) => {
+				const padded = i === lastIdx ? cell : cell.padEnd(widths[i] ?? 0);
+				const color = columns[i]?.color;
+				return color ? color(padded) : padded;
+			})
+			.join(TABLE_GUTTER);
+		console.log(line);
+	}
+}
+
 /**
  * Print resolution warnings and throw if errors exist.
  * Used by install, installGlobal, and vendor commands.
