@@ -38,7 +38,11 @@ export type LsRemoteOutcome =
  * On timeout the underlying git process keeps running until git itself
  * gives up; we don't bother killing it because the outcome has already
  * been reported. Auth-failure detection uses stderr-text heuristics
- * (`Authentication failed`, `could not read Username`, `Permission denied`).
+ * (`Authentication failed`, `could not read Username`, `Permission denied`)
+ * — we force `LC_ALL=C`/`LANG=C` on the spawn so those English strings
+ * appear regardless of the user's locale (issue #114). Also set
+ * `GIT_TERMINAL_PROMPT=0` so a private-repo URL never blocks waiting
+ * for credentials when ssh/key-helpers aren't configured.
  */
 export async function lsRemote(
 	url: string,
@@ -46,7 +50,12 @@ export async function lsRemote(
 ): Promise<LsRemoteOutcome> {
 	const timeoutMs = opts.timeoutMs ?? 5000;
 	const cloneUrl = toGitCloneUrl(url);
-	const git = simpleGit();
+	const git = simpleGit().env({
+		...process.env,
+		LC_ALL: "C",
+		LANG: "C",
+		GIT_TERMINAL_PROMPT: "0",
+	});
 	const probe: Promise<LsRemoteOutcome> = git
 		.listRemote([cloneUrl])
 		.then(() => ({ ok: true as const }))

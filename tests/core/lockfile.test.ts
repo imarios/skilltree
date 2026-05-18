@@ -134,6 +134,15 @@ describe("parseLockfile", () => {
 		);
 	});
 
+	test("missing lockfile_version key names the field, not 'undefined' (#123)", () => {
+		// Issue #123: the old message ("Unsupported lockfile version: undefined")
+		// made the user think the value was the problem rather than the key.
+		// Distinguish missing from wrong: missing → name the field; wrong-value
+		// → name the value.
+		expect(() => parseLockfile("version: 1\npackages: {}")).toThrow(/lockfile_version/);
+		expect(() => parseLockfile("version: 1\npackages: {}")).not.toThrow(/undefined/);
+	});
+
 	test("rejects a lockfile with a dependency cycle (issue #47)", () => {
 		// The resolver rejects cycles, so any cycle in a lockfile is corruption.
 		// Validate at read time so all consumers (deps tree, install --frozen)

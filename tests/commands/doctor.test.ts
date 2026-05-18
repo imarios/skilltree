@@ -190,7 +190,10 @@ describe("runDoctor — clean project", () => {
 
 describe("runDoctor — lockfile sync", () => {
 	test("acceptance #2: deleted lockfile → fail on lockfile-sync", async () => {
-		const dir = await makeProject(cleanProject());
+		// Use a project with at least one declared dep so the missing lockfile
+		// is a real sync mismatch — empty-deps projects pass vacuously now
+		// (issue #121).
+		const dir = await makeProject(projectWithLocalSkill());
 		await unlink(join(dir, "skilltree.lock"));
 		const report = await runDoctorIsolated(dir);
 		const lock = report.checks.find((c) => c.name === "lockfile-sync");
@@ -359,7 +362,7 @@ describe("doctorCommand — exit codes", () => {
 	});
 
 	test("exit 1 on any fail", async () => {
-		const dir = await makeProject(cleanProject());
+		const dir = await makeProject(projectWithLocalSkill());
 		await unlink(join(dir, "skilltree.lock"));
 		const out = await runCli(dir);
 		expect(out.exitCode).toBe(1);
@@ -376,10 +379,10 @@ describe("doctorCommand — text rendering", () => {
 	});
 
 	test("fail row shows ✘ and the indented → fix line", async () => {
-		const dir = await makeProject(cleanProject());
+		const dir = await makeProject(projectWithLocalSkill());
 		await unlink(join(dir, "skilltree.lock"));
 		const out = await runCli(dir);
-		const all = out.logs.join("\n") + "\n" + out.warns.join("\n") + "\n" + out.errs.join("\n");
+		const all = `${out.logs.join("\n")}\n${out.warns.join("\n")}\n${out.errs.join("\n")}`;
 		expect(all).toContain("✘");
 		expect(all).toContain("lockfile-sync");
 	});
@@ -430,7 +433,7 @@ describe("runDoctor — --json output", () => {
 	});
 
 	test("J3: fail row includes detail and fix when applicable", async () => {
-		const dir = await makeProject(cleanProject());
+		const dir = await makeProject(projectWithLocalSkill());
 		await unlink(join(dir, "skilltree.lock"));
 		const report = await runDoctorIsolated(dir);
 		const lock = report.checks.find((c) => c.name === "lockfile-sync");
@@ -682,7 +685,7 @@ describe("doctorCommand — --json", () => {
 	});
 
 	test("C2: exit 1 on fail; stdout is valid JSON", async () => {
-		const dir = await makeProject(cleanProject());
+		const dir = await makeProject(projectWithLocalSkill());
 		await unlink(join(dir, "skilltree.lock"));
 		const out = await runCliWithOpts(dir, { json: true, probe: okProbe });
 		expect(out.exitCode).toBe(1);
@@ -751,5 +754,99 @@ describe("runDoctor — read-only invariant", () => {
 		for (const [path, mt] of before.entries()) {
 			expect(after.get(path)).toBe(mt);
 		}
+	});
+
+	test("RO3: global mode does not change any file mtime under globalDir (#115)", async () => {
+		// Belt-and-braces: the global codepath shares the same per-check
+		// functions as project mode but routes through `loadManifestOrThrow
+		// ({ global: true })` and short-circuits project-only checks. RO1/RO2
+		// don't cover global-specific paths, so a regression that mutated
+		// `~/.skilltree/` would slip past.
+		const { globalDir } = await makeGlobalProject({
+			manifest: "name: global\ndependencies: {}\n",
+		});
+		const cfg = await writeRegistriesFile([]);
+		const before = await snapshotMtimes(globalDir);
+		await runDoctor("/no-such-project-dir", {
+			global: true,
+			globalDir,
+			probe: okProbe,
+			registryConfigPath: cfg,
+		});
+		const after = await snapshotMtimes(globalDir);
+		expect(after.size).toBe(before.size);
+		for (const [path, mt] of before.entries()) {
+			expect(after.get(path)).toBe(mt);
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Empty-deps vacuous pass for lockfile-sync (#121)
+// ---------------------------------------------------------------------------
+
+describe("runDoctor — empty-deps vacuous pass (#121)", () => {
+	test("fresh init (zero deps, no lockfile) passes lockfile-sync, exits 0", async () => {
+		const dir = await makeProject({
+			manifest: ["name: fresh", "install_targets:", "  - claude", "dependencies: {}", ""].join(
+				"\n",
+			),
+			lockfile: null,
+		});
+		const report = await runDoctorIsolated(dir);
+		const lock = report.checks.find((c) => c.name === "lockfile-sync");
+		expect(lock?.status).toBe("pass");
+		expect(lock?.detail ?? "").toMatch(/no (deps|dependencies)/i);
+		expect(report.summary.fail).toBe(0);
+	});
+
+	test("zero deps in both groups still passes vacuously", async () => {
+		const dir = await makeProject({
+			manifest: [
+				"name: fresh",
+				"install_targets:",
+				"  - claude",
+				"dependencies: {}",
+				"dev-dependencies: {}",
+				"",
+			].join("\n"),
+			lockfile: null,
+		});
+		const report = await runDoctorIsolated(dir);
+		expect(report.checks.find((c) => c.name === "lockfile-sync")?.status).toBe("pass");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Manifest / lockfile error attribution (#123)
+// ---------------------------------------------------------------------------
+
+describe("runDoctor — manifest / lockfile error attribution (#123)", () => {
+	test("malformed YAML in skilltree.yml → manifest-schema fails with a parse-error message, not 'No skilltree.yml found'", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-doctor-malformed-"));
+		await writeFile(join(tempDir, "skilltree.yml"), "name: [unclosed\n", "utf-8");
+		const cfg = await writeRegistriesFile([]);
+		const report = await runDoctor(tempDir, { probe: okProbe, registryConfigPath: cfg });
+		const schema = report.checks.find((c) => c.name === "manifest-schema");
+		expect(schema?.status).toBe("fail");
+		// The new wording references the file by name and reflects a parse error
+		// rather than the misleading "No skilltree.yml found".
+		expect(schema?.detail ?? "").toMatch(/skilltree\.yml/);
+		expect(schema?.detail ?? "").not.toMatch(/No skilltree\.yml found/);
+	});
+
+	test("lockfile missing `lockfile_version` key → lockfile-sync names the missing field, not `undefined`", async () => {
+		const dir = await makeProject(projectWithLocalSkill());
+		// Overwrite the lockfile with a body that lacks `lockfile_version`.
+		await writeFile(
+			join(dir, "skilltree.lock"),
+			"# skilltree.lock -- DO NOT EDIT MANUALLY\nversion: 1\npackages: {}\n",
+			"utf-8",
+		);
+		const report = await runDoctorIsolated(dir);
+		const lock = report.checks.find((c) => c.name === "lockfile-sync");
+		expect(lock?.status).toBe("fail");
+		expect(lock?.detail ?? "").toMatch(/lockfile_version/);
+		expect(lock?.detail ?? "").not.toMatch(/undefined/);
 	});
 });

@@ -117,6 +117,15 @@ export function parseLockfile(content: string): Lockfile {
 		throw new Error("Corrupted lockfile: could not parse YAML");
 	}
 
+	// Distinguish "field missing entirely" from "field present but wrong value"
+	// (issue #123). Without the name in the error, the user sees
+	// `Unsupported lockfile version: undefined` and can't tell whether the key
+	// is missing or the value is unrecognized.
+	if (raw.lockfile_version === undefined) {
+		throw new Error(
+			"Invalid lockfile: missing required key `lockfile_version`. Expected `lockfile_version: 1` at the top of the file. Run `skilltree install` to regenerate.",
+		);
+	}
 	if (raw.lockfile_version !== 1) {
 		throw new Error(`Unsupported lockfile version: ${raw.lockfile_version}`);
 	}
