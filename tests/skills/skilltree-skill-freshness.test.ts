@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 const SKILL_DIR = join(import.meta.dir, "..", "..", "skills", "skilltree");
 const CLI_PATH = join(import.meta.dir, "..", "..", "src", "cli.ts");
+const README_PATH = join(import.meta.dir, "..", "..", "README.md");
 
 /**
  * Extract registered commands and options from cli.ts source.
@@ -92,6 +93,33 @@ describe("skilltree skill freshness", () => {
 		expect(skillMd.startsWith("---")).toBe(true);
 		expect(skillMd).toContain("name: skilltree");
 		expect(skillMd).toContain("description:");
+	});
+
+	// Issue #116: README's Commands table is a separate source of truth from
+	// `commands.md` and was drifting silently — `skilltree check` shipped weeks
+	// before it appeared in the README table, while the narrative section
+	// already referenced it. This mirrors the `commands.md` freshness check
+	// against `README.md` so the next absent row fails CI instead of waiting
+	// for someone to notice.
+	test("README.md Commands table covers all CLI commands (#116)", async () => {
+		const readme = await readFile(README_PATH, "utf-8");
+		const { commands } = await extractCliDefinitions();
+
+		const missing: string[] = [];
+		for (const cmd of commands) {
+			const searchTerm = SUBCOMMAND_PARENTS[cmd]
+				? `skilltree ${SUBCOMMAND_PARENTS[cmd]}`
+				: `skilltree ${cmd}`;
+			if (!readme.includes(searchTerm)) {
+				missing.push(cmd);
+			}
+		}
+
+		if (missing.length > 0) {
+			throw new Error(
+				`README.md is missing documentation for: ${missing.join(", ")}\nUpdate the Commands table in README.md to match the CLI.`,
+			);
+		}
 	});
 
 	test("workflows.md references all major commands", async () => {

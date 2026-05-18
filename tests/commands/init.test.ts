@@ -3,7 +3,12 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { initCommand, parseSelectionAnswer } from "../../src/commands/init.js";
+import {
+	initCommand,
+	parseAgentSelectionAnswer,
+	parseIndexedSelection,
+	parseSelectionAnswer,
+} from "../../src/commands/init.js";
 import { readManifest } from "../../src/core/manifest.js";
 import type { LocalEntry } from "../../src/core/repo-scanner.js";
 
@@ -256,6 +261,39 @@ describe("initCommand", () => {
 				expect(picked.map((e) => e.name)).toEqual(expectedNames);
 			});
 		}
+	});
+
+	// Issue #97: parseSelectionAnswer and parseAgentSelectionAnswer now both
+	// delegate to a single `parseIndexedSelection<T>` grammar. The two
+	// specialized wrappers must continue to share that grammar — these tests
+	// pin equivalence so a future change to one branch can't drift from the
+	// other.
+	describe("parseIndexedSelection (shared grammar, #97)", () => {
+		const items = ["alpha", "beta", "gamma", "delta"];
+		const stringCases: Array<[string, string[]]> = [
+			["", ["alpha", "beta", "gamma", "delta"]],
+			["y", ["alpha", "beta", "gamma", "delta"]],
+			["n", []],
+			["2", ["beta"]],
+			["1,3", ["alpha", "gamma"]],
+			["3, 1", ["gamma", "alpha"]],
+			["1,1,4", ["alpha", "delta"]],
+			["99", []],
+			["garbage", []],
+		];
+		for (const [input, expected] of stringCases) {
+			test(`generic<string> "${input}" → [${expected.join(", ")}]`, () => {
+				expect(parseIndexedSelection(input, items)).toEqual(expected);
+				// Symmetry: the agent wrapper resolves to the same answer.
+				expect(parseAgentSelectionAnswer(input, items)).toEqual(expected);
+			});
+		}
+
+		test("'y' returns a shallow copy, not the input array", () => {
+			const out = parseIndexedSelection("y", items);
+			expect(out).not.toBe(items);
+			expect(out).toEqual(items);
+		});
 	});
 
 	test("--scan with askFn drives the interactive prompt and prints the listing", async () => {
