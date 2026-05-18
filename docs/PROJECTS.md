@@ -16,6 +16,8 @@ Project Naming Theme: Elements
 
 - **Carbon** (05/14/2026): Publication surface — `skilltree.yml` as registry-index fallback, `publish: false` for WIP local entities, `exclude:` + `.skilltreeignore` for file-level trim, unified visibility predicate across indexing/vendor/origin-manifest lookup, `check` lint for asymmetric publish state (resolves #63)
 
+- **Nitrogen** (05/17/2026): Preflight doctor + resolver error attribution — Phases 1–3 shipped `skilltree doctor` (manifest schema, lint, lockfile sync, target consistency, registry reachability, frontmatter; text + `--json` + `--global`) resolving #84. Phase 4 extends the same diagnostics philosophy to runtime resolver errors: every error names the manifest that imposed the constraint and the dep involved (resolves #85). Part of Authoring UX v1 (#78).
+
 ## Completed Projects
 
-- **Nitrogen** (05/17/2026 → 05/17/2026): Preflight doctor — `skilltree doctor` command bundling manifest schema, lint, lockfile sync, target consistency, registry reachability, and frontmatter checks; text + `--json` output; `--global` flag (resolves #84, part of Authoring UX v1 #78)
+_(none yet — Nitrogen returns here once Phase 4 ships)_

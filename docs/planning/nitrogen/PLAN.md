@@ -91,8 +91,69 @@ Round out the surface: machine-readable output, global-manifest mode, the one ne
 - [ ] Project completion: walk D1–D24, verify every requirement is satisfied or moved to BACKLOG with justification.
 - [ ] Project retrospective at `docs/planning/nitrogen/RETRO.md`.
 
+## Phase 4: Resolver error attribution (extension)
+<!-- Tracks: #85. Adopted 2026-05-18 after Phases 1-3 shipped. -->
+
+Nitrogen Phases 1–3 made *preflight* diagnostics visible via `doctor`. Phase 4 extends the same philosophy to *runtime* resolver and install errors: every error names the manifest that imposed the offending constraint and the dep involved, so the author can tell which file to edit.
+
+Three sequential sub-phases. Each ships as its own PR.
+
+```
+Phase 4.1: Catalogue + snapshot harness
+  Inventory every `throw new Error` / state.errors.push site across
+  src/core/{resolver,graph,installer,manifest,lockfile}.ts.
+  Classify each as clear / mis-attributed / ambiguous. Add a
+  snapshot harness so subsequent phases prove their changes.
+  Deliverable: docs/planning/nitrogen/phase_4/error-audit.md.
+       ↓
+Phase 4.2: Resolver + graph attribution
+  Fix the canonical mis-attribution (resolver.ts:81-84 +
+  graph.ts:167-169): version-conflict errors name the manifest
+  that imposed each constraint (consumer manifest vs transitive
+  manifest@<ref>) and the dep being constrained. Same shape for
+  cross-repo transitive conflicts (graph.ts:808).
+       ↓
+Phase 4.3: Collision attribution
+  Fix duplicate-key resolution errors (graph.ts:252): name both
+  source manifests in the collision message. Install-time path
+  collisions (installer.ts:361) named likewise. Closes #85.
+```
+
+### Phase 4.1 tasks
+- [ ] Worktree: `.claude/worktree/issue-85-phase-1-error-audit/`.
+- [ ] Catalogue all `throw new Error` + `state.errors.push` + `state.warnings.push` sites in `src/core/{resolver,graph,installer,manifest,lockfile}.ts` and `src/commands/*.ts`. One row per site in `docs/planning/nitrogen/phase_4/error-audit.md`: file:line, current text, who-imposes-what, classification.
+- [ ] Add `tests/core/error-attribution-snapshot.test.ts`: fixture-driven snapshot test that exercises each mis-attributed error site and captures the current (bad) text. Sets baseline that 4.2/4.3 will update.
+- [ ] Light helper extract if obvious: e.g., `formatConstraintList(constraints)` if the shape is already shared.
+- [ ] PR closes part of #85 (text: "addresses #85 — Phase 1/3"). Does NOT close issue.
+
+### Phase 4.2 tasks
+- [ ] Worktree: `.claude/worktree/issue-85-phase-2-resolver-attribution/`.
+- [ ] Extend `Array<{ name; constraint }>` in `src/core/resolver.ts` and `graph.ts:135` to `Array<{ name; constraint; source }>` where `source` is a `ConstraintSource` discriminated union (`{ kind: "consumer-manifest" } | { kind: "transitive", manifestRef: string }`). Plumb through `resolveRepoVersions` → `resolveOneRepo` → `resolveIntersection`.
+- [ ] Rewrite `resolveIntersection`'s error string: list each `<source-manifest>` → `<dep>` → `<constraint>` triple. Maintain test-friendliness (snapshot-able).
+- [ ] Update `graph.ts:167-170` so the wrapping context names the conflicting repo + lists the constraint chain. Update `graph.ts:808` so transitive conflicts use the same `formatConstraintList` helper.
+- [ ] Update `tests/core/error-attribution-snapshot.test.ts` snapshots (intended updates). Add red→green tests for the spec example from #85 ("greet-helper requires ^1.0.0" → attributed form).
+- [ ] PR closes part of #85 (text: "addresses #85 — Phase 2/3"). Does NOT close issue.
+
+### Phase 4.3 tasks
+- [ ] Worktree: `.claude/worktree/issue-85-phase-3-collision-attribution/`.
+- [ ] Extend `ResolvedEntity` to track the manifest path where the yamlKey was declared (consumer manifest = `./skilltree.yml`, transitive = `<repo>/skilltree.yml@<ref>`). Add field to `ResolutionState.entities` records.
+- [ ] Rewrite `graph.ts:252` "Duplicate entity resolution" to name both source manifests.
+- [ ] Rewrite `installer.ts:361` "not found at path" to also include `declared in <manifest>` where known.
+- [ ] Update snapshots; add specific tests for collision attribution.
+- [ ] PR uses `Closes #85` (closes issue on merge).
+
+### Phase 4 deliverables (project-level)
+- [ ] All three PRs ship to main green.
+- [ ] `docs/planning/nitrogen/phase_4/{DETAILED_PLAN,TEST_PLAN,SHORT_MEMORY,RETRO}.md` updated as each sub-phase completes.
+- [ ] PROJECTS.md moves Nitrogen back to Completed (date range updated).
+- [ ] #85 closed; if all #78 children are closed, close #78 too.
+
 ## Nitrogen — Sub-project Status
 
 Phase 1: ✅ COMPLETE
 Phase 2: ✅ COMPLETE
 Phase 3: ✅ COMPLETE
+Phase 4: 🚧 IN PROGRESS (adopted 2026-05-18 to close #85)
+  - 4.1: pending
+  - 4.2: pending
+  - 4.3: pending
