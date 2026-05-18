@@ -1,3 +1,9 @@
+## v0.34.0 (2026-05-18)
+
+### Feat
+
+- **deps**: tree shows @<short-sha> for unpinned, commit in JSON, canonical names for aliases (#131)
+
 ## v0.33.1 (2026-05-18)
 
 ### Fix
