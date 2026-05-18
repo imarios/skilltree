@@ -74,6 +74,37 @@ describe("lsRemote", () => {
 			expect(["timeout", "unreachable", "other"]).toContain(outcome.reason);
 		}
 	});
+
+	test("locale-independent: stderr stays English under a non-English LC_ALL (#114)", async () => {
+		// Issue #114: classification of git stderr (auth / unreachable / other)
+		// uses English substring matching. Without locale pinning, a French/
+		// German/Japanese-locale user would see translated git messages and
+		// fall through to `reason: "other"`. The fix forces `LC_ALL=C` on
+		// the spawned process — this test sets a non-English LC_ALL on the
+		// parent and verifies the resulting stderr detail is still English.
+		const dir = await makeTempDir();
+		const fakePath = join(dir, "no-such-repo");
+		const originalLcAll = process.env.LC_ALL;
+		const originalLang = process.env.LANG;
+		process.env.LC_ALL = "fr_FR.UTF-8";
+		process.env.LANG = "fr_FR.UTF-8";
+		try {
+			const outcome = await lsRemote(`file://${fakePath}`);
+			expect(outcome.ok).toBe(false);
+			if (!outcome.ok) {
+				// English git error wording for missing repos. If the spawn
+				// had inherited fr_FR, "ne semble pas" / "n'existe pas" would
+				// appear instead. We assert at least one English token from
+				// the canonical message.
+				expect(outcome.detail).toMatch(/does not (appear to be|exist)|not a git repository/i);
+			}
+		} finally {
+			if (originalLcAll === undefined) delete process.env.LC_ALL;
+			else process.env.LC_ALL = originalLcAll;
+			if (originalLang === undefined) delete process.env.LANG;
+			else process.env.LANG = originalLang;
+		}
+	});
 });
 
 describe("repoCachePath", () => {

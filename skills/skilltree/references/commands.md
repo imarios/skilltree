@@ -48,10 +48,10 @@ skilltree add testing --dev --repo github.com/org/shared-skills --path skills/te
 - `-t, --type <skill|agent|command>` — Override type inference (commands install to `.claude/commands/`)
 - `--registry <name>` — When no `--repo`, resolve from this registry only (disambiguates multiple matches)
 - `-g, --global` — Add to global dependencies (~/.skilltree/global.yaml)
-- `--no-verify` — Skip the `git ls-remote` reachability check on `--repo` URLs (offline / pre-registering an unpushed repo)
+- `--no-verify` — Skip the `git ls-remote` reachability check on any repo-bearing dep (offline / pre-registering an unpushed repo)
 
 **Validation:**
-- For `--repo <url>`: probes the URL with `git ls-remote` (5s timeout). Unreachable URLs warn but still write the entry; auth-required URLs print a soft note. Use `--no-verify` to skip the probe.
+- For any dep that resolves to a `repo` URL — explicit `--repo <url>` **and** registry-resolved adds like `skilltree add python-coding` (issue #128) — probes the URL with `git ls-remote` (5s timeout). Unreachable URLs warn but still write the entry; auth-required URLs print a soft note. Use `--no-verify` to skip the probe.
 - For `--source <alias>`: must be an alias name registered under the manifest's `sources:` block. URLs are refused — use `--repo` for direct URLs.
 
 ## `skilltree new`
@@ -226,11 +226,11 @@ skilltree doctor --global
 
 Checks performed (in order):
 
-1. **manifest-schema** — `skilltree.yml` parses and validates.
+1. **manifest-schema** — `skilltree.yml` parses and validates. Reports YAML parse errors with the file name (e.g. `Failed to load skilltree.yml: …`) instead of conflating "missing" with "malformed" (issue #123).
 2. **lint** — wraps `skilltree check` (asymmetric publish + frontmatter validity).
-3. **lockfile-sync** — `skilltree.lock` has no `added` / `removed` / `changed` entries vs the manifest.
+3. **lockfile-sync** — `skilltree.lock` has no `added` / `removed` / `changed` entries vs the manifest. Vacuously passes when the manifest declares zero deps (no lockfile required for an empty project — issue #121). Distinguishes "missing `lockfile_version` key" from "wrong version value" in the error (issue #123).
 4. **target-consistency** — every `install_targets` entry resolves through the agent registry or is a literal path that exists.
-5. **registry-reachability** — each configured registry reachable via `git ls-remote` (5s timeout). Auth-required and timeout are reported as warnings, not failures.
+5. **registry-reachability** — each configured registry reachable via `git ls-remote` (5s timeout). The probe forces `LC_ALL=C`/`LANG=C`/`GIT_TERMINAL_PROMPT=0` on the spawn so auth/unreachable classification stays correct in non-English locales and so private-repo URLs don't block on a credential prompt (issue #114). Auth-required and timeout are reported as warnings, not failures.
 6. **frontmatter** — same as lint #2; reported separately for output readability.
 
 Exit codes:

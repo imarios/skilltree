@@ -11,7 +11,9 @@ describe("lockfile corruption handling", () => {
 	});
 
 	test("throws on YAML array instead of mapping", () => {
-		expect(() => parseLockfile("- item1\n- item2\n")).toThrow("Unsupported lockfile version");
+		// YAML arrays don't have `lockfile_version` either — they hit the
+		// missing-key branch and surface the named-field error (#123).
+		expect(() => parseLockfile("- item1\n- item2\n")).toThrow(/lockfile_version/);
 	});
 
 	test("throws on wrong lockfile_version", () => {
@@ -21,7 +23,8 @@ describe("lockfile corruption handling", () => {
 	});
 
 	test("throws on missing lockfile_version", () => {
-		expect(() => parseLockfile("packages: {}\n")).toThrow("Unsupported lockfile version");
+		// Naming the missing field, not the undefined value (#123).
+		expect(() => parseLockfile("packages: {}\n")).toThrow(/lockfile_version/);
 	});
 
 	test("handles lockfile with only comments", () => {

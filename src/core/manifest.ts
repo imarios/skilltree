@@ -445,11 +445,24 @@ export async function loadManifestOrThrow(
 	const isGlobal = opts?.global ?? false;
 	try {
 		return isGlobal ? await readGlobalManifest(opts?.globalDir) : await readManifest(dir);
-	} catch {
+	} catch (err) {
+		// Distinguish "file absent" from "file present but parse-failed" so
+		// `doctor` doesn't tell users to run `init` when the manifest is right
+		// there — just malformed (issue #123). ENOENT comes from the readFile
+		// call inside readManifest/readGlobalManifest; everything else is
+		// either a YAML parse error or a `parseManifest` shape rejection.
+		if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+			throw new Error(
+				isGlobal
+					? "No global manifest found. Run `skilltree init --global` first."
+					: `No ${MANIFEST_NEW} found. Run \`skilltree init\` first.`,
+			);
+		}
+		const msg = err instanceof Error ? err.message : String(err);
 		throw new Error(
 			isGlobal
-				? "No global manifest found. Run `skilltree init --global` first."
-				: `No ${MANIFEST_NEW} found. Run \`skilltree init\` first.`,
+				? `Failed to load global manifest: ${msg}`
+				: `Failed to load ${MANIFEST_NEW}: ${msg}`,
 		);
 	}
 }

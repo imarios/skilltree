@@ -771,3 +771,107 @@ describe("addCommand — --repo URL verification (#71)", () => {
 		expect(probeCalled).toBe(false);
 	});
 });
+
+describe("addCommand — registry-resolved verification (#128)", () => {
+	test("probes the resolved `repo` for registry-resolved deps too", async () => {
+		// Issue #128: registry-resolved adds (`skilltree add python-coding`)
+		// produce a dep with `repo` set from the registry index. The probe
+		// is called once after `buildDependency`, so it covers this path
+		// the same as explicit `--repo` — proven by injecting `lsRemoteFn`
+		// and asserting it was called with the registry-supplied URL.
+		const dir = await setup();
+		const cacheDir = join(dir, "regcache");
+		const configPath = join(dir, "registries.yaml");
+		await writeFile(
+			configPath,
+			"registries:\n  - name: vibes\n    repo: github.com/example/vibes\n",
+			"utf-8",
+		);
+		const { writeRegistryIndex } = await import("../../src/core/registry-cache.js");
+		await writeRegistryIndex(
+			{
+				registry: "vibes",
+				repo: "github.com/example/vibes",
+				updated_at: new Date().toISOString(),
+				entities: [
+					{
+						name: "registry-skill",
+						type: "skill",
+						path: "skills/registry-skill",
+						description: "A skill resolved from the registry index",
+						tags: [],
+					},
+				],
+			},
+			cacheDir,
+		);
+		const probedUrls: string[] = [];
+		await addCommand(
+			"registry-skill",
+			{
+				configPath,
+				cacheDir,
+				lsRemoteFn: async (url) => {
+					probedUrls.push(url);
+					return { ok: true };
+				},
+			},
+			dir,
+		);
+		expect(probedUrls).toContain("github.com/example/vibes");
+		const manifest = await readManifest(dir);
+		expect(manifest.dependencies?.["registry-skill"]).toBeDefined();
+	});
+
+	test("warns when registry-resolved repo is unreachable, still writes entry", async () => {
+		const dir = await setup();
+		const cacheDir = join(dir, "regcache");
+		const configPath = join(dir, "registries.yaml");
+		await writeFile(
+			configPath,
+			"registries:\n  - name: stale\n    repo: github.com/stale/registry\n",
+			"utf-8",
+		);
+		const { writeRegistryIndex } = await import("../../src/core/registry-cache.js");
+		await writeRegistryIndex(
+			{
+				registry: "stale",
+				repo: "github.com/stale/registry",
+				updated_at: new Date().toISOString(),
+				entities: [
+					{
+						name: "moved-skill",
+						type: "skill",
+						path: "skills/moved-skill",
+						description: "A skill whose repo URL went stale upstream",
+						tags: [],
+					},
+				],
+			},
+			cacheDir,
+		);
+		const warnings: string[] = [];
+		const originalWarn = console.warn;
+		console.warn = (msg: string) => warnings.push(msg);
+		try {
+			await addCommand(
+				"moved-skill",
+				{
+					configPath,
+					cacheDir,
+					lsRemoteFn: async () => ({
+						ok: false,
+						reason: "unreachable",
+						detail: "could not resolve host",
+					}),
+				},
+				dir,
+			);
+		} finally {
+			console.warn = originalWarn;
+		}
+		expect(warnings.some((w) => /unreach|could not reach/i.test(w))).toBe(true);
+		const manifest = await readManifest(dir);
+		expect(manifest.dependencies?.["moved-skill"]).toBeDefined();
+	});
+});

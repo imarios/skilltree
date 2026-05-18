@@ -105,6 +105,13 @@ export async function doctorCommand(dir: string, opts: DoctorOptions = {}): Prom
 // Per-check implementations
 // ---------------------------------------------------------------------------
 
+function countDeclaredDeps(manifest: Manifest): number {
+	return (
+		Object.keys(manifest.dependencies ?? {}).length +
+		Object.keys(manifest["dev-dependencies"] ?? {}).length
+	);
+}
+
 function checkManifestSchema(
 	manifest: Manifest | null,
 	loadError: string | undefined,
@@ -159,6 +166,12 @@ async function checkLockfileSync(
 	}
 	if (!manifest) {
 		return { name: "lockfile-sync", status: "skip", detail: "no manifest" };
+	}
+	// Vacuous pass: with zero declared deps there's nothing to lock, so the
+	// absence of a lockfile is not a problem. Without this guard the canonical
+	// `init && doctor` flow returns exit 1 on a brand-new project (issue #121).
+	if (countDeclaredDeps(manifest) === 0) {
+		return { name: "lockfile-sync", status: "pass", detail: "no dependencies declared" };
 	}
 	try {
 		const lockfile = await readLockfile(dir);

@@ -93,9 +93,16 @@ export async function addCommand(name: string, opts: AddOptions, dir: string): P
 }
 
 /**
- * Probe a `--repo` dep with `git ls-remote` so typos / unreachable URLs
- * surface at add-time instead of at install-time. Issue #71. Always
- * proceeds with the write — the probe is advisory, not gating:
+ * Probe any dep that carries a `repo` field with `git ls-remote` so typos
+ * and unreachable URLs surface at add-time instead of at install-time.
+ * Issues #71 + #128 — the call happens once after `buildDependency`, so it
+ * covers all repo-bearing shapes:
+ *
+ *   - explicit `--repo <url>` deps, and
+ *   - registry-resolved deps (`skilltree add python-coding`), whose `repo`
+ *     comes from the registry index (stale URLs hide there too).
+ *
+ * Always proceeds with the write — the probe is advisory, not gating:
  *
  *   - reachable      → silent
  *   - unreachable    → warning (probably a typo, install will fail)
