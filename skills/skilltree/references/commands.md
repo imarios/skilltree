@@ -275,10 +275,20 @@ Show the dependency tree with dedup markers.
 ```bash
 skilltree deps tree
 skilltree deps tree --global
+skilltree deps tree --json
 ```
 
 **Flags:**
 - `-g, --global` — Show global dependency tree
+- `--json` — Machine-readable nested object tree per root. Every non-local node includes a `commit` field for the resolved revision (issue #94).
+- `--dedupe` — Legacy terse view (cargo-tree's default): transitive duplicates show `deduped` and stop recursing.
+
+**Version display:**
+- Pinned remote deps render as `@<version>` (e.g. `parent@2.0.0`).
+- Unpinned remote deps render as `@<short-sha>` (7 chars) — falls back to the resolved commit from `skilltree.lock` so the user still sees what was installed (issue #94, mirroring `skilltree list`).
+- Local deps render no version suffix; the `(type, local)` tag covers them.
+
+**Aliased entries:** when a manifest key uses an alias (`pc: { local: ..., name: python-coding }`), both the root and any transitive reference render under the canonical entity name (`python-coding`) — never under the YAML key (issue #107). One label per entity per tree.
 
 ## `skilltree why <name>`
 

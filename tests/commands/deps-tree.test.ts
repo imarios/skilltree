@@ -523,6 +523,180 @@ describe("deps tree rendering", () => {
 		expect(childLine).toContain("deduped");
 	});
 
+	// Issue #94: when a remote dep has no semver pin, the tree previously
+	// dropped the version suffix entirely — even though `skilltree.lock`
+	// records the resolved commit SHA. Mirror the fix already shipped in
+	// `list` (issue #76): render `@<short-sha>` as the fallback so users
+	// can still identify what was installed.
+	test("renders @<short-sha> for unpinned remote deps in text tree (#94)", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(
+			dir,
+			"repo",
+			[{ path: "skills/unpinned", name: "unpinned" }],
+			// No tag → version is undefined in the lockfile; only commit is set.
+		);
+		const bareDir = await makeBareClone(repoDir, dir, "bare-unpinned");
+
+		await writeManifest(
+			dir,
+			`dependencies:\n  unpinned:\n    repo: "file://${bareDir}"\n    path: skills/unpinned\n`,
+		);
+		await installCommand(dir, {});
+
+		const lines = await captureConsole(() => depsTreeCommand(dir));
+		// The first (and only) line should be `unpinned@<7-char-sha> (skill)`.
+		expect(lines[0]).toMatch(/^unpinned@[0-9a-f]{7} \(skill\)$/);
+	});
+
+	test("--json surfaces commit on every non-local entry (#94)", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(
+			dir,
+			"repo-with-commit",
+			[
+				{ path: "skills/child", name: "child" },
+				{ path: "skills/parent", name: "parent", dependencies: ["child"] },
+			],
+			"v1.0.0",
+		);
+		const bareDir = await makeBareClone(repoDir, dir, "bare-commit");
+
+		await writeManifest(
+			dir,
+			`dependencies:\n  parent:\n    repo: "file://${bareDir}"\n    path: skills/parent\n    version: "*"\n`,
+		);
+		await installCommand(dir, {});
+
+		const lines: string[] = [];
+		const original = console.log;
+		console.log = (...args: unknown[]) => lines.push(args.join(" "));
+		try {
+			await depsTreeCommand(dir, { json: true });
+		} finally {
+			console.log = original;
+		}
+		const tree = JSON.parse(lines.join("\n")) as Array<{
+			name: string;
+			commit?: string;
+			version?: string;
+			dependencies: Array<{ name: string; commit?: string }>;
+		}>;
+		const parent = tree[0];
+		expect(parent).toBeDefined();
+		expect(parent?.commit).toMatch(/^[0-9a-f]{40}$/); // full SHA in JSON
+		expect(parent?.version).toBe("1.0.0");
+		expect(parent?.dependencies[0]?.commit).toMatch(/^[0-9a-f]{40}$/);
+	});
+
+	test("--json omits commit on local deps (commit: HEAD is meaningless there) (#94)", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "local-only");
+		await writeManifest(dir, "dependencies:\n  local-only:\n    local: ./skills/local-only\n");
+		await installCommand(dir, {});
+
+		const lines: string[] = [];
+		const original = console.log;
+		console.log = (...args: unknown[]) => lines.push(args.join(" "));
+		try {
+			await depsTreeCommand(dir, { json: true });
+		} finally {
+			console.log = original;
+		}
+		const tree = JSON.parse(lines.join("\n")) as Array<{ name: string; commit?: string }>;
+		expect(tree[0]?.name).toBe("local-only");
+		expect(tree[0]?.commit).toBeUndefined();
+	});
+
+	// Issue #107: an aliased entry (YAML key ≠ entity name) previously rendered
+	// under its YAML key when reached as a root and under its entity name when
+	// reached as a transitive. Same entity, two labels in one tree. The fix
+	// uses `entry.name ?? key` consistently — so the root now matches the
+	// transitive label.
+	test("aliased entry uses canonical entity name as a root (#107)", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "python-coding");
+
+		await writeManifest(
+			dir,
+			[
+				"dependencies:",
+				"  pc:",
+				"    local: ./skills/python-coding",
+				"    name: python-coding",
+				"",
+			].join("\n"),
+		);
+		await installCommand(dir, {});
+
+		const lines = await captureConsole(() => depsTreeCommand(dir));
+		// Root renders under the canonical name, not the YAML key.
+		expect(lines[0]).toBe("python-coding (skill, local)");
+		// And the YAML alias does not leak into the rendering.
+		expect(lines.some((l) => /^pc[\s(]/.test(l))).toBe(false);
+	});
+
+	test("aliased root and its transitive occurrence share one label (#107)", async () => {
+		// Aliased entry reached both as a root (`pc`) AND as a transitive
+		// (`python-coding` from task-builder's frontmatter). After the fix,
+		// both lines say `python-coding`.
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "python-coding");
+		await createLocalSkill(join(dir, "skills"), "task-builder", ["python-coding"]);
+
+		await writeManifest(
+			dir,
+			[
+				"dependencies:",
+				"  pc:",
+				"    local: ./skills/python-coding",
+				"    name: python-coding",
+				"  task-builder:",
+				"    local: ./skills/task-builder",
+				"",
+			].join("\n"),
+		);
+		await installCommand(dir, {});
+
+		const lines = await captureConsole(() => depsTreeCommand(dir));
+		// Both the root and the transitive must use the same label.
+		const rootLine = lines.find((l) => l === "python-coding (skill, local)");
+		const transitiveLine = lines.find((l) => /└── python-coding/.test(l));
+		expect(rootLine).toBeDefined();
+		expect(transitiveLine).toBeDefined();
+		// `pc` (the YAML alias) must not appear as a node label.
+		expect(lines.some((l) => /^pc[\s(]/.test(l))).toBe(false);
+	});
+
+	test("--json: aliased root uses canonical entity name (#107)", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "python-coding");
+
+		await writeManifest(
+			dir,
+			[
+				"dependencies:",
+				"  pc:",
+				"    local: ./skills/python-coding",
+				"    name: python-coding",
+				"",
+			].join("\n"),
+		);
+		await installCommand(dir, {});
+
+		const jsonLines: string[] = [];
+		const original = console.log;
+		console.log = (...args: unknown[]) => jsonLines.push(args.join(" "));
+		try {
+			await depsTreeCommand(dir, { json: true });
+		} finally {
+			console.log = original;
+		}
+		const tree = JSON.parse(jsonLines.join("\n")) as Array<{ name: string }>;
+		expect(tree).toHaveLength(1);
+		expect(tree[0]?.name).toBe("python-coding");
+	});
+
 	test("json: transitive lookup resolves aliased YAML keys (issue #102)", async () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "python-coding");

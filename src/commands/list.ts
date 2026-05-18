@@ -59,7 +59,7 @@ interface ListRow {
 }
 
 /** Short SHA convention used elsewhere in the codebase (see graph.ts install warnings). */
-const SHORT_SHA_LEN = 7;
+export const SHORT_SHA_LEN = 7;
 
 /**
  * Display label for a lockfile entry's version column.
@@ -68,8 +68,11 @@ const SHORT_SHA_LEN = 7;
  * still see a meaningful identifier instead of a bare `-`. Local deps keep
  * their `"local"` label; the literal `"-"` only appears when neither version
  * nor commit is recorded.
+ *
+ * Exported so `deps tree` and any future inspection command can share the
+ * same rendering convention without re-implementing the fallback (issue #94).
  */
-function versionLabel(entry: Lockfile["packages"][string]): string {
+export function versionLabel(entry: Lockfile["packages"][string]): string {
 	if (entry.version !== undefined) return entry.version;
 	if (entry.source === "local") return "local";
 	if (entry.commit) return `@${entry.commit.slice(0, SHORT_SHA_LEN)}`;
