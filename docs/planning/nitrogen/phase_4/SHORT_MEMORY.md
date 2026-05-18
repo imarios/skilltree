@@ -27,16 +27,17 @@ Every resolver / install error names the manifest that imposed the constraint an
 
 ## In-flight state
 
-- Phase 4.1: not started
-- Phase 4.2: not started
-- Phase 4.3: not started
+All sub-phases complete. Shipped in a single PR per scope decision.
+
+- Phase 4.1: ✅ shipped (audit + snapshot harness)
+- Phase 4.2: ✅ shipped (resolver + graph attribution)
+- Phase 4.3: ✅ shipped (collision attribution + installer)
 
 ## Issues / PRs
 
-- Tracking issue: #85
-- Phase 4.1 PR: tbd
-- Phase 4.2 PR: tbd
-- Phase 4.3 PR: tbd
+- Tracking issue: #85 (closes on PR merge)
+- Single PR: #132 (all phases bundled)
+- See `RETRO.md` for full retrospective.
 
 ## Adjacent files to keep in mind
 

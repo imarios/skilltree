@@ -153,7 +153,7 @@ Phase 4.3: Collision attribution
 Phase 1: ✅ COMPLETE
 Phase 2: ✅ COMPLETE
 Phase 3: ✅ COMPLETE
-Phase 4: 🚧 IN PROGRESS (adopted 2026-05-18 to close #85)
-  - 4.1: pending
-  - 4.2: pending
-  - 4.3: pending
+Phase 4: ✅ COMPLETE (adopted 2026-05-18, shipped as single PR per scope decision)
+  - 4.1 (catalogue + snapshot harness): ✅
+  - 4.2 (resolver + graph attribution): ✅
+  - 4.3 (collision attribution + installer): ✅
