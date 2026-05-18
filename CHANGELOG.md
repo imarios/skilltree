@@ -1,3 +1,9 @@
+## v0.35.0 (2026-05-18)
+
+### Feat
+
+- **resolver**: attribute version-conflict and collision errors to source manifest (Closes #85) (#132)
+
 ## v0.34.0 (2026-05-18)
 
 ### Feat
