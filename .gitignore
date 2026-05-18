@@ -11,6 +11,7 @@ demo/*.mp4
 .claude/skills/
 .claude/agents/
 .claude/commands/
+.claude/worktree/
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 test

@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { doctorCommand, runDoctor } from "../../src/commands/doctor.js";
 import { serializeLockfile } from "../../src/core/lockfile.js";
 import type { Lockfile } from "../../src/types.js";
+import { emptyLockfile, localEntry } from "../helpers/lockfile-fixtures.js";
 
 let tempDir: string;
 
@@ -40,10 +41,6 @@ async function makeProject(spec: ProjectSpec): Promise<string> {
 	return tempDir;
 }
 
-function emptyLockfile(): Lockfile {
-	return { lockfile_version: 1, install_targets: ["claude"], packages: {} };
-}
-
 function cleanProject(): ProjectSpec {
 	return {
 		manifest: ["name: clean", "install_targets:", "  - claude", "dependencies: {}", ""].join("\n"),
@@ -70,19 +67,8 @@ function projectWithLocalSkill(
 			"",
 		].join("\n"),
 		lockfile: {
-			lockfile_version: 1,
-			install_targets: ["claude"],
-			packages: {
-				[name]: {
-					source: "local",
-					path: `./skills/${name}`,
-					name,
-					type: "skill",
-					group: "prod",
-					commit: "HEAD",
-					dependencies: [],
-				},
-			},
+			...emptyLockfile(),
+			packages: { [name]: localEntry(name, { name }) },
 		},
 		files: [{ path: `skills/${name}/SKILL.md`, content: frontmatter }],
 	};

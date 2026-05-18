@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { diffManifestLockfile } from "../../src/core/lockfile.js";
 import type { Lockfile, Manifest } from "../../src/types.js";
+import { localEntry, remoteEntry } from "../helpers/lockfile-fixtures.js";
 
 describe("diffManifestLockfile", () => {
 	test("detects unchanged entries", () => {
@@ -12,15 +13,11 @@ describe("diffManifestLockfile", () => {
 		const lockfile: Lockfile = {
 			lockfile_version: 1,
 			packages: {
-				"my-skill": {
-					type: "skill",
-					group: "prod",
+				"my-skill": remoteEntry("my-skill", {
 					repo: "github.com/user/repo",
 					path: "skills/my-skill",
 					version: "1.2.0",
-					commit: "abc",
-					dependencies: [],
-				},
+				}),
 			},
 		};
 
@@ -127,14 +124,7 @@ describe("diffManifestLockfile", () => {
 		const lockfile: Lockfile = {
 			lockfile_version: 1,
 			packages: {
-				"local-skill": {
-					type: "skill",
-					group: "prod",
-					source: "local",
-					path: "./skills/local",
-					commit: "HEAD",
-					dependencies: [],
-				},
+				"local-skill": localEntry("local-skill", { path: "./skills/local" }),
 			},
 		};
 

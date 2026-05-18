@@ -246,30 +246,13 @@ async function promptForTargetSelection(agents: string[], ask: AskFn): Promise<s
 }
 
 /**
- * Same grammar as `parseSelectionAnswer` (empty / y → all, n → none, comma
- * indices → subset), but operating on a plain string list. Kept as its own
- * function rather than generalising because the caller's empty-result
- * handling differs (we fall back to [claude] instead of accepting empty).
+ * Thin wrapper over `parseIndexedSelection` kept as its own named export
+ * because the agent-selection prompt has a slightly different empty-result
+ * fallback (the caller substitutes `[claude]` when the user picks none).
+ * The grammar itself lives in `parseIndexedSelection`. Issue #97.
  */
 export function parseAgentSelectionAnswer(answer: string, agents: string[]): string[] {
-	const trimmed = answer.trim();
-	if (trimmed === "" || trimmed.toLowerCase() === "y") return [...agents];
-	if (trimmed.toLowerCase() === "n") return [];
-
-	const indices = trimmed
-		.split(",")
-		.map((s) => Number.parseInt(s.trim(), 10))
-		.filter((n) => Number.isInteger(n) && n >= 1 && n <= agents.length);
-
-	const selected: string[] = [];
-	const seen = new Set<number>();
-	for (const i of indices) {
-		if (seen.has(i)) continue;
-		seen.add(i);
-		const agent = agents[i - 1];
-		if (agent) selected.push(agent);
-	}
-	return selected;
+	return parseIndexedSelection(answer, agents);
 }
 
 /**
@@ -341,31 +324,47 @@ function printDiscovered(entries: LocalEntry[]): void {
 }
 
 /**
- * Parse the user's reply to the selection prompt.
- *
- * - Empty / `y` / `Y` → include all
- * - `n` / `N` → include none
- * - Comma-separated integers (1-based, matching the printed numbering) → subset
- * - Invalid indices and garbage are ignored rather than failing the init —
- *   the user can always re-run or hand-edit the manifest.
+ * Parse the user's reply to the discovered-skills selection prompt.
+ * Thin wrapper over the generic grammar. Issue #97.
  */
 export function parseSelectionAnswer(answer: string, entries: LocalEntry[]): LocalEntry[] {
+	return parseIndexedSelection(answer, entries);
+}
+
+/**
+ * Generic 1-based-index selection grammar shared by every `Include all? [Y/n/
+ * 1,3,5]` prompt in init.
+ *
+ * - Empty / `y` / `Y` → include all (returns a shallow copy so callers can
+ *   mutate without poisoning the input).
+ * - `n` / `N` → include none.
+ * - Comma-separated integers (1-based, matching the printed numbering) → subset.
+ *   Indices are de-duplicated; the FIRST occurrence wins for ordering.
+ * - Invalid indices and garbage are silently dropped — the user can always
+ *   re-run or hand-edit the manifest.
+ *
+ * Generic over `T` so a single grammar covers both `LocalEntry[]`
+ * (scan discoveries) and `string[]` (agent enrolment). Empty-result handling
+ * lives in the caller, not here.
+ */
+export function parseIndexedSelection<T>(answer: string, items: T[]): T[] {
 	const trimmed = answer.trim();
-	if (trimmed === "" || trimmed.toLowerCase() === "y") return entries;
-	if (trimmed.toLowerCase() === "n") return [];
+	const lower = trimmed.toLowerCase();
+	if (trimmed === "" || lower === "y") return [...items];
+	if (lower === "n") return [];
 
 	const indices = trimmed
 		.split(",")
 		.map((s) => Number.parseInt(s.trim(), 10))
-		.filter((n) => Number.isInteger(n) && n >= 1 && n <= entries.length);
+		.filter((n) => Number.isInteger(n) && n >= 1 && n <= items.length);
 
-	const selected: LocalEntry[] = [];
+	const selected: T[] = [];
 	const seen = new Set<number>();
 	for (const i of indices) {
 		if (seen.has(i)) continue;
 		seen.add(i);
-		const entry = entries[i - 1];
-		if (entry) selected.push(entry);
+		const item = items[i - 1];
+		if (item !== undefined) selected.push(item);
 	}
 	return selected;
 }
