@@ -1,0 +1,25 @@
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
+
+exports[`error attribution snapshots (Phase 4) A1: single consumer constraint, no compatible tag 1`] = `
+"Incompatible version constraints:
+  skilltree.yml requires greet-helper ^1.0.0
+
+No git tag satisfies all constraints."
+`;
+
+exports[`error attribution snapshots (Phase 4) A2: multi-constraint conflict, same repo, both consumer 1`] = `
+"Incompatible version constraints:
+  skilltree.yml requires foo ^1.0.0
+  skilltree.yml requires bar ^2.0.0
+
+No git tag satisfies all constraints."
+`;
+
+exports[`error attribution snapshots (Phase 4) A2b: three-way constraint conflict, mixed sources 1`] = `
+"Incompatible version constraints:
+  skilltree.yml requires a ^1.0.0
+  github.com/acme/upstream@v1.2.3 requires b ^2.0.0
+  github.com/acme/other@abc1234 requires c >=3.0.0
+
+No git tag satisfies all constraints."
+`;

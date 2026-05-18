@@ -22,7 +22,17 @@ import {
 } from "./git.js";
 import { expandSources, parseManifest } from "./manifest.js";
 import { canonicalPath, expandTilde, stripDotSlash } from "./paths.js";
+import type { Constraint, ConstraintSource } from "./resolver.js";
 import { resolveIntersection } from "./resolver.js";
+
+/**
+ * Where a yaml key was declared — used to attribute collision errors (#85).
+ * Consumer-manifest entries show as the relative path; transitive entries show
+ * as `<repo>@<short-ref>` so the author can find the upstream skilltree.yml.
+ */
+export type EntityOrigin =
+	| { kind: "consumer"; manifestPath: string }
+	| { kind: "transitive"; originRepo: string; ref: string };
 
 export interface ResolvedEntity {
 	key: string; // YAML key (alias)
@@ -37,6 +47,10 @@ export interface ResolvedEntity {
 	local: boolean;
 	dependencies: string[];
 	cachePath?: string;
+	/** Manifest that declared this yaml key. Set during resolution; consumed by
+	 * collision-attribution and installer error messages. Optional for backward
+	 * compat with helpers that construct partial entities for tests. */
+	declaredIn?: EntityOrigin;
 	/** The source directory this entity came from (for same-origin resolution of local sources). */
 	sourceDir?: string;
 	/**
@@ -131,15 +145,30 @@ export async function resolveAll(
 	};
 }
 
+function indentBlock(text: string, indent: string): string {
+	return text
+		.split("\n")
+		.map((line) => (line.length > 0 ? indent + line : line))
+		.join("\n");
+}
+
 async function resolveRepoVersions(expanded: Manifest, state: ResolutionState): Promise<void> {
-	const repoConstraints = new Map<string, Array<{ name: string; constraint: string }>>();
+	const repoConstraints = new Map<string, Constraint[]>();
+	const consumerSource: ConstraintSource = {
+		kind: "consumer",
+		manifestPath: MANIFEST_NEW,
+	};
 
 	for (const deps of [expanded.dependencies, expanded["dev-dependencies"]]) {
 		if (!deps) continue;
 		for (const [key, dep] of Object.entries(deps)) {
 			if (isRemoteDependency(dep)) {
 				const existing = repoConstraints.get(dep.repo) ?? [];
-				existing.push({ name: key, constraint: dep.version ?? "*" });
+				existing.push({
+					name: key,
+					constraint: dep.version ?? "*",
+					source: consumerSource,
+				});
 				repoConstraints.set(dep.repo, existing);
 			}
 		}
@@ -152,7 +181,7 @@ async function resolveRepoVersions(expanded: Manifest, state: ResolutionState): 
 
 async function resolveOneRepo(
 	repo: string,
-	constraints: Array<{ name: string; constraint: string }>,
+	constraints: Constraint[],
 	state: ResolutionState,
 ): Promise<void> {
 	try {
@@ -165,7 +194,7 @@ async function resolveOneRepo(
 				await addTaglessRepoResolution(repo, cachePath, state);
 			} else {
 				state.errors.push(
-					`Error: Incompatible version constraints for repo ${repo}\n\n  ${result.error}\n\nFix: Align version constraints, or move entities to separate repos.`,
+					`Error: Version conflict on repo ${repo}\n\n${indentBlock(result.error, "  ")}\n\nFix: Align version constraints in the listed manifest(s), or move entities to separate repos.`,
 				);
 			}
 			return;
@@ -226,12 +255,38 @@ async function resolveEntity(
 	group: DependencyGroup,
 	state: ResolutionState,
 	fromConsumerManifest = false,
+	declaredIn: EntityOrigin = { kind: "consumer", manifestPath: MANIFEST_NEW },
 ): Promise<void> {
 	if (isLocalDependency(dep)) {
-		await resolveLocalEntity(yamlKey, entityName, dep, group, state);
+		await resolveLocalEntity(yamlKey, entityName, dep, group, state, declaredIn);
 	} else if (isRemoteDependency(dep)) {
-		await resolveRemoteEntity(yamlKey, entityName, dep, group, state, fromConsumerManifest);
+		await resolveRemoteEntity(
+			yamlKey,
+			entityName,
+			dep,
+			group,
+			state,
+			fromConsumerManifest,
+			declaredIn,
+		);
 	}
+}
+
+function formatOrigin(origin: EntityOrigin | undefined): string {
+	if (!origin) return "<unknown manifest>";
+	if (origin.kind === "consumer") return origin.manifestPath;
+	const ref = origin.ref.length > 12 ? origin.ref.slice(0, 7) : origin.ref;
+	return `${origin.originRepo}@${ref}`;
+}
+
+function originForTransitive(parentEntity: ResolvedEntity | undefined): EntityOrigin {
+	if (!parentEntity?.repo) {
+		// Parent is local → the transitive dep is still declared in a local
+		// SKILL.md, which lives alongside the project. Attribute to consumer.
+		return { kind: "consumer", manifestPath: MANIFEST_NEW };
+	}
+	const ref = parentEntity.tag ?? parentEntity.commit;
+	return { kind: "transitive", originRepo: parentEntity.repo, ref };
 }
 
 function checkDuplicate(
@@ -239,6 +294,7 @@ function checkDuplicate(
 	yamlKey: string,
 	group: DependencyGroup,
 	state: ResolutionState,
+	declaredIn: EntityOrigin,
 ): boolean {
 	if (!state.entities.has(compositeKey)) return false;
 
@@ -249,8 +305,10 @@ function checkDuplicate(
 			state.manifestKeys.has(existing.key) &&
 			state.manifestKeys.has(yamlKey)
 		) {
+			const existingOrigin = formatOrigin(existing.declaredIn);
+			const newOrigin = formatOrigin(declaredIn);
 			state.errors.push(
-				`Error: Duplicate entity resolution\n\n  Both "${existing.key}" and "${yamlKey}" resolve to ${compositeKey}.\n\nFix: Use distinct names, or remove one entry.`,
+				`Error: Duplicate entity resolution on ${compositeKey}\n\n  "${existing.key}" declared in ${existingOrigin}\n  "${yamlKey}" declared in ${newOrigin}\n\nFix: Use distinct names (rename one yaml key), or remove one entry.`,
 			);
 		}
 		if (group === "prod" && existing.group === "dev") {
@@ -314,6 +372,7 @@ async function resolveLocalEntity(
 	},
 	group: DependencyGroup,
 	state: ResolutionState,
+	declaredIn: EntityOrigin = { kind: "consumer", manifestPath: MANIFEST_NEW },
 ): Promise<void> {
 	const expandedLocal = expandTilde(dep.local);
 	const localPath = expandedLocal.startsWith("/")
@@ -322,7 +381,7 @@ async function resolveLocalEntity(
 	const type = dep.type ?? (await inferType(localPath));
 	const compositeKey = `${type}:${entityName}`;
 
-	if (checkDuplicate(compositeKey, yamlKey, group, state)) return;
+	if (checkDuplicate(compositeKey, yamlKey, group, state, declaredIn)) return;
 
 	const frontmatterDeps = await readLocalFrontmatter(localPath, type, entityName);
 	const entity: ResolvedEntity = {
@@ -334,6 +393,7 @@ async function resolveLocalEntity(
 		commit: "HEAD",
 		local: true,
 		dependencies: frontmatterDeps,
+		declaredIn,
 		sourceDir: dep._sourceDir ? expandTilde(dep._sourceDir) : undefined,
 	};
 	if (dep.publish !== undefined) entity.publish = dep.publish;
@@ -360,6 +420,7 @@ async function resolveRemoteEntity(
 	group: DependencyGroup,
 	state: ResolutionState,
 	fromConsumerManifest = false,
+	declaredIn: EntityOrigin = { kind: "consumer", manifestPath: MANIFEST_NEW },
 ): Promise<void> {
 	const resolution = state.repoResolutions.get(dep.repo);
 	if (!resolution) return;
@@ -411,14 +472,14 @@ async function resolveRemoteEntity(
 	if (!exists) {
 		const refLabel = resolution.tag ?? resolution.commit.slice(0, 8);
 		state.errors.push(
-			`"${entityName}" not found at path "${entityPath}" in repo "${dep.repo}" at ${refLabel}. It may have been moved or removed.`,
+			`"${entityName}" not found at path "${entityPath}" in repo "${dep.repo}" at ${refLabel} (declared in ${formatOrigin(declaredIn)}). It may have been moved or removed.`,
 		);
 		return;
 	}
 
 	const compositeKey = `${type}:${entityName}`;
 
-	if (checkDuplicate(compositeKey, yamlKey, group, state)) return;
+	if (checkDuplicate(compositeKey, yamlKey, group, state, declaredIn)) return;
 
 	const frontmatterDeps = await readRemoteFrontmatter(
 		resolution.cachePath,
@@ -440,6 +501,7 @@ async function resolveRemoteEntity(
 		commit: resolution.commit,
 		local: false,
 		dependencies: frontmatterDeps,
+		declaredIn,
 		cachePath: resolution.cachePath,
 	};
 
@@ -494,7 +556,12 @@ async function tryResolveFromManifest(
 	const dep = allDeps[depName];
 	if (!dep) return false;
 	const actualName = "name" in dep && dep.name ? (dep.name as string) : depName;
-	await resolveEntity(depName, actualName, dep, parentGroup, state);
+	// Declared in the consumer manifest even though the resolution path reached
+	// here transitively — the yaml key lives in `state.expanded`.
+	await resolveEntity(depName, actualName, dep, parentGroup, state, false, {
+		kind: "consumer",
+		manifestPath: MANIFEST_NEW,
+	});
 	return true;
 }
 
@@ -577,6 +644,8 @@ async function tryResolveFromOriginManifest(
 		return false;
 	}
 
+	const transitiveOrigin = originForTransitive(parentEntity);
+
 	if (isLocalDependency(prodEntry)) {
 		// Absolute `local:` paths come from `source:` aliases pointing at
 		// origin's author's filesystem. Consumers have no such path.
@@ -591,7 +660,15 @@ async function tryResolveFromOriginManifest(
 		};
 
 		const actualName = prodEntry.name ?? depName;
-		await resolveEntity(depName, actualName, syntheticDep, parentGroup, state);
+		await resolveEntity(
+			depName,
+			actualName,
+			syntheticDep,
+			parentGroup,
+			state,
+			false,
+			transitiveOrigin,
+		);
 		return true;
 	}
 
@@ -609,7 +686,15 @@ async function tryResolveFromOriginManifest(
 		}
 
 		const actualName = prodEntry.name ?? depName;
-		await resolveEntity(depName, actualName, prodEntry, parentGroup, state);
+		await resolveEntity(
+			depName,
+			actualName,
+			prodEntry,
+			parentGroup,
+			state,
+			false,
+			transitiveOrigin,
+		);
 		return true;
 	}
 
@@ -811,7 +896,24 @@ async function ensureRepoResolvedLazy(
 		return false;
 	}
 
-	await resolveOneRepo(repo, [{ name: `<transitive via ${originRepo}>`, constraint }], state);
+	// Transitive resolution path: synthesize an attributed Constraint so that
+	// any conflict error in resolveIntersection names the upstream skilltree.yml
+	// that asked for this repo, not a "<transitive via ...>" placeholder. The
+	// originRepo's resolution may not exist yet (first transitive into a new
+	// repo); fall back to "transitive" without a ref in that case.
+	const originResolution = state.repoResolutions.get(originRepo);
+	const ref = originResolution?.tag ?? originResolution?.commit ?? "transitive";
+	await resolveOneRepo(
+		repo,
+		[
+			{
+				name: repo,
+				constraint,
+				source: { kind: "transitive", originRepo, ref },
+			},
+		],
+		state,
+	);
 	return state.repoResolutions.has(repo);
 }
 
@@ -828,6 +930,7 @@ async function tryResolveFromSameRepo(
 	if (!resolution) return false;
 
 	const ref = resolution.tag ?? resolution.commit;
+	const transitiveOrigin = originForTransitive(parentEntity);
 
 	for (const candidatePath of conventionalCandidates(depName)) {
 		try {
@@ -842,7 +945,15 @@ async function tryResolveFromSameRepo(
 				path: candidatePath,
 				version: parentEntity.version,
 			};
-			await resolveEntity(depName, depName, syntheticDep, parentGroup, state);
+			await resolveEntity(
+				depName,
+				depName,
+				syntheticDep,
+				parentGroup,
+				state,
+				false,
+				transitiveOrigin,
+			);
 			return true;
 		} catch {
 			// Not found at this path, try next

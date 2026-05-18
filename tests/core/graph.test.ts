@@ -532,6 +532,26 @@ describe("duplicate composite key detection", () => {
 		expect(result.errors.some((e) => e.includes("Duplicate entity resolution"))).toBe(true);
 	});
 
+	test("collision error attributes both keys to skilltree.yml (#85)", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "dupe-skill");
+		await createLocalSkill(join(dir, "other-skills"), "dupe-skill");
+
+		const manifest: Manifest = {
+			dependencies: {
+				"dupe-skill": { local: "./skills/dupe-skill" },
+				"dupe-skill-alias": { local: "./other-skills/dupe-skill", name: "dupe-skill" },
+			},
+		};
+
+		const result = await resolveAll(manifest, dir);
+		const dupErr = result.errors.find((e) => e.includes("Duplicate entity resolution"));
+		expect(dupErr).toBeDefined();
+		// Each yaml key is named alongside the manifest that declared it.
+		expect(dupErr).toContain('"dupe-skill" declared in skilltree.yml');
+		expect(dupErr).toContain('"dupe-skill-alias" declared in skilltree.yml');
+	});
+
 	test("no false positive when transitive dep matches manifest entry", async () => {
 		const dir = await makeTempDir();
 		// parent depends on child via frontmatter. child is also directly in manifest.

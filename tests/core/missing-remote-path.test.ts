@@ -61,6 +61,8 @@ describe("resolver: remote dep path does not exist at ref", () => {
 		expect(result.errors.length).toBeGreaterThan(0);
 		expect(result.errors.some((e) => /not found|does not exist|missing/i.test(e))).toBe(true);
 		expect(result.errors.some((e) => e.includes("my-skill"))).toBe(true);
+		// Issue #85: error names the manifest that declared the offending entry.
+		expect(result.errors.some((e) => e.includes("declared in skilltree.yml"))).toBe(true);
 	});
 
 	test("reports error when agent path is missing from repo at resolved tag", async () => {

@@ -67,36 +67,61 @@ describe("resolveConstraint", () => {
 
 describe("resolveIntersection", () => {
 	const tags = ["v1.0.0", "v1.1.0", "v1.2.0", "v2.0.0", "v2.1.0"];
+	const csrc: import("../../src/core/resolver.js").ConstraintSource = {
+		kind: "consumer",
+		manifestPath: "skilltree.yml",
+	};
 
 	test("intersects compatible constraints", () => {
 		const result = resolveIntersection(tags, [
-			{ name: "a", constraint: "^1.0.0" },
-			{ name: "b", constraint: ">=1.1.0" },
+			{ name: "a", constraint: "^1.0.0", source: csrc },
+			{ name: "b", constraint: ">=1.1.0", source: csrc },
 		]);
 		expect("version" in result && result.version).toBe("1.2.0");
 	});
 
-	test("errors on incompatible constraints", () => {
+	test("errors on incompatible constraints with attribution", () => {
 		const result = resolveIntersection(tags, [
-			{ name: "a", constraint: "^1.0.0" },
-			{ name: "b", constraint: "^2.0.0" },
+			{ name: "a", constraint: "^1.0.0", source: csrc },
+			{ name: "b", constraint: "^2.0.0", source: csrc },
 		]);
 		expect("error" in result).toBe(true);
 		if ("error" in result) {
 			expect(result.error).toContain("Incompatible");
+			// Issue #85: every constraint line must name the manifest that imposed it.
+			expect(result.error).toContain("skilltree.yml requires a ^1.0.0");
+			expect(result.error).toContain("skilltree.yml requires b ^2.0.0");
+		}
+	});
+
+	test("transitive source renders repo@ref prefix", () => {
+		const result = resolveIntersection(tags, [
+			{ name: "a", constraint: "^1.0.0", source: csrc },
+			{
+				name: "b",
+				constraint: "^3.0.0",
+				source: { kind: "transitive", originRepo: "github.com/up/stream", ref: "v1.2.3" },
+			},
+		]);
+		expect("error" in result).toBe(true);
+		if ("error" in result) {
+			expect(result.error).toContain("github.com/up/stream@v1.2.3 requires b ^3.0.0");
 		}
 	});
 
 	test("wildcard + specific constraint works", () => {
 		const result = resolveIntersection(tags, [
-			{ name: "a", constraint: "*" },
-			{ name: "b", constraint: "^1.0.0" },
+			{ name: "a", constraint: "*", source: csrc },
+			{ name: "b", constraint: "^1.0.0", source: csrc },
 		]);
 		expect("version" in result && result.version).toBe("1.2.0");
 	});
 
 	test("errors for no semver tags", () => {
-		const result = resolveIntersection(["alpha", "beta"], [{ name: "a", constraint: "^1.0.0" }]);
+		const result = resolveIntersection(
+			["alpha", "beta"],
+			[{ name: "a", constraint: "^1.0.0", source: csrc }],
+		);
 		expect("error" in result).toBe(true);
 	});
 });
