@@ -3,6 +3,7 @@ import { readGlobalManifest, readManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
 import { dim, pc } from "../core/ui.js";
 import type { EntityType, Lockfile, LockfileEntry } from "../types.js";
+import { SHORT_SHA_LEN } from "./list.js";
 
 export interface DepsOptions {
 	global?: boolean;
@@ -22,6 +23,12 @@ interface JsonTreeNode {
 	name: string;
 	type: EntityType;
 	version?: string;
+	/**
+	 * Resolved commit SHA for non-local entries — present whether or not the
+	 * caller pinned a version (issue #94). Lets `--json` consumers identify
+	 * what was actually installed without re-parsing the lockfile.
+	 */
+	commit?: string;
 	source?: string;
 	deduped?: boolean;
 	dependencies: JsonTreeNode[];
@@ -30,6 +37,38 @@ interface JsonTreeNode {
 /** cargo-tree convention: marks a node whose canonical print is elsewhere. */
 const DUPLICATE_MARKER = "(*)";
 const DEDUPED_LABEL = "deduped";
+
+/**
+ * Tree-display version suffix. Issue #94: unpinned remote deps drop to
+ * `@<short-sha>` instead of an empty string so the user can still see which
+ * commit was resolved. Local deps render no version suffix — the `(..., local)`
+ * type tag already conveys "no pinning applies."
+ *
+ * Distinct from `versionLabel` in `list.ts`: that one returns mixed shapes
+ * (`"1.0.0"` for versions, `"@abc1234"` for commits) suited to a tabular
+ * column. The tree always wants the `@` prefix.
+ */
+function treeVersionLabel(entry: LockfileEntry): string {
+	if (entry.version !== undefined) return `@${entry.version}`;
+	if (entry.source === "local") return "";
+	if (entry.commit) return `@${entry.commit.slice(0, SHORT_SHA_LEN)}`;
+	return "";
+}
+
+/**
+ * Canonical display name for a node, regardless of root vs. transitive
+ * position. Issue #107: roots previously rendered under their YAML key while
+ * transitives rendered under the frontmatter `name:` from the parent's
+ * `dependencies:` list — the same entity appeared with two different labels
+ * inside one tree when aliased.
+ *
+ * Single rule: prefer the canonical `entry.name` (which is what frontmatter
+ * references resolve to), fall back to the lookup key. Roots that aren't
+ * aliased still print under their YAML key (no `entry.name` set).
+ */
+function canonicalDisplayName(entry: LockfileEntry, lookupKey: string): string {
+	return entry.name ?? lookupKey;
+}
 
 export async function depsTreeCommand(dir: string, opts?: DepsOptions): Promise<void> {
 	const isGlobal = !!opts?.global;
@@ -62,7 +101,13 @@ export async function depsTreeCommand(dir: string, opts?: DepsOptions): Promise<
 		for (const root of roots) {
 			const entry = lockfile.packages[root];
 			if (!entry) continue;
-			tree.push(buildJsonTree(root, root, entry, lockfile, nameIndex, printedJson, true, dedupe));
+			// Issue #107: roots use the same canonical name rule as transitives
+			// (entry.name ?? key) so an aliased entry doesn't appear under
+			// two different labels in the same tree.
+			const displayName = canonicalDisplayName(entry, root);
+			tree.push(
+				buildJsonTree(displayName, root, entry, lockfile, nameIndex, printedJson, true, dedupe),
+			);
 		}
 		console.log(JSON.stringify(tree, null, 2));
 		return;
@@ -73,7 +118,8 @@ export async function depsTreeCommand(dir: string, opts?: DepsOptions): Promise<
 	for (const root of roots) {
 		const entry = lockfile.packages[root];
 		if (!entry) continue;
-		printTree(root, root, entry, lockfile, nameIndex, "", true, true, printed, dedupe);
+		const displayName = canonicalDisplayName(entry, root);
+		printTree(displayName, root, entry, lockfile, nameIndex, "", true, true, printed, dedupe);
 	}
 }
 
@@ -100,6 +146,10 @@ function buildJsonTree(
 	};
 	if (entry.version) node.version = entry.version;
 	if (entry.source) node.source = entry.source;
+	// Surface the resolved commit for every non-local entry so consumers can
+	// identify the exact installed revision (issue #94). For local deps the
+	// lockfile records `commit: HEAD` which is meaningless — skip it there.
+	if (entry.source !== "local" && entry.commit) node.commit = entry.commit;
 
 	const alreadyPrinted = printed.has(entryKey);
 	// Top-level entries are direct project deps; never mark them deduped
@@ -130,13 +180,8 @@ function buildJsonTree(
 function printTree(
 	displayName: string,
 	entryKey: string,
-	entry: { type: string; version?: string; source?: string; dependencies: string[] },
-	lockfile: {
-		packages: Record<
-			string,
-			{ type: string; version?: string; source?: string; dependencies: string[] }
-		>;
-	},
+	entry: LockfileEntry,
+	lockfile: Lockfile,
 	nameIndex: Map<string, string>,
 	prefix: string,
 	isRoot: boolean,
@@ -145,7 +190,7 @@ function printTree(
 	dedupe: boolean,
 ): void {
 	const connector = isRoot ? "" : isLast ? "└── " : "├── ";
-	const version = entry.version ? `@${entry.version}` : "";
+	const version = treeVersionLabel(entry);
 	const source = entry.source === "local" ? "local" : "";
 	const alreadyPrinted = printed.has(entryKey);
 
