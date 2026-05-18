@@ -1,3 +1,9 @@
+## v0.33.1 (2026-05-18)
+
+### Fix
+
+- **doctor**: vacuous pass for empty deps; better error attribution; lsRemote LC_ALL=C; registry probe extended; RO3 test (#129)
+
 ## v0.33.0 (2026-05-17)
 
 ### Feat
