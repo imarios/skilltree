@@ -741,3 +741,105 @@ describe("applyToFrontmatter — merge into existing key (issue #68)", () => {
 		expect(items).toEqual(["alpha", "mango", "zebra"]);
 	});
 });
+
+describe("applyToFrontmatter — preserves YAML formatting (issue #91)", () => {
+	test("preserves comments on untouched keys", async () => {
+		const dir = await makeTempDir();
+		const skillDir = join(dir, "with-comments");
+		await mkdir(skillDir, { recursive: true });
+		const filePath = join(skillDir, "SKILL.md");
+		await writeFile(
+			filePath,
+			[
+				"---",
+				"# top-level note",
+				"name: with-comments",
+				"description: A skill # inline note",
+				"dependencies:",
+				"  - existing",
+				"---",
+				"",
+				"Use the python-coding skill.",
+				"",
+			].join("\n"),
+		);
+
+		await applyToFrontmatter(filePath, ["python-coding"]);
+
+		const content = await readFile(filePath, "utf-8");
+		expect(content).toContain("# top-level note");
+		expect(content).toContain("# inline note");
+		expect(content).toContain("- existing");
+		expect(content).toContain("- python-coding");
+	});
+
+	test("does not clobber an unrelated flow-style sequence in the same frontmatter", async () => {
+		// We rewrite the targeted deps key with the document's default style
+		// (block); the regression we guard against is that other flow-style
+		// values in the same frontmatter survive the round-trip.
+		const dir = await makeTempDir();
+		const skillDir = join(dir, "flow-other");
+		await mkdir(skillDir, { recursive: true });
+		const filePath = join(skillDir, "SKILL.md");
+		await writeFile(
+			filePath,
+			[
+				"---",
+				"name: flow-other",
+				"description: A skill",
+				"keywords: [alpha, beta, gamma]",
+				"dependencies:",
+				"  - existing",
+				"---",
+				"",
+				"Use the python-coding skill.",
+				"",
+			].join("\n"),
+		);
+
+		await applyToFrontmatter(filePath, ["python-coding"]);
+
+		const content = await readFile(filePath, "utf-8");
+		// Flow-style sequence survives — yaml@2 may canonicalize inner spacing
+		// (`[a, b, c]` vs `[ a, b, c ]`) but the bracketed form is what we
+		// guard against the pre-#91 line-by-line writer that would have
+		// broken any non-block sequence in the same frontmatter.
+		expect(content).toMatch(/keywords: \[\s*alpha,\s*beta,\s*gamma\s*\]/);
+		expect(content).toContain("- python-coding");
+	});
+
+	test("blank line inside frontmatter is preserved across deps update", async () => {
+		// The pre-#91 string-line stripper hit `inDepBlock = false` on any
+		// blank line, which could either drop trailing deps or leave them in
+		// place depending on input ordering. With the Document round-trip the
+		// concept of "in deps block" no longer exists; the file shape is
+		// determined by yaml's stringify defaults.
+		const dir = await makeTempDir();
+		const skillDir = join(dir, "blank-line");
+		await mkdir(skillDir, { recursive: true });
+		const filePath = join(skillDir, "SKILL.md");
+		await writeFile(
+			filePath,
+			[
+				"---",
+				"name: blank-line",
+				"description: A skill",
+				"",
+				"dependencies:",
+				"  - existing",
+				"---",
+				"",
+				"Use the python-coding skill.",
+				"",
+			].join("\n"),
+		);
+
+		await applyToFrontmatter(filePath, ["python-coding"]);
+
+		const content = await readFile(filePath, "utf-8");
+		expect(content).toContain("- existing");
+		expect(content).toContain("- python-coding");
+		// Body content untouched
+		expect(content).toContain("Use the python-coding skill.");
+	});
+});

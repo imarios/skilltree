@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
+import YAML from "yaml";
 import type { SkillFrontmatter } from "../types.js";
 import { entityNameFromPath, mdFileType } from "./entity-type.js";
 import { getDeclaredDeps, parseFrontmatter } from "./frontmatter.js";
@@ -335,6 +336,11 @@ function chooseDepsKey(filePath: string, fm: SkillFrontmatter): DepsKey {
  * convention when neither is present) and writes exactly one deps block —
  * never a parallel `dependencies:`/`skills:` pair. See `chooseDepsKey` and
  * issue #68 for the full rules.
+ *
+ * Uses YAML.parseDocument so author formatting survives the round-trip:
+ * flow-style sequences, comments, key ordering, scalar style are preserved
+ * for everything we don't touch. Only the target deps key gets a new value;
+ * the rest of the frontmatter passes through verbatim (#91).
  */
 export async function applyToFrontmatter(filePath: string, newDeps: string[]): Promise<void> {
 	const content = await readFile(filePath, "utf-8");
@@ -345,41 +351,26 @@ export async function applyToFrontmatter(filePath: string, newDeps: string[]): P
 	const targetKey = chooseDepsKey(filePath, frontmatter);
 	const existing = frontmatter[targetKey] ?? [];
 	const merged = [...new Set([...existing, ...newDeps])].sort();
+	if (merged.length === 0) return;
 
-	// Rebuild frontmatter
-	const depsYaml =
-		merged.length > 0 ? `${targetKey}:\n${merged.map((d) => `  - ${d}`).join("\n")}` : "";
-
-	// Find frontmatter boundaries
+	// Find frontmatter boundaries (parseFrontmatter already verified shape).
 	const firstDelim = content.indexOf("---");
 	const secondDelim = content.indexOf("---", firstDelim + 3);
-	const existingFm = content.slice(firstDelim + 3, secondDelim).trim();
-
-	// Strip the existing block for the *target* key only. The other deps key,
-	// if present, is left in place — `chooseDepsKey` already preferred it if
-	// it was non-empty, so reaching here means the orthogonal key holds no
-	// dep list we'd overwrite. (Empty `dependencies: []` / `skills: []`
-	// scalars are preserved verbatim; harmless and round-trip-friendly.)
-	const fmLines = existingFm.split("\n");
-	const filteredLines: string[] = [];
-	let inDepBlock = false;
-	for (const line of fmLines) {
-		if (line.startsWith(`${targetKey}:`)) {
-			inDepBlock = true;
-			continue;
-		}
-		if (inDepBlock && line.startsWith("  - ")) {
-			continue;
-		}
-		inDepBlock = false;
-		filteredLines.push(line);
-	}
-
-	const newFmContent = [...filteredLines.filter((l) => l.trim()), depsYaml]
-		.filter((l) => l)
-		.join("\n");
+	const fmYaml = content.slice(firstDelim + 3, secondDelim);
 	const bodyAfter = content.slice(secondDelim + 3);
-	const newContent = `---\n${newFmContent}\n---${bodyAfter}`;
+
+	const doc = YAML.parseDocument(fmYaml);
+	// Mutate (or add) the target key in-place. yaml@2.x preserves untouched
+	// nodes' style + comments through .toString(); the new sequence will use
+	// the Document's default style (block), which matches the historical
+	// behavior for the value we control.
+	doc.set(targetKey, merged);
+
+	// Trim the leading/trailing newlines that .toString() adds so the
+	// `---\n<yaml>\n---` envelope stays canonical regardless of the input's
+	// leading whitespace.
+	const newFm = doc.toString().replace(/^\n+|\n+$/g, "");
+	const newContent = `---\n${newFm}\n---${bodyAfter}`;
 
 	await writeFile(filePath, newContent, "utf-8");
 }

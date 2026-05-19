@@ -1,6 +1,6 @@
 {
   "name": "@imarios/skilltree-cli-linux-arm64",
-  "version": "0.10.0",
+  "version": "0.36.0",
   "description": "skilltree binary for Linux ARM64",
   "license": "MIT",
   "repository": {

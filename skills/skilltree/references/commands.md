@@ -214,7 +214,10 @@ Reports: `OK` (matches), `MODIFIED` (changed), `LINKED` (symlink), `MISSING`, `S
 
 ## `skilltree check`
 
-Design-time lint of `skilltree.yml`. Currently catches **asymmetric publish state** — a publicly-visible local entity that depends (directly or transitively) on a same-repo `publish: false` entity. Your own install succeeds; downstream consumers fail at install time on the transitive `publish: false`.
+Design-time lint of `skilltree.yml`. Catches:
+
+- **Schema errors** (exit 1 by default): manifest type mismatches (e.g. `publish: "no"` when boolean is expected), unknown frontmatter keys, malformed YAML in `SKILL.md` / agent / command frontmatter. Same diagnostics as `install` so `check` doesn't silently ✔ broken input.
+- **Asymmetric publish state** (warning): a publicly-visible local entity that depends (directly or transitively) on a same-repo `publish: false` entity. Your own install succeeds; downstream consumers fail at install time on the transitive `publish: false`.
 
 ```bash
 skilltree check
@@ -222,7 +225,7 @@ skilltree check --strict
 ```
 
 **Flags:**
-- `--strict` — Exit 1 if any warnings are found
+- `--strict` — Exit 1 if any *warnings* are found (errors always exit 1).
 
 Each warning shows the chain (`A → B → C (publish: false)`) so the fix is obvious: either remove `publish: false` on the leaf or break the dependency chain.
 

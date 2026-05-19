@@ -147,6 +147,27 @@ export async function vendorCommand(dir: string, options: VendorOptions): Promis
 
 	const existingLockfile = await readLockfile(dir);
 
+	// Issue #108: detect a target switch and clean up the previously-vendored
+	// directory before populating the new one. Without this, `vendor --target X`
+	// then `vendor --target Y` leaves X's tree orphaned on disk — not gitignored
+	// (a previous vendor removed those entries), not referenced by the new
+	// lockfile, but still committable via `git add .`. Cleanup is a no-op when
+	// the recorded target matches, when there is no recorded target (legacy
+	// `vendor: true` boolean), or when nothing was previously vendored.
+	const prevTarget = manifest.vendored_target;
+	const isTargetSwitch =
+		prevTarget !== undefined && rawTarget !== undefined && prevTarget !== rawTarget;
+	if (isTargetSwitch && existingLockfile) {
+		const prevInstallPath = resolveTarget(prevTarget);
+		const prevInstallBase = join(dir, prevInstallPath);
+		await deleteVendoredFiles(existingLockfile, prevInstallBase);
+		const prevIgnoreEntries = getSkillAgentIgnoreEntries(prevInstallPath);
+		await addGitignoreEntries(dir, prevIgnoreEntries);
+		console.log(
+			dim(`Cleaned up previously vendored ${prevInstallPath}/ (switching to ${devInstallPath}/)`),
+		);
+	}
+
 	if (options.frozen) {
 		if (!existingLockfile) {
 			throw new Error("--frozen requires a lockfile. Run `skilltree install` first.");

@@ -1,7 +1,17 @@
 [tool.commitizen]
 name = "cz_conventional_commits"
 version = "0.36.0"
-version_files = ["package.json:version"]
+version_files = [
+    "package.json:\"version\"",
+    "package.json:skilltree-cli-darwin-arm64",
+    "package.json:skilltree-cli-darwin-x64",
+    "package.json:skilltree-cli-linux-arm64",
+    "package.json:skilltree-cli-linux-x64",
+    "npm/cli-darwin-arm64/package.json:\"version\"",
+    "npm/cli-darwin-x64/package.json:\"version\"",
+    "npm/cli-linux-arm64/package.json:\"version\"",
+    "npm/cli-linux-x64/package.json:\"version\"",
+]
 tag_format = "v$version"
 update_changelog_on_bump = true
 changelog_file = "CHANGELOG.md"
