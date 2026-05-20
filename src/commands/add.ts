@@ -395,6 +395,14 @@ function validateAddFlags(opts: AddOptions): void {
 				"--pack and --local are incompatible — define local packs in the `packs:` section and reference by name.",
 			);
 		}
+		// Catch the commander footgun: `--pack [name]` is an optional-value
+		// flag, and a typo like `--pack --dev` makes commander consume `--dev`
+		// as the pack name. A value beginning with `-` is never a valid name.
+		if (typeof opts.pack === "string" && opts.pack.startsWith("-")) {
+			throw new Error(
+				`--pack value cannot start with '-' (got "${opts.pack}"). Use \`--pack\` alone to use the positional name, or \`--pack <name>\` to rename.`,
+			);
+		}
 	}
 	if (opts.repo && opts.source) {
 		throw new Error("--repo and --source are mutually exclusive");
@@ -489,15 +497,24 @@ async function tryLocalPackShortcircuit(
 	opts: AddOptions,
 	dir: string,
 ): Promise<PackDependency | null> {
+	const globalDir = opts.globalDir ?? getGlobalDir();
+	let manifest: Awaited<ReturnType<typeof loadManifestOrThrow>>;
 	try {
-		const globalDir = opts.globalDir ?? getGlobalDir();
-		const manifest = await loadManifestOrThrow(dir, { global: opts.global, globalDir });
-		if (manifest.packs?.[name]) return { pack: name };
-		return null;
-	} catch {
-		// No manifest yet (or unreadable) — caller falls through to the registry path.
-		return null;
+		manifest = await loadManifestOrThrow(dir, { global: opts.global, globalDir });
+	} catch (err) {
+		// `loadManifestOrThrow` already wraps the underlying error and prefixes
+		// its message with the file path. Only swallow the "no manifest yet"
+		// case — anything else (malformed YAML, bad schema) must surface so
+		// the user sees the real problem rather than a spurious "not found in
+		// any registry" downstream.
+		const msg = err instanceof Error ? err.message : String(err);
+		if (/No .*\.yml found/i.test(msg) || /Run `skilltree init`/i.test(msg)) {
+			return null;
+		}
+		throw err;
 	}
+	if (manifest.packs?.[name]) return { pack: name };
+	return null;
 }
 
 async function buildLocalDep(opts: AddOptions, dir: string): Promise<Dependency> {
@@ -521,15 +538,15 @@ function checkOverwrite(
 	dep: Dependency,
 	sources?: Record<string, string>,
 ): void {
-	if (!(name in deps)) return;
 	const oldDep = deps[name];
+	if (!oldDep) return;
 	const oldSource = canonicalSource(oldDep, sources);
 	const newSource = canonicalSource(dep, sources);
 	// Pack refs and entity refs occupy different namespaces; print a pack-aware
 	// message when either side is a pack so the user can see "pack reference"
 	// rather than the generic source-diff text. Equality logic is reused from
 	// `canonicalSource`, which already discriminates pack refs from entities.
-	const eitherIsPack = (oldDep && isPackDependency(oldDep)) || isPackDependency(dep);
+	const eitherIsPack = isPackDependency(oldDep) || isPackDependency(dep);
 	if (eitherIsPack) {
 		if (oldSource !== newSource) {
 			warn(`overwriting "${name}" — changing pack reference from ${oldSource} to ${newSource}`);

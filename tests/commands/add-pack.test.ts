@@ -145,6 +145,26 @@ describe("add — local pack short-circuit", () => {
 	});
 });
 
+describe("add — error surfacing", () => {
+	test("malformed manifest surfaces the parse error (does NOT silently fall through to registry)", async () => {
+		const dir = await setup();
+		// Overwrite skilltree.yml with malformed YAML — the short-circuit should
+		// NOT swallow this and fall through to registry resolution.
+		await writeFile(join(dir, "skilltree.yml"), "packs:\n  - this-is-a-list-not-mapping\n");
+
+		// Should reject with a manifest-validation/parse error, not a
+		// "not found in any registry" error.
+		await expect(addCommand("foo", {}, dir)).rejects.toThrow(/manifest|packs|mapping/i);
+	});
+
+	test("--pack with a flag-shaped value is rejected", async () => {
+		const dir = await setup();
+		await expect(
+			addCommand("python-pack", { pack: "--dev", repo: "github.com/a/b" }, dir),
+		).rejects.toThrow(/--pack/);
+	});
+});
+
 describe("add — pack ref overwrite messaging", () => {
 	test("overwriting a pack ref with a different pack ref prints pack-specific message", async () => {
 		const dir = await setup();

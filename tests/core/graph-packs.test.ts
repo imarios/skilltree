@@ -337,6 +337,48 @@ describe("packs — remote pack expansion", () => {
 // Group K — Remote pack errors
 // =============================================================================
 
+describe("packs — source-aliased pack reference end-to-end", () => {
+	test("J3 — source-aliased remote pack ref resolves through expandSources", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-packs-j3-"));
+
+		const repoB = await createTestRepo(
+			tempDir,
+			"members",
+			[{ path: "foo", name: "foo" }],
+			"v1.0.0",
+		);
+		const repoA = await createTestRepo(
+			tempDir,
+			"host",
+			[],
+			"v1.0.0",
+			[
+				"name: host",
+				"packs:",
+				"  python-pack:",
+				`    - repo: file://${repoB}`,
+				"      path: foo",
+				"      version: '*'",
+			].join("\n"),
+		);
+
+		const manifest: Manifest = {
+			sources: { acme: `file://${repoA}` },
+			dependencies: {
+				"python-pack": {
+					pack: "python-pack",
+					source: "acme",
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(manifest, tempDir);
+		expect(result.errors).toEqual([]);
+		expect(result.entities.has("skill:foo")).toBe(true);
+	});
+});
+
 describe("packs — remote pack errors", () => {
 	test("K1 — remote manifest has no packs: section", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-packs-k1-"));
@@ -385,6 +427,32 @@ describe("packs — remote pack errors", () => {
 		expect(result.errors.some((e) => /Pack "python-pack"/.test(e) && /not found/.test(e))).toBe(
 			true,
 		);
+	});
+
+	test("K3a — remote pack member with RELATIVE local path → reject too (local members only in local packs)", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-packs-k3a-"));
+		const originManifest = [
+			"name: origin",
+			"packs:",
+			"  bad-pack:",
+			"    - local: ./skills/foo",
+		].join("\n");
+		const origin = await createTestRepo(tempDir, "origin", [], "v1.0.0", originManifest);
+
+		const manifest: Manifest = {
+			dependencies: {
+				"bad-pack": {
+					pack: "bad-pack",
+					repo: `file://${origin}`,
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(manifest, tempDir);
+		expect(
+			result.errors.some((e) => /bad-pack/.test(e) && /local.*only.*local pack/i.test(e)),
+		).toBe(true);
 	});
 
 	test("K3 — remote pack member with absolute local path → reject", async () => {

@@ -392,12 +392,18 @@ function injectPackMembers(
 	const isRemotePack = origin.kind === "transitive";
 
 	for (const member of members) {
-		// Remote pack containing an absolute local: → the path lives on the pack
-		// author's filesystem and is meaningless on the consumer side. Mirrors
-		// the existing same-rule check in `tryResolveFromOriginManifest`.
-		if (isRemotePack && "local" in member && !isRelativeLocalPath(member.local)) {
+		// Remote pack with a `local:` member: the path lives on the pack
+		// author's filesystem and is meaningless on the consumer side. Even a
+		// relative path would resolve against `state.projectDir`, not the pack
+		// host's repo — silently wrong. v1 rejects all `local:` members of
+		// remote packs; if you need shared local skills, define them in a
+		// local pack. (A future version could mirror `tryResolveFromOriginManifest`
+		// and convert relative-local members to remote refs pointing at the
+		// pack-host repo, but that doubles the spec surface — defer until asked.)
+		if (isRemotePack && "local" in member) {
+			const which = isRelativeLocalPath(member.local) ? "" : "absolute ";
 			state.errors.push(
-				`Error: Pack "${packRef.pack}" (via ${packKey}, ${formatOrigin(origin)}) contains a member with an absolute local path ("${member.local}"), which is only valid in local packs.`,
+				`Error: Pack "${packRef.pack}" (via ${packKey}, ${formatOrigin(origin)}) contains a member with a ${which}local path ("${member.local}"). \`local:\` members are only valid in local packs.`,
 			);
 			continue;
 		}
