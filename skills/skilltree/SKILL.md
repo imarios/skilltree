@@ -100,6 +100,20 @@ Three scopes, fully independent:
 
 When the same skill exists in both project and global scope, **project wins** (the agent's built-in shadowing).
 
+## Packs — Named Groups of Dependencies
+
+A **pack** is a named group of dependencies declared under a `packs:` section. Consumers reference a pack with a single `PackDependency` entry (`{pack: <name>, [repo|source], [version]}`); the resolver expands it into the listed members at install time. A pack is never an entity itself — only its members become entities in `state.entities` and the lockfile.
+
+Two reference modes, one mechanism:
+- **Local pack** — defined and referenced in the consumer's own `skilltree.yml`. Referenced by `{pack: <name>}` only.
+- **Remote pack** — defined in some repo's `skilltree.yml`. Referenced with `{pack: <name>, repo: <url>, version: <semver>}`; pinned by the containing repo's git tag.
+
+Pack members are **full dep entries** (with their own `repo`/`source`/`local`/`version`), not bare names — packs can compose deps from multiple repos. v1 is **all-or-nothing**: no consumer-side `exclude:` or per-member version override, and `pack:` members (nested packs) are rejected at parse time. `local:` members are valid in local packs only; remote packs must compose remote deps.
+
+Add packs via CLI: `skilltree add <name> --pack [--repo <url> --version <semver>]`, or use the local short-circuit (`skilltree add my-stack` with `packs.my-stack` already defined).
+
+See `references/commands.md` → `skilltree add <name>` for the flag matrix and `docs/specs/packs.md` for the full spec.
+
 ## CRITICAL: Installed files are read-only
 
 Files under `.claude/skills/` and `.claude/agents/` are installed artifacts — like `node_modules/`. They are:
