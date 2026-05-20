@@ -1,3 +1,9 @@
+## v0.36.0 (2026-05-20)
+
+### Feat
+
+- **packs**: skill packs — named groups of dependencies (Oxygen) (#134)
+
 ## v0.35.0 (2026-05-18)
 
 ### Feat
