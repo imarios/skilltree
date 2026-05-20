@@ -1,3 +1,9 @@
+## v0.36.2 (2026-05-20)
+
+### Fix
+
+- **resolver**: warn on silent sibling downgrade; sync disk + lockfile on version change (#135)
+
 ## v0.36.1 (2026-05-20)
 
 ### Fix
