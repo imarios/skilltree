@@ -276,6 +276,7 @@ For each **repo** in the graph:
 3. List available git tags
 4. Find the highest tag satisfying the intersection
 5. Error if no tag satisfies all constraints
+6. **Capped-sibling warning**: if the intersection picks a version lower than the latest available tag *and* one or more `*`-constrained deps share the repo, emit a non-blocking warning naming the capped `*` deps and the tighter sibling constraint(s) that capped them. Without this, adding a sibling like `tut --version ^0.5.0` silently downgrades earlier `*`-constrained deps from the same repo.
 
 Local deps skip version resolution -- working tree is the source of truth.
 
@@ -301,7 +302,7 @@ If any errors were collected, block install and report all of them together.
 
 ### Phase 5: Installation
 
-1. **Remote deps already installed**: Check integrity hash against lockfile. If modified, warn + require `--force`.
+1. **Remote deps already installed**: Check integrity hash against lockfile. If modified, warn + require `--force`. **Exception**: if the lockfile's recorded commit for the entity differs from the resolved commit (e.g. the resolver picked a different version this run), overwrite is automatic — no `--force` needed. Without this, the lockfile would silently disagree with disk after a version change.
 2. **Local deps**: Symlink from `{install_path}/skills/{name}`, `{install_path}/agents/{name}.md`, or `{install_path}/commands/{name}.md` to local path. No chmod, no integrity hash.
 3. **Remote deps**: Copy from git cache. Set `chmod 444` for files (directories keep default permissions for manageability).
 4. **`--prod --install-path`**: Local deps **copied** (not symlinked). Copies get `chmod 444` for files and integrity hash (they're production artifacts).

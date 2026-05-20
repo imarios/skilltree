@@ -248,7 +248,14 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 	printInstallOrderFromResolution(result, options);
 
 	const srcInstallBase = manifest.src_install_path ? join(dir, manifest.src_install_path) : null;
-	const integrityMap = await installToTargets(result, targets, srcInstallBase, dir, options);
+	const integrityMap = await installToTargets(
+		result,
+		targets,
+		srcInstallBase,
+		dir,
+		options,
+		existingLockfile,
+	);
 
 	if (options.dryRun) return;
 
@@ -273,6 +280,7 @@ async function installToTargets(
 	srcInstallBase: string | null,
 	dir: string,
 	options: InstallOptions,
+	existingLockfile: Lockfile | null,
 ): Promise<Map<string, string>> {
 	// Accumulate across targets instead of letting the last target win
 	// (issue #27 item 3). Content-derived hashes are identical per target
@@ -282,7 +290,13 @@ async function installToTargets(
 
 	for (const target of targets) {
 		const primaryBase = options.prod && srcInstallBase ? srcInstallBase : target.installBase;
-		const plan = await planInstall(result.entities, result.installOrder, primaryBase, options);
+		const plan = await planInstall(
+			result.entities,
+			result.installOrder,
+			primaryBase,
+			options,
+			existingLockfile,
+		);
 
 		// `--prod` skips are target-agnostic — report once, not once per target.
 		if (plan.skipped.length > 0 && !skippedReported) {
@@ -320,6 +334,7 @@ async function installToTargets(
 				result.installOrder,
 				srcInstallBase,
 				srcOptions,
+				existingLockfile,
 			);
 			if (srcPlan.toInstall.length > 0) {
 				await executeInstall(srcPlan, dir, srcOptions);
@@ -381,7 +396,14 @@ async function installGlobal(options: InstallCommandOptions): Promise<void> {
 	// Print install order once — shared across all targets.
 	printInstallOrderFromResolution(result, options);
 
-	const integrityMap = await installToTargets(result, targets, null, globalDir, options);
+	const integrityMap = await installToTargets(
+		result,
+		targets,
+		null,
+		globalDir,
+		options,
+		existingLockfile,
+	);
 
 	if (options.dryRun) return;
 
@@ -472,7 +494,7 @@ async function frozenInstall(
 	const devBase = options.installPath ?? join(dir, getDevInstallPath(manifest));
 	const srcBase = manifest.src_install_path ? join(dir, manifest.src_install_path) : null;
 	const primaryBase = options.prod && srcBase ? srcBase : devBase;
-	const plan = await planInstall(entities, installOrder, primaryBase, options);
+	const plan = await planInstall(entities, installOrder, primaryBase, options, lockfile);
 
 	printInstallOrderFromPlan(plan);
 
