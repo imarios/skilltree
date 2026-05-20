@@ -1,3 +1,9 @@
+## v0.36.1 (2026-05-20)
+
+### Fix
+
+- bundle four small fixes — release-process, vendor, check, scan (#70, #91, #108, #124) (#133)
+
 ## v0.36.0 (2026-05-20)
 
 ### Feat

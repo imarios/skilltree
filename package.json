@@ -1,6 +1,6 @@
 {
   "name": "skilltree-pm",
-  "version": "0.36.0",
+  "version": "0.36.1",
   "description": "Dependency manager for AI agent skills",
   "type": "module",
   "license": "MIT",
@@ -35,10 +35,10 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "@imarios/skilltree-cli-darwin-arm64": "0.36.0",
-    "@imarios/skilltree-cli-darwin-x64": "0.36.0",
-    "@imarios/skilltree-cli-linux-arm64": "0.36.0",
-    "@imarios/skilltree-cli-linux-x64": "0.36.0"
+    "@imarios/skilltree-cli-darwin-arm64": "0.36.1",
+    "@imarios/skilltree-cli-darwin-x64": "0.36.1",
+    "@imarios/skilltree-cli-linux-arm64": "0.36.1",
+    "@imarios/skilltree-cli-linux-x64": "0.36.1"
   },
   "scripts": {
     "dev": "bun run src/cli.ts",
