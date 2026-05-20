@@ -3,12 +3,12 @@
 +++
 version = "1.0"
 date = "2026-05-19"
-status = "draft"
+status = "active"
 
 [[changelog]]
 version = "1.0"
 date = "2026-05-19"
-summary = "Initial spec — local + remote packs, full-entry members, all-or-nothing v1, nested packs deferred."
+summary = "Initial spec — local + remote packs, full-entry members, all-or-nothing v1, nested packs deferred. Shipped across Oxygen phases 1–4."
 +++
 
 ## Problem Statement

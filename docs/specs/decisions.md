@@ -106,6 +106,23 @@ Skills serve two purposes: helping developers write code (dev) and powering the 
 
 Replaces the legacy `install_path` field (which mapped to `dev_install_path`).
 
+### 17. Packs are manifest-side only — never entities (Oxygen)
+A "pack" is a named group of dependencies declared in a `skilltree.yml` `packs:` section, referenced by a single `PackDependency` (`{pack: <name>, [repo|source], [version]}`). The resolver expands a pack reference into N synthesized direct deps in a new "Phase 1.5" between repo-version resolution and entity processing, then proceeds with normal resolution. A pack is **never an entity**: no `compositeKey`, no `state.entities` row, no lockfile entry, no install work — only its members are first-class entities.
+
+**Rationale:** Keeping packs purely a manifest-side construct means the installer, lockfile schema, scanner, vendor, and doctor need zero changes. The blast radius for the feature is the type union, the manifest layer, the resolver entry point, and the `add`/`remove` command surface.
+
+**Reserved word:** "bundle" is already used internally for the embedded skilltree skill (`src/core/bundled-skill.ts`, `skilltree teach`). "pack" is the public-facing term.
+
+**No consumer-side overrides in v1.** A pack is all-or-nothing: no `exclude:` member list, no per-member version pin. To override a member, change the pack composition rather than redeclaring at the consumer side. Member-key collisions (consumer dep vs pack member, or two packs sharing a member) are resolver errors — there is no silent merge.
+
+**Nested packs (pack-in-pack) deferred to v2.** v1 rejects `pack:` members at parse time. The structural type already permits packs as members, so v2 lifts a single guard and wraps `expandPackReferences` in a convergence loop with a visited-set for cycle detection. No breaking change.
+
+**Pack-name derivation:** the member's yaml key in the expanded deps map is `member.name ?? basename(member.path) ?? basename(member.local)`. Same precedence as direct deps.
+
+**Registry indexing:** `IndexEntry.kind?: "entity" | "pack"` distinguishes pack discoverable entries from skills/agents/commands. Default `"entity"` keeps existing caches working.
+
+See [packs.md](packs.md) for the full spec.
+
 ## Open Questions
 
 1. **SKILL.md spec proposal timing.** Propose `dependencies` to agentskills.io before or after proving the concept? Leaning toward after.

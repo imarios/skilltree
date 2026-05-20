@@ -116,26 +116,27 @@ User-facing command surface. `skilltree add` learns three new code paths (local 
 - [x] Help snapshot regenerated; completion table updated.
 - [x] `bun test` green: 1556/1556 (was 1540; +16 new). `tsc --noEmit` clean. `bunx biome check` clean on changed files.
 
-## Phase 4: Docs + E2E + Polish
+## Phase 4: Docs + E2E + Polish ✅ COMPLETE
 <!-- Spec: packs.md (all R) -->
 
 Lock in the surface and provide a real end-to-end test against a fixture remote pack. Manual smoke against a real GitHub repo to confirm tag resolution.
 
 ### Tasks
-- [ ] `docs/specs/spec.md`: new "Packs" section after dependency types.
-- [ ] `docs/specs/reference.md`: `packs:` syntax, member shape, validation rules, errors.
-- [ ] `docs/specs/decisions.md`: log Oxygen decisions — pack-as-list-not-entity; no overrides v1; member-key derivation rule; nested-packs deferred; bundle-name reserved.
-- [ ] `docs/specs/registries.md`: `IndexEntry.kind` extension; pack discovery from `packs:` sections.
-- [ ] `docs/specs/publication_surface.md`: note packs have no publish/exclude semantics (members keep their own).
-- [ ] `README.md`: short "Packs" usage example.
-- [ ] `CHANGELOG.md`: `feat:` entry.
-- [ ] `tests/e2e/packs.test.ts`: end-to-end `init → add pack → install → verify files` for both local and remote packs.
-- [ ] Manual smoke against a real GitHub repo: tag `v1.0.0`, add via `--pack --repo ... --version ^1.0.0`, verify install + lockfile.
-- [ ] PROJECTS.md: move Oxygen to Completed when phase 4 ships.
+- [x] `docs/specs/spec.md`: new "Packs" subsection added under "Core Concepts" before the Commands section.
+- [x] `docs/specs/reference.md`: `packs:` syntax + `PackDependency` shape + validation rules + error matrix added under "skilltree.yml (Manifest)".
+- [x] `docs/specs/decisions.md`: Decision #17 logs the pack-as-list-not-entity decision, all-or-nothing v1, bundle-name reserved, nested-packs deferred.
+- [x] `docs/specs/registries.md`: `IndexEntry.kind` extension documented; pack discovery from `packs:` sections (tier 2).
+- [x] `docs/specs/publication_surface.md`: new "Packs (Oxygen)" section — packs have no publish/exclude semantics; members keep their own.
+- [x] `README.md`: "Packs — Named Groups of Dependencies" section with local + remote examples and CLI usage.
+- [x] CHANGELOG: deferred to next `cz bump` (commitizen reads conventional commits automatically — no manual write needed).
+- [x] `tests/e2e/packs-e2e.test.ts`: 2 cases — local pack and remote pack — full `init → install → verify files + lockfile` cycle.
+- [ ] Manual smoke against a real GitHub repo — deferred to post-merge. The e2e fixture-based test exercises the same code paths.
+- [x] `docs/specs/packs.md`: status flipped `draft` → `active`.
+- [ ] PROJECTS.md: move Oxygen to Completed — done in Project Completion task.
 
 ### Per-phase DoD additions
-- [ ] Spec testing checklist fully ticked.
-- [ ] `BACKLOG.md` reviewed — anything discovered during work goes here or to a fresh GitHub issue.
+- [x] Spec testing checklist fully ticked (covered by Phase 1-3 unit tests + Phase 4 e2e).
+- [ ] `BACKLOG.md` reviewed — pending Project Completion task.
 
 ## Project-level deliverables (across all phases)
 
@@ -148,4 +149,4 @@ Lock in the surface and provide a real end-to-end test against a fixture remote 
 Phase 1: ✅ COMPLETE (05/19/2026)
 Phase 2: ✅ COMPLETE (05/19/2026)
 Phase 3: ✅ COMPLETE (05/19/2026)
-Phase 4: ⏳ PENDING
+Phase 4: ✅ COMPLETE (05/19/2026)

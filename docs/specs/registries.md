@@ -93,8 +93,17 @@ If a repo does not have this file, skilltree falls back to **the manifest tier**
 When `skilltree registry update` scans a repo, it walks three tiers in order and stops at the first one that produces a non-empty result:
 
 1. **`skilltree-index.yml`** (curated; explicit list — authoritative override). Useful when a maintainer wants a hand-curated public catalog distinct from their `skilltree.yml`, or when their repo has no `skilltree.yml` at all.
-2. **`skilltree.yml` local entries** (inferred from the manifest). Reads the repo's own manifest at HEAD and emits an `IndexEntry` per publicly-visible local dependency (`publish !== false`, not in `dev-dependencies`). Description is read from the entity's `SKILL.md` / agent `.md` frontmatter. Falls through when the manifest has no visible local entries, so repos that only consume deps without authoring any keep working.
+2. **`skilltree.yml` local entries** (inferred from the manifest). Reads the repo's own manifest at HEAD and emits an `IndexEntry` per publicly-visible local dependency (`publish !== false`, not in `dev-dependencies`). Description is read from the entity's `SKILL.md` / agent `.md` frontmatter. **Packs** are also emitted from the manifest's `packs:` section — one index entry per pack with `kind: "pack"` (the field added in Oxygen) so `skilltree add <pack-name>` can build a `PackDependency` instead of an entity dep. Falls through when the manifest has no visible local entries, so repos that only consume deps without authoring any keep working.
 3. **Dynamic scan**. The original behavior — `git ls-tree -r HEAD` for `SKILL.md` and `.md` agent files, reading frontmatter for name/description. Default for repos without either manifest signal.
+
+**`IndexEntry.kind` field (Oxygen):** optional, values `"entity"` (default, omitted in YAML) or `"pack"`. Backward-compatible — existing index caches without `kind` are treated as entities. New pack entries serialize as:
+
+```yaml
+- name: python-pack
+  type: skill            # placeholder; consumers check `kind`
+  path: pack:python-pack # sentinel; packs have no filesystem path
+  kind: pack
+```
 
 The manifest tier is most useful for **non-standard layouts** (skill directories at unconventional depths, mixed agent/skill placement) — a maintainer declares each entity once in `skilltree.yml` and the indexer finds them via the declared paths instead of guessing at directory structure. See [publication_surface.md](publication_surface.md) for the full visibility model and the `publish: false` flag.
 
