@@ -73,26 +73,27 @@ Ship the type union and manifest-layer support so the rest of the codebase can c
 - [x] `bun test` green: 1526/1526 (was 1472; +54 new).
 - [x] `bunx biome check` clean on all changed files.
 
-## Phase 2: Resolver Phase 1.5 (pack expansion)
+## Phase 2: Resolver Phase 1.5 (pack expansion) ✅ COMPLETE
 <!-- Spec: packs.md R3-R7 -->
 
-Add the new resolver phase. Local and remote packs both work; pack-member collisions, missing packs, and absolute-local-in-remote-pack all produce typed errors. Pack-member entities carry `_viaPack` provenance and proper `declaredIn` attribution.
+Add the new resolver phase. Local and remote packs both work; pack-member collisions, missing packs, and absolute-local-in-remote-pack all produce typed errors. Pack-member entities carry `viaPack` provenance and proper `declaredIn` attribution.
 
 ### Tasks
-- [ ] `src/core/graph.ts`: make `resolveRepoVersions` idempotent (skip already-resolved repos).
-- [ ] `src/core/graph.ts`: extend Phase 1 repo collection to include `PackDependency.repo` (so the containing repo is resolved up front).
-- [ ] `src/core/graph.ts`: new `expandPackReferences(state)` — walks both groups, rewrites `state.expanded.dependencies` in place, deletes pack-ref keys, injects member entries. (R3, R4, R5, R7)
-- [ ] `src/core/graph.ts`: new `injectMembers` — member-key derivation (`name` ?? `basename(path)` ?? `basename(local)`); collision detection; `_viaPack` provenance tag. (R6, R7)
-- [ ] `src/core/graph.ts`: add `packMemberOrigin: Map<string, EntityOrigin>` side table on `ResolutionState`; thread through to `processDeps` → `resolveEntity` so `declaredIn` is correct for both local and remote pack members.
-- [ ] `src/core/graph.ts`: add Phase 1.5b — second idempotent `resolveRepoVersions` pass to pick up new repos introduced by remote pack members.
-- [ ] `src/core/graph.ts`: reuse `readOriginManifestAtRef` to fetch a remote pack's containing manifest at the resolved ref; reuse the existing `isRelativeLocalPath` check to reject absolute-local members of remote packs.
-- [ ] `src/core/graph.ts`: emit non-blocking warning for locally-defined-but-unreferenced packs at end of `expandPackReferences`.
-- [ ] Tests: `tests/core/graph-packs.test.ts` — covers all "Resolve (local)" and "Resolve (remote)" items from the spec testing checklist.
+- [x] `src/core/graph.ts`: make `resolveRepoVersions` / `resolveOneRepo` idempotent (skip already-resolved repos).
+- [x] `src/core/graph.ts`: extend Phase 1 repo collection to include `PackDependency.repo` (so the containing repo is resolved up front).
+- [x] `src/core/graph.ts`: new `expandPackReferences(state)` — walks both groups, rewrites `state.expanded.dependencies` in place, deletes pack-ref keys, injects member entries. (R3, R4, R5, R7)
+- [x] `src/core/graph.ts`: new `injectPackMembers` — member-key derivation (`name` ?? `basename(path)` ?? `basename(local)`); collision detection; `viaPack` provenance tag. (R6, R7)
+- [x] `src/core/graph.ts`: added `packMemberOrigin: Map<string, EntityOrigin>` + `packMemberViaPack: Map<string, string>` + `packsReferencedByName: Set<string>` side tables on `ResolutionState`; threaded through to `processDeps` → `resolveEntity` → `resolveLocalEntity` / `resolveRemoteEntity`.
+- [x] `src/core/graph.ts`: Phase 1.5b — second idempotent `resolveRepoVersions` pass picks up new repos introduced by remote pack members.
+- [x] `src/core/graph.ts`: reused `readOriginManifestAtRef` for remote pack manifest reads; reused `isRelativeLocalPath` to reject absolute-local members of remote packs.
+- [x] `src/core/graph.ts`: non-blocking warning for locally-defined-but-unreferenced packs at end of `expandPackReferences`.
+- [x] `ResolvedEntity.viaPack?: string` added — internal; never serialized to lockfile.
+- [x] Tests: `tests/core/graph-packs.test.ts` — 14 cases covering Groups H/I/J/K (local happy path, local errors, remote happy path, remote errors).
 
 ### Per-phase DoD additions
-- [ ] Error attribution: every pack-related error names the manifest involved (consumer or `<repo>@<ref>`) per the Nitrogen Phase 4 convention.
-- [ ] No installer/lockfile changes touched.
-- [ ] `bun test` green (1382+ → still green; new resolver tests pass).
+- [x] Error attribution: every pack-related error names the manifest involved (consumer or `<repo>@<ref>`) per the Nitrogen Phase 4 convention.
+- [x] No installer/lockfile changes touched.
+- [x] `bun test` green: 1540/1540 (was 1526; +14 new). `tsc --noEmit` clean. `bunx biome check` clean on changed files.
 
 ## Phase 3: Add / Remove / Registry
 <!-- Spec: packs.md R10 -->
@@ -144,6 +145,6 @@ Lock in the surface and provide a real end-to-end test against a fixture remote 
 ## Oxygen — Sub-project Status
 
 Phase 1: ✅ COMPLETE (05/19/2026)
-Phase 2: ⏳ PENDING
+Phase 2: ✅ COMPLETE (05/19/2026)
 Phase 3: ⏳ PENDING
 Phase 4: ⏳ PENDING

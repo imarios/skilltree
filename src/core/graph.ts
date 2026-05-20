@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { basename } from "node:path";
 import semver from "semver";
 import simpleGit from "simple-git";
 import type {
@@ -7,8 +8,10 @@ import type {
 	EntityType,
 	LocalDependency,
 	Manifest,
+	PackDependency,
+	PackMember,
 } from "../types.js";
-import { isLocalDependency, isRemoteDependency } from "../types.js";
+import { isLocalDependency, isPackDependency, isRemoteDependency } from "../types.js";
 import { conventionalCandidates, isSingleFileEntity, mdFileType } from "./entity-type.js";
 import { MANIFEST_NEW, MANIFEST_NEW_ALT } from "./filenames.js";
 import { getDeclaredDeps, parseFrontmatter } from "./frontmatter.js";
@@ -67,6 +70,12 @@ export interface ResolvedEntity {
 	 * See docs/specs/publication_surface.md §PS6, PS17, PS21.
 	 */
 	exclude?: string[];
+	/**
+	 * If this entity was injected by a pack expansion, the consumer's yaml key
+	 * for that pack reference. Internal; never serialized to lockfile. Drives
+	 * future `why <entity>` provenance ("via pack X"). Oxygen Phase 2.
+	 */
+	viaPack?: string;
 }
 
 export interface ResolutionResult {
@@ -102,6 +111,23 @@ interface ResolutionState {
 	 * Spec: publication_surface.md §PS15–PS16.
 	 */
 	originHiddenHints: Map<string, OriginHiddenHint>;
+	/**
+	 * Set during pack expansion (Phase 1.5). Maps the synthesized member's
+	 * yaml key to the EntityOrigin that should be reported as `declaredIn`
+	 * for the resolved entity. Consumed by `processDeps`. Oxygen Phase 2.
+	 */
+	packMemberOrigin: Map<string, EntityOrigin>;
+	/**
+	 * Set during pack expansion. Maps the synthesized member's yaml key to
+	 * the consumer's yaml key for the pack that injected it. Used to set
+	 * `ResolvedEntity.viaPack` and to format collision messages. Oxygen Phase 2.
+	 */
+	packMemberViaPack: Map<string, string>;
+	/**
+	 * Names of packs that were referenced (and expanded) during resolution.
+	 * Used by the unreferenced-pack warning. Oxygen Phase 2.
+	 */
+	packsReferencedByName: Set<string>;
 }
 
 interface OriginHiddenHint {
@@ -128,12 +154,17 @@ export async function resolveAll(
 		errors: [],
 		warnings: [],
 		originHiddenHints: new Map(),
+		packMemberOrigin: new Map(),
+		packMemberViaPack: new Map(),
+		packsReferencedByName: new Set(),
 	};
 
-	await resolveRepoVersions(expanded, state);
+	await resolveRepoVersions(state.expanded, state);
+	await expandPackReferences(state);
+	await resolveRepoVersions(state.expanded, state); // Phase 1.5b: idempotent second pass for repos introduced by pack members
 	await checkStaleTagManifests(state);
-	await processDeps(expanded.dependencies, "prod", state);
-	await processDeps(expanded["dev-dependencies"], "dev", state);
+	await processDeps(state.expanded.dependencies, "prod", state);
+	await processDeps(state.expanded["dev-dependencies"], "dev", state);
 
 	const installOrder = topologicalSort(state.entities, state.resolutionContext, state.errors);
 
@@ -162,15 +193,25 @@ async function resolveRepoVersions(expanded: Manifest, state: ResolutionState): 
 	for (const deps of [expanded.dependencies, expanded["dev-dependencies"]]) {
 		if (!deps) continue;
 		for (const [key, dep] of Object.entries(deps)) {
+			let repo: string | undefined;
+			let version: string | undefined;
 			if (isRemoteDependency(dep)) {
-				const existing = repoConstraints.get(dep.repo) ?? [];
-				existing.push({
-					name: key,
-					constraint: dep.version ?? "*",
-					source: consumerSource,
-				});
-				repoConstraints.set(dep.repo, existing);
+				repo = dep.repo;
+				version = dep.version;
+			} else if (isPackDependency(dep) && dep.repo) {
+				// A remote pack reference needs its containing repo resolved up
+				// front so Phase 1.5 can read the pack's manifest at the pinned ref.
+				repo = dep.repo;
+				version = dep.version;
 			}
+			if (!repo) continue;
+			const existing = repoConstraints.get(repo) ?? [];
+			existing.push({
+				name: key,
+				constraint: version ?? "*",
+				source: consumerSource,
+			});
+			repoConstraints.set(repo, existing);
 		}
 	}
 
@@ -184,6 +225,10 @@ async function resolveOneRepo(
 	constraints: Constraint[],
 	state: ResolutionState,
 ): Promise<void> {
+	// Idempotent: Phase 1.5b calls resolveRepoVersions a second time to pick
+	// up repos introduced by pack-member injection. Skip anything Phase 1 already
+	// resolved so the second pass is free for unchanged repos.
+	if (state.repoResolutions.has(repo)) return;
 	try {
 		const cachePath = await ensureCached(repo);
 		const tags = await listTags(cachePath);
@@ -233,6 +278,185 @@ async function addTaglessRepoResolution(
 	state.repoResolutions.set(repo, { cachePath, commit });
 }
 
+// =============================================================================
+// Pack expansion (Phase 1.5) — Oxygen Phase 2
+// =============================================================================
+
+/**
+ * Expand every `PackDependency` in `state.expanded.dependencies` / `["dev-dependencies"]`
+ * into N synthesized direct-dep entries (one per pack member). After this runs,
+ * the deps map contains only entity deps, and `processDeps` resolves them
+ * normally with the right `declaredIn` attribution and `viaPack` provenance.
+ *
+ * Packs are not entities — no `state.entities` row, no lockfile entry, no
+ * install work. See docs/specs/packs.md.
+ */
+async function expandPackReferences(state: ResolutionState): Promise<void> {
+	for (const group of ["dependencies", "dev-dependencies"] as const) {
+		const deps = state.expanded[group];
+		if (!deps) continue;
+		// Snapshot the entries so deletion during iteration is safe.
+		for (const [key, dep] of Object.entries({ ...deps })) {
+			if (!isPackDependency(dep)) continue;
+			state.packsReferencedByName.add(dep.pack);
+			const fetched = await fetchPackMembers(group, key, dep, state);
+			delete deps[key];
+			state.manifestKeys.delete(key);
+			if (!fetched) continue;
+			injectPackMembers(group, key, dep, fetched.members, fetched.origin, state);
+		}
+	}
+	warnUnreferencedPacks(state);
+}
+
+interface FetchedMembers {
+	members: PackMember[];
+	origin: EntityOrigin;
+}
+
+async function fetchPackMembers(
+	group: "dependencies" | "dev-dependencies",
+	key: string,
+	dep: PackDependency,
+	state: ResolutionState,
+): Promise<FetchedMembers | null> {
+	// Local pack: no `repo`/`source` after expandSources. Look up in own manifest.
+	if (!dep.repo) {
+		const members = state.expanded.packs?.[dep.pack];
+		if (!members || members.length === 0) {
+			state.errors.push(
+				`Error: Pack "${dep.pack}" is referenced under ${group}.${key} but not defined in this manifest's \`packs:\` section.\n\n  Fix: define it under \`packs:\`, or set \`repo:\` to point at a manifest that defines it.`,
+			);
+			return null;
+		}
+		return {
+			members,
+			origin: { kind: "consumer", manifestPath: MANIFEST_NEW },
+		};
+	}
+
+	// Remote pack: read packs: from the containing repo's manifest at the resolved ref.
+	const resolution = state.repoResolutions.get(dep.repo);
+	if (!resolution) {
+		// Phase 1 already failed to resolve this repo and pushed an error.
+		return null;
+	}
+	const ref = resolution.tag ?? resolution.commit;
+
+	let manifestContent: string;
+	try {
+		manifestContent = await readOriginManifestAtRef(resolution.cachePath, ref);
+	} catch {
+		state.errors.push(
+			`Error: Pack "${dep.pack}" not found in ${dep.repo}@${shortRef(ref)} — no ${MANIFEST_NEW} at that ref.`,
+		);
+		return null;
+	}
+
+	let originManifest: Manifest;
+	try {
+		originManifest = parseManifest(manifestContent);
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		state.errors.push(
+			`Error: Pack "${dep.pack}": failed to parse ${MANIFEST_NEW} in ${dep.repo}@${shortRef(ref)}: ${msg}`,
+		);
+		return null;
+	}
+
+	const expandedOrigin = expandSources(originManifest);
+	const members = expandedOrigin.packs?.[dep.pack];
+	if (!members || members.length === 0) {
+		state.errors.push(
+			`Error: Pack "${dep.pack}" not found in ${dep.repo}@${shortRef(ref)} (expected under \`packs:\` in ${MANIFEST_NEW}).`,
+		);
+		return null;
+	}
+
+	return {
+		members,
+		origin: { kind: "transitive", originRepo: dep.repo, ref },
+	};
+}
+
+function injectPackMembers(
+	group: "dependencies" | "dev-dependencies",
+	packKey: string,
+	packRef: PackDependency,
+	members: PackMember[],
+	origin: EntityOrigin,
+	state: ResolutionState,
+): void {
+	const deps = state.expanded[group];
+	if (!deps) return;
+	const isRemotePack = origin.kind === "transitive";
+
+	for (const member of members) {
+		// Remote pack containing an absolute local: → the path lives on the pack
+		// author's filesystem and is meaningless on the consumer side. Mirrors
+		// the existing same-rule check in `tryResolveFromOriginManifest`.
+		if (isRemotePack && "local" in member && !isRelativeLocalPath(member.local)) {
+			state.errors.push(
+				`Error: Pack "${packRef.pack}" (via ${packKey}, ${formatOrigin(origin)}) contains a member with an absolute local path ("${member.local}"), which is only valid in local packs.`,
+			);
+			continue;
+		}
+
+		const memberKey = deriveMemberKey(member);
+		if (!memberKey) {
+			state.errors.push(
+				`Error: Pack "${packRef.pack}" member has no derivable name (need \`name:\`, \`path:\`, or \`local:\`).`,
+			);
+			continue;
+		}
+
+		const collidingDep = deps[memberKey];
+		if (collidingDep) {
+			const existing = describeCollidingDep(memberKey, collidingDep, state);
+			state.errors.push(
+				`Error: Member "${memberKey}" of pack "${packRef.pack}" (via ${packKey}, ${formatOrigin(origin)}) collides with ${existing}.\n\n  Fix: remove the duplicate, or rename one yaml key. To override a pack member, change the pack composition rather than redeclaring the member.`,
+			);
+			continue;
+		}
+
+		deps[memberKey] = member as Dependency;
+		state.manifestKeys.add(memberKey);
+		state.packMemberOrigin.set(memberKey, origin);
+		state.packMemberViaPack.set(memberKey, packKey);
+	}
+}
+
+function deriveMemberKey(m: PackMember): string {
+	if ("name" in m && m.name) return m.name;
+	if ("path" in m && m.path) return basename(m.path);
+	if ("local" in m && m.local) return basename(m.local);
+	return "";
+}
+
+function describeCollidingDep(key: string, dep: Dependency, state: ResolutionState): string {
+	const viaPack = state.packMemberViaPack.get(key);
+	if (viaPack) return `another pack member injected by pack "${viaPack}"`;
+	if (isLocalDependency(dep)) return `consumer-declared dep "${key}" (local: ${dep.local})`;
+	if (isRemoteDependency(dep)) return `consumer-declared dep "${key}" (from ${dep.repo})`;
+	return `consumer-declared dep "${key}"`;
+}
+
+function warnUnreferencedPacks(state: ResolutionState): void {
+	const packs = state.expanded.packs;
+	if (!packs) return;
+	for (const name of Object.keys(packs)) {
+		if (!state.packsReferencedByName.has(name)) {
+			state.warnings.push(
+				`Warning: pack "${name}" defined in \`packs:\` is never referenced. Reference it via dependencies, or remove the definition.`,
+			);
+		}
+	}
+}
+
+function shortRef(ref: string): string {
+	return ref.length > 12 ? ref.slice(0, 7) : ref;
+}
+
 async function processDeps(
 	deps: Record<string, Dependency> | undefined,
 	defaultGroup: DependencyGroup,
@@ -244,7 +468,11 @@ async function processDeps(
 		// Consumer-declared direct deps are the only ones that can trigger R10
 		// path-warnings (synthesized deps inherit their path from origin and
 		// would always look "redundant").
-		await resolveEntity(key, entityName, dep, defaultGroup, state, true);
+		const declaredIn =
+			state.packMemberOrigin.get(key) ??
+			({ kind: "consumer", manifestPath: MANIFEST_NEW } as EntityOrigin);
+		const viaPack = state.packMemberViaPack.get(key);
+		await resolveEntity(key, entityName, dep, defaultGroup, state, true, declaredIn, viaPack);
 	}
 }
 
@@ -256,9 +484,10 @@ async function resolveEntity(
 	state: ResolutionState,
 	fromConsumerManifest = false,
 	declaredIn: EntityOrigin = { kind: "consumer", manifestPath: MANIFEST_NEW },
+	viaPack?: string,
 ): Promise<void> {
 	if (isLocalDependency(dep)) {
-		await resolveLocalEntity(yamlKey, entityName, dep, group, state, declaredIn);
+		await resolveLocalEntity(yamlKey, entityName, dep, group, state, declaredIn, viaPack);
 	} else if (isRemoteDependency(dep)) {
 		await resolveRemoteEntity(
 			yamlKey,
@@ -268,8 +497,10 @@ async function resolveEntity(
 			state,
 			fromConsumerManifest,
 			declaredIn,
+			viaPack,
 		);
 	}
+	// Pack refs never reach here — they're stripped from deps by Phase 1.5.
 }
 
 function formatOrigin(origin: EntityOrigin | undefined): string {
@@ -373,6 +604,7 @@ async function resolveLocalEntity(
 	group: DependencyGroup,
 	state: ResolutionState,
 	declaredIn: EntityOrigin = { kind: "consumer", manifestPath: MANIFEST_NEW },
+	viaPack?: string,
 ): Promise<void> {
 	const expandedLocal = expandTilde(dep.local);
 	const localPath = expandedLocal.startsWith("/")
@@ -398,6 +630,7 @@ async function resolveLocalEntity(
 	};
 	if (dep.publish !== undefined) entity.publish = dep.publish;
 	if (dep.exclude !== undefined) entity.exclude = dep.exclude;
+	if (viaPack) entity.viaPack = viaPack;
 
 	registerEntity(entity, state);
 
@@ -421,6 +654,7 @@ async function resolveRemoteEntity(
 	state: ResolutionState,
 	fromConsumerManifest = false,
 	declaredIn: EntityOrigin = { kind: "consumer", manifestPath: MANIFEST_NEW },
+	viaPack?: string,
 ): Promise<void> {
 	const resolution = state.repoResolutions.get(dep.repo);
 	if (!resolution) return;
@@ -504,6 +738,7 @@ async function resolveRemoteEntity(
 		declaredIn,
 		cachePath: resolution.cachePath,
 	};
+	if (viaPack) entity.viaPack = viaPack;
 
 	registerEntity(entity, state);
 
