@@ -95,25 +95,26 @@ Add the new resolver phase. Local and remote packs both work; pack-member collis
 - [x] No installer/lockfile changes touched.
 - [x] `bun test` green: 1540/1540 (was 1526; +14 new). `tsc --noEmit` clean. `bunx biome check` clean on changed files.
 
-## Phase 3: Add / Remove / Registry
+## Phase 3: Add / Remove / Registry ✅ COMPLETE
 <!-- Spec: packs.md R10 -->
 
-User-facing command surface. `skilltree add` learns three new code paths (local short-circuit, `--pack` flag, registry kind=pack). `remove` learns to skip entity-resolution for pack refs.
+User-facing command surface. `skilltree add` learns three new code paths (local short-circuit, `--pack` flag, registry kind=pack). `remove` works for pack refs without modification (the generic manifest-mutation path handles them; lockfile is never involved for pack refs).
 
 ### Tasks
-- [ ] `src/commands/add.ts`: local pack short-circuit — `add X` with no source flags and `packs.X` present locally → write `{ pack: X }`.
-- [ ] `src/commands/add.ts`: `--pack` flag (boolean and `--pack <name>` for rename). Combine with `--repo`/`--source`/`--version`.
-- [ ] `src/commands/add.ts`: `validateAddFlags` rejects `--pack` + `--path`, `--pack` + `--type`, `--pack` + `--local` with clear messages.
-- [ ] `src/commands/add.ts`: `checkOverwrite` special-cases pack-ref overwrites — prints `overwriting pack reference "X"` instead of diffing sources.
-- [ ] `src/core/registry-scanner.ts`: extend `IndexEntry` with optional `kind: "entity" | "pack"` (default "entity"); index `packs:` entries from each repo's manifest with `kind: "pack"`.
-- [ ] `src/commands/add.ts` (`resolveFromRegistries`): when matched entry has `kind: "pack"`, build a `PackDependency` instead of a `RemoteDependency`.
-- [ ] `src/commands/remove.ts`: add `isPackDependency` guard so removal of a pack ref doesn't try to find a corresponding entity.
-- [ ] Tests: `tests/commands/add-pack.test.ts` — covers `add` items from spec testing checklist.
-- [ ] Tests: extend `tests/core/lockfile.test.ts` with one assertion: lockfile from a pack-ref manifest contains only the expanded members, not the pack itself.
+- [x] `src/commands/add.ts`: local pack short-circuit — `add X` with no source flags and `packs.X` present locally → writes `{ pack: X }`.
+- [x] `src/commands/add.ts`: `--pack` flag (boolean and `--pack <name>` for rename). Combines with `--repo`/`--source`/`--version`.
+- [x] `src/commands/add.ts`: `validateAddFlags` rejects `--pack` + `--path`, `--pack` + `--type`, `--pack` + `--local` with clear messages.
+- [x] `src/commands/add.ts`: `checkOverwrite` special-cases pack-ref overwrites — prints `overwriting pack reference "X"` instead of diffing sources.
+- [x] `src/types.ts`: extended `IndexEntry` with optional `kind: "entity" | "pack"`.
+- [x] `src/core/registry-scanner.ts`: `manifestEntriesFromManifest` emits one `kind: "pack"` entry per `packs:` entry; `parseIndex` preserves `kind` for backward compat.
+- [x] `src/commands/add.ts` (`resolveFromRegistries`): when matched entry has `kind: "pack"`, builds a `PackDependency` instead of a `RemoteDependency`.
+- [x] `src/commands/remove.ts`: no changes needed (verified by `tests/commands/remove-pack.test.ts`).
+- [x] `src/cli.ts`: `--pack [name]` option added; `src/commands/completion.ts` updated.
+- [x] Tests: `tests/commands/add-pack.test.ts` (10), `tests/commands/add-registry-pack.test.ts` (1), `tests/commands/remove-pack.test.ts` (2), `tests/core/registry-scanner-packs.test.ts` (3). 16 new cases.
 
 ### Per-phase DoD additions
-- [ ] Help snapshot regenerated; completion table updated.
-- [ ] `bun test` green; tsc clean; biome clean.
+- [x] Help snapshot regenerated; completion table updated.
+- [x] `bun test` green: 1556/1556 (was 1540; +16 new). `tsc --noEmit` clean. `bunx biome check` clean on changed files.
 
 ## Phase 4: Docs + E2E + Polish
 <!-- Spec: packs.md (all R) -->
@@ -146,5 +147,5 @@ Lock in the surface and provide a real end-to-end test against a fixture remote 
 
 Phase 1: ✅ COMPLETE (05/19/2026)
 Phase 2: ✅ COMPLETE (05/19/2026)
-Phase 3: ⏳ PENDING
+Phase 3: ✅ COMPLETE (05/19/2026)
 Phase 4: ⏳ PENDING

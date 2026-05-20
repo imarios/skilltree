@@ -155,6 +155,14 @@ export interface IndexEntry {
 	path: string;
 	description?: string;
 	tags?: string[];
+	/**
+	 * Distinguishes a pack-discoverable index entry from a normal entity entry.
+	 * - "entity" (default, omitted in YAML): a skill/agent/command.
+	 * - "pack": maps to a `packs:` definition in the registry repo's manifest.
+	 * `add` reads this to decide between building a `RemoteDependency` and a
+	 * `PackDependency`. Oxygen Phase 3.
+	 */
+	kind?: "entity" | "pack";
 }
 
 /** The cached index.json per registry */

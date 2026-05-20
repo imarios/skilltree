@@ -84,6 +84,7 @@ const COMMANDS: CmdDef[] = [
 			},
 			{ long: "--global", short: "-g", description: "Add to global dependencies" },
 			{ long: "--no-verify", description: "Skip git ls-remote check on --repo URLs" },
+			{ long: "--pack", description: "Add as a pack reference (optional name to rename)" },
 		],
 	},
 	{

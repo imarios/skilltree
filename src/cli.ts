@@ -101,6 +101,7 @@ export function buildProgram(): Command {
 		.option("-g, --global", "Add to global dependencies")
 		.option("-y, --yes", "Skip the glob-mode confirmation prompt")
 		.option("--no-verify", "Skip git ls-remote reachability check on --repo URLs")
+		.option("--pack [name]", "Add as a pack reference (optional name to rename)")
 		.action(async (name: string, opts) => {
 			// Commander turns `--no-verify` into `opts.verify === false`. Translate
 			// to the `noVerify` flag the command expects so the option surface

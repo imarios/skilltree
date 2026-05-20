@@ -92,11 +92,9 @@ async function manifestEntriesFromManifest(
 	repoDir: string,
 	manifest: Manifest,
 ): Promise<IndexEntry[]> {
-	const deps = manifest.dependencies;
-	if (!deps) return [];
-
 	const entries: IndexEntry[] = [];
-	for (const [key, dep] of Object.entries(deps)) {
+
+	for (const [key, dep] of Object.entries(manifest.dependencies ?? {})) {
 		if (!isLocalDependency(dep)) continue;
 		if (!isPubliclyVisible(dep, "dependencies")) continue;
 
@@ -106,6 +104,20 @@ async function manifestEntriesFromManifest(
 		const entry = await buildManifestEntry(repoDir, key, dep, normalized);
 		if (entry) entries.push(entry);
 	}
+
+	// Packs (Oxygen Phase 3): every `packs:` entry becomes one searchable index
+	// row with kind="pack". `type` is set to "skill" as a placeholder — the
+	// schema requires it and consumers (e.g. `add`) check `kind` to disambiguate.
+	// `path` is a stable sentinel since packs have no filesystem path.
+	for (const packName of Object.keys(manifest.packs ?? {})) {
+		entries.push({
+			name: packName,
+			type: "skill",
+			path: `pack:${packName}`,
+			kind: "pack",
+		});
+	}
+
 	return entries;
 }
 
@@ -212,6 +224,7 @@ export function parseIndex(yamlContent: string): IndexEntry[] {
 			if (typeof e.description === "string") entry.description = e.description;
 			if (Array.isArray(e.tags))
 				entry.tags = e.tags.filter((t): t is string => typeof t === "string");
+			if (e.kind === "pack") entry.kind = "pack";
 			return entry;
 		});
 }
