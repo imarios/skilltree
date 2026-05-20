@@ -99,8 +99,19 @@ export function getDeclaredDeps(fm: SkillFrontmatter): string[] {
  *   note    — printed dim, never gates `--strict`. Examples: unknown
  *             frontmatter key (so authors learn the supported shape).
  */
+/**
+ * Severity levels for frontmatter lint findings (#124):
+ *   error   — file is structurally broken or has an invalid schema. Fails
+ *             `check` by default (no `--strict` needed). Examples: malformed
+ *             YAML in frontmatter, frontmatter that isn't a mapping, unknown
+ *             frontmatter keys (`type: notathing`, `publish: "no"`).
+ *   warning — soft issue that doesn't break the file. `--strict` promotes
+ *             to exit 1. Examples: missing required field, missing
+ *             frontmatter altogether, empty frontmatter.
+ *   note    — informational; never gates.
+ */
 export interface FrontmatterIssue {
-	kind: "warning" | "note";
+	kind: "error" | "warning" | "note";
 	field?: string;
 	message: string;
 }
@@ -169,8 +180,10 @@ function extractFrontmatterYaml(content: string): { yaml: string } | { issue: Fr
 	}
 	const endIndex = trimmed.indexOf("---", 3);
 	if (endIndex === -1) {
+		// Structural break — the file's frontmatter is unparseable. Hard error
+		// regardless of --strict (#124).
 		return {
-			issue: { kind: "warning", message: "malformed frontmatter: missing closing ---" },
+			issue: { kind: "error", message: "malformed frontmatter: missing closing ---" },
 		};
 	}
 	const yaml = trimmed.slice(3, endIndex).trim();
@@ -184,13 +197,15 @@ function parseFrontmatterMapping(
 	try {
 		const raw = YAML.parse(yamlContent);
 		if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-			return { issue: { kind: "warning", message: "frontmatter must be a YAML mapping" } };
+			return { issue: { kind: "error", message: "frontmatter must be a YAML mapping" } };
 		}
 		return { mapping: raw as Record<string, unknown> };
 	} catch (e) {
 		const detail = e instanceof Error ? e.message : String(e);
 		return {
-			issue: { kind: "warning", message: `malformed YAML in frontmatter: ${detail}` },
+			// Unparseable YAML is a hard error — the file is broken, not a lint
+			// nit. Always exit 1, no --strict required (#124).
+			issue: { kind: "error", message: `malformed YAML in frontmatter: ${detail}` },
 		};
 	}
 }
@@ -279,18 +294,20 @@ function checkSkills(fm: Record<string, unknown>): FrontmatterIssue[] {
 }
 
 /**
- * Unknown keys — emitted as dim notes, never gate --strict. Helps authors
- * catch typos and learn the supported shape (e.g., `agents:` is a common
- * guess that isn't actually consumed).
+ * Unknown keys — hard error (#124). The `install` path rejects unknown shape
+ * fields like `type: notathing` or `publish: "no"`, and `check` must agree
+ * to be useful as a pre-commit lint. Before #124 these were dim notes; the
+ * "false ✔ No issues" output line then contradicted the per-file detail
+ * lines printed right above it.
  */
 function collectUnknownKeyNotes(fm: Record<string, unknown>): FrontmatterIssue[] {
-	const notes: FrontmatterIssue[] = [];
+	const errors: FrontmatterIssue[] = [];
 	for (const key of Object.keys(fm)) {
 		if (!KNOWN_FRONTMATTER_KEYS.has(key)) {
-			notes.push({ kind: "note", field: key, message: `unknown frontmatter key '${key}'` });
+			errors.push({ kind: "error", field: key, message: `unknown frontmatter key '${key}'` });
 		}
 	}
-	return notes;
+	return errors;
 }
 
 function describeType(value: unknown): string {

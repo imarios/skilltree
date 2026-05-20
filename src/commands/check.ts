@@ -1,12 +1,13 @@
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import { isSingleFileEntity } from "../core/entity-type.js";
+import { MANIFEST_NEW } from "../core/filenames.js";
 import { validateFrontmatter } from "../core/frontmatter.js";
 import type { ResolvedEntity } from "../core/graph.js";
 import { resolveAll } from "../core/graph.js";
-import { loadManifestOrThrow } from "../core/manifest.js";
+import { loadManifestOrThrow, validateManifest } from "../core/manifest.js";
 import { expandTilde } from "../core/paths.js";
-import { dim, pc, warn } from "../core/ui.js";
+import { dim, error, pc, warn } from "../core/ui.js";
 import type { CheckSummary, Dependency, EntityType, Manifest } from "../types.js";
 import { isLocalDependency } from "../types.js";
 
@@ -23,10 +24,15 @@ export interface CheckOptions {
  * Spec: docs/specs/doctor.md §D6, §D10. Nitrogen Phase 1.
  */
 export async function collectCheckIssues(manifest: Manifest, dir: string): Promise<CheckSummary> {
+	// Schema validation must run in check too — same diagnostics as install.
+	// Pre-#124 these only ran inside `validateManifestOrThrow` on the install
+	// path, leaving `check` to ✔ broken manifests that `install` rejects.
+	const errors = validateManifest(manifest).map((e) => `${MANIFEST_NEW}: ${e}`);
 	const result = await resolveAll(manifest, dir);
 	const lint = lintAsymmetricPublish(result.entities);
 	const frontmatter = await lintLocalFrontmatter(manifest, dir);
 	return {
+		errors: [...errors, ...frontmatter.errors],
 		lint,
 		frontmatterWarnings: frontmatter.warnings,
 		frontmatterNotes: frontmatter.notes,
@@ -47,6 +53,9 @@ export async function checkCommand(dir: string, opts: CheckOptions = {}): Promis
 	const manifest = await loadManifestOrThrow(dir);
 	const summary = await collectCheckIssues(manifest, dir);
 
+	for (const e of summary.errors) {
+		error(e);
+	}
 	for (const w of summary.lint) {
 		warn(w);
 	}
@@ -57,15 +66,25 @@ export async function checkCommand(dir: string, opts: CheckOptions = {}): Promis
 		console.log(dim(`  ${n}`));
 	}
 
-	const issueCount = summary.lint.length + summary.frontmatterWarnings.length;
-	if (issueCount === 0) {
+	const warnCount = summary.lint.length + summary.frontmatterWarnings.length;
+	const errCount = summary.errors.length;
+
+	if (errCount === 0 && warnCount === 0) {
 		console.log(pc.green("✔ No issues."));
 		return;
 	}
 
+	// Errors fail by default (#124). Warnings are --strict-gated.
+	if (errCount > 0) {
+		console.log(
+			pc.red(`\n${errCount} error${errCount === 1 ? "" : "s"} found. Fix before running install.`),
+		);
+		process.exit(1);
+	}
+
 	console.log(
 		pc.dim(
-			`\n${issueCount} issue${issueCount === 1 ? "" : "s"} found. ` +
+			`\n${warnCount} issue${warnCount === 1 ? "" : "s"} found. ` +
 				`Re-run with --strict to fail the command on warnings.`,
 		),
 	);
@@ -153,7 +172,8 @@ function findHiddenChains(
 export async function lintLocalFrontmatter(
 	manifest: Manifest,
 	projectDir: string,
-): Promise<{ warnings: string[]; notes: string[] }> {
+): Promise<{ errors: string[]; warnings: string[]; notes: string[] }> {
+	const errors: string[] = [];
 	const warnings: string[] = [];
 	const notes: string[] = [];
 
@@ -166,17 +186,18 @@ export async function lintLocalFrontmatter(
 		if (!deps) continue;
 		for (const [key, dep] of Object.entries(deps)) {
 			if (!isLocalDependency(dep)) continue;
-			await lintOneLocalEntry(key, dep, projectDir, warnings, notes);
+			await lintOneLocalEntry(key, dep, projectDir, errors, warnings, notes);
 		}
 	}
 
-	return { warnings, notes };
+	return { errors, warnings, notes };
 }
 
 async function lintOneLocalEntry(
 	manifestKey: string,
 	dep: { local: string; type?: EntityType; name?: string },
 	projectDir: string,
+	errors: string[],
 	warnings: string[],
 	notes: string[],
 ): Promise<void> {
@@ -205,7 +226,8 @@ async function lintOneLocalEntry(
 	const prefix = displayPath(resolved.path, projectDir);
 	for (const issue of issues) {
 		const line = `${prefix}: ${issue.message}`;
-		if (issue.kind === "note") notes.push(line);
+		if (issue.kind === "error") errors.push(line);
+		else if (issue.kind === "note") notes.push(line);
 		else warnings.push(line);
 	}
 }

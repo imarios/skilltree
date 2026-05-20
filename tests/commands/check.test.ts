@@ -29,23 +29,35 @@ async function makeProject(opts: {
 	return tempDir;
 }
 
-function captureOutput(): { logs: string[]; warns: string[]; restore: () => void } {
+function captureOutput(): {
+	logs: string[];
+	warns: string[];
+	errors: string[];
+	restore: () => void;
+} {
 	const logs: string[] = [];
 	const warns: string[] = [];
+	const errors: string[] = [];
 	const origLog = console.log;
 	const origWarn = console.warn;
+	const origError = console.error;
 	console.log = (msg: string) => {
 		logs.push(typeof msg === "string" ? msg : String(msg));
 	};
 	console.warn = (msg: string) => {
 		warns.push(typeof msg === "string" ? msg : String(msg));
 	};
+	console.error = (msg: string) => {
+		errors.push(typeof msg === "string" ? msg : String(msg));
+	};
 	return {
 		logs,
 		warns,
+		errors,
 		restore: () => {
 			console.log = origLog;
 			console.warn = origWarn;
+			console.error = origError;
 		},
 	};
 }
@@ -53,7 +65,12 @@ function captureOutput(): { logs: string[]; warns: string[]; restore: () => void
 async function runCheck(
 	dir: string,
 	opts: { strict?: boolean } = {},
-): Promise<{ logs: string[]; warns: string[]; exitCode: number | undefined }> {
+): Promise<{
+	logs: string[];
+	warns: string[];
+	errors: string[];
+	exitCode: number | undefined;
+}> {
 	const cap = captureOutput();
 	const origExit = process.exit;
 	let exitCode: number | undefined;
@@ -69,7 +86,7 @@ async function runCheck(
 		process.exit = origExit;
 		cap.restore();
 	}
-	return { logs: cap.logs, warns: cap.warns, exitCode };
+	return { logs: cap.logs, warns: cap.warns, errors: cap.errors, exitCode };
 }
 
 const skillManifest = (extra = "") =>
@@ -182,30 +199,33 @@ describe("validateFrontmatter", () => {
 		expect(issues.some((i) => i.kind === "warning" && i.message.includes("'skills'"))).toBe(true);
 	});
 
-	test("unknown key 'agents' is a note, not a warning", () => {
+	test("unknown key 'agents' is a hard error (#124)", () => {
+		// Pre-#124 this was a `note`. The summary "✔ No issues." then
+		// contradicted the per-file unknown-key line, and broken frontmatter
+		// passed `check` while failing at `install`.
 		const content = `---\nname: foo\ndescription: x\nagents: []\n---\n`;
 		const issues = validateFrontmatter(content, { entityName: "foo" });
 		const agentsIssues = issues.filter((i) => i.message.includes("agents"));
 		expect(agentsIssues.length).toBe(1);
-		expect(agentsIssues[0]?.kind).toBe("note");
+		expect(agentsIssues[0]?.kind).toBe("error");
 	});
 
-	test("malformed YAML in frontmatter is a warning", () => {
+	test("malformed YAML in frontmatter is a hard error (#124)", () => {
 		const content = `---\nname: foo\n  : invalid\n---\n`;
 		const issues = validateFrontmatter(content, { entityName: "foo" });
-		expect(issues.some((i) => i.kind === "warning")).toBe(true);
+		expect(issues.some((i) => i.kind === "error")).toBe(true);
 	});
 
-	test("frontmatter that is not a mapping is a warning", () => {
+	test("frontmatter that is not a mapping is a hard error (#124)", () => {
 		const content = `---\n- just\n- a list\n---\n`;
 		const issues = validateFrontmatter(content, { entityName: "foo" });
-		expect(issues.some((i) => i.kind === "warning")).toBe(true);
+		expect(issues.some((i) => i.kind === "error")).toBe(true);
 	});
 
-	test("missing closing --- is a warning", () => {
+	test("missing closing --- is a hard error (#124)", () => {
 		const content = `---\nname: foo\ndescription: x\n`;
 		const issues = validateFrontmatter(content, { entityName: "foo" });
-		expect(issues.some((i) => i.kind === "warning")).toBe(true);
+		expect(issues.some((i) => i.kind === "error")).toBe(true);
 	});
 });
 
@@ -263,16 +283,18 @@ describe("checkCommand frontmatter lint", () => {
 		expect(exitCode).toBeUndefined();
 	});
 
-	test("'agents: []' is a note and never gates --strict", async () => {
+	test("unknown frontmatter key fails by default (#124)", async () => {
+		// Pre-#124: unknown keys were dim notes that never gated. The summary
+		// "✔ No issues." contradicted the per-file detail line. Post-#124 the
+		// same input exits 1 with no `--strict` needed — same shape as install.
 		const dir = await makeProject({
 			manifest: skillManifest(),
 			files: [skillFm("name: foo\ndescription: x\nagents: []")],
 		});
 
-		const strict = await runCheck(dir, { strict: true });
-		// The note appears in output (not via warn()) — strict must not exit.
-		expect(strict.exitCode).toBeUndefined();
-		const allOut = [...strict.logs, ...strict.warns].join("\n");
+		const plain = await runCheck(dir);
+		expect(plain.exitCode).toBe(1);
+		const allOut = [...plain.logs, ...plain.warns, ...plain.errors].join("\n");
 		expect(allOut).toMatch(/agents/);
 	});
 

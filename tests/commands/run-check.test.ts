@@ -104,12 +104,13 @@ describe("collectCheckIssues", () => {
 		expect(summary.lint).toEqual([]);
 	});
 
-	test("notes and warnings are surfaced on separate channels", async () => {
-		// `agents:` is an unknown key — produces a *note* (kind: "note"),
-		// not a warning. The split lets doctor count only the warning side.
+	test("unknown frontmatter keys land on the errors channel (#124)", async () => {
+		// Pre-#124: `agents:` produced a `note` that never gated. Post-#124
+		// unknown keys are hard errors, surfaced separately from warnings and
+		// notes so the renderer can fail the command by default.
 		const dir = await makeProject({
 			manifest: [
-				"name: note-only",
+				"name: errors-only",
 				"dependencies:",
 				"  foo:",
 				"    local: ./skills/foo",
@@ -125,8 +126,9 @@ describe("collectCheckIssues", () => {
 		});
 		const manifest = await loadManifestOrThrow(dir);
 		const summary = await collectCheckIssues(manifest, dir);
+		expect(summary.errors.length).toBeGreaterThan(0);
+		expect(summary.errors.join("\n")).toContain("agents");
 		expect(summary.frontmatterWarnings).toEqual([]);
-		expect(summary.frontmatterNotes.length).toBeGreaterThan(0);
-		expect(summary.frontmatterNotes.join("\n")).toContain("agents");
+		expect(summary.frontmatterNotes).toEqual([]);
 	});
 });

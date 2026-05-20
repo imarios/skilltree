@@ -381,3 +381,42 @@ dependencies:
 		expect(existsSync(join(dir, ".claude/skills/foo"))).toBe(false);
 	});
 });
+
+describe("vendor target-switch cleanup (issue #108)", () => {
+	test("switching --target from claude to codex empties .claude and gitignores it again", async () => {
+		const dir = await setupMultiTargetProject();
+
+		await vendorCommand(dir, { target: "claude" });
+		expect(existsSync(join(dir, ".claude/skills/foo"))).toBe(true);
+
+		await vendorCommand(dir, { target: "codex" });
+
+		// New target populated.
+		expect(existsSync(join(dir, ".agents/skills/foo"))).toBe(true);
+		// Old target's tree no longer on disk.
+		expect(existsSync(join(dir, ".claude/skills/foo"))).toBe(false);
+		// Old target's gitignore entries restored.
+		const gitignore = await readFile(join(dir, ".gitignore"), "utf-8");
+		expect(gitignore).toContain(".claude/skills/");
+		// New target's gitignore entries removed (vendored = committable).
+		expect(gitignore).not.toMatch(/^\.agents\/skills\/$/m);
+		// vendored_target now reflects the new target.
+		const yml = await readFile(join(dir, "skilltree.yml"), "utf-8");
+		expect(yml).toContain("vendored_target: codex");
+	});
+
+	test("re-running vendor against the same --target is a no-op for cleanup", async () => {
+		// Cleanup must only fire on an actual target switch. Re-vendoring the
+		// same target is the normal "refresh sources" path and should not
+		// delete + re-add anything.
+		const dir = await setupMultiTargetProject();
+		await vendorCommand(dir, { target: "claude" });
+		expect(existsSync(join(dir, ".claude/skills/foo"))).toBe(true);
+
+		// Second run with the same target: still vendored, no stale gitignore add.
+		await vendorCommand(dir, { target: "claude" });
+		expect(existsSync(join(dir, ".claude/skills/foo"))).toBe(true);
+		const gitignore = await readFile(join(dir, ".gitignore"), "utf-8");
+		expect(gitignore).not.toMatch(/^\.claude\/skills\/$/m);
+	});
+});

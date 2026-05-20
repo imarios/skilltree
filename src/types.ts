@@ -212,6 +212,10 @@ export interface CheckResult {
  * gate.
  */
 export interface CheckSummary {
+	/** Hard errors — fail `check` by default, no `--strict` needed (#124).
+	 * Includes manifest schema errors (PS27/PS28), malformed frontmatter
+	 * YAML, and unknown frontmatter keys. */
+	errors: string[];
 	lint: string[];
 	frontmatterWarnings: string[];
 	frontmatterNotes: string[];
