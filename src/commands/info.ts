@@ -7,7 +7,12 @@ import { getRegistryRepoDir, loadFreshRegistryIndex } from "../core/registry-cac
 import { listRegistries } from "../core/registry-config.js";
 import { dim, label, pc } from "../core/ui.js";
 import type { Dependency, IndexEntry, LockfileEntry, Manifest } from "../types.js";
-import { isLocalDependency, isRemoteDependency, isSourceDependency } from "../types.js";
+import {
+	isLocalDependency,
+	isPackDependency,
+	isRemoteDependency,
+	isSourceDependency,
+} from "../types.js";
 
 interface LockfileMatch {
 	layer: "lockfile";
@@ -136,12 +141,16 @@ async function findInManifest(name: string, dir: string): Promise<ManifestMatch 
 
 	const prod = expanded.dependencies ?? {};
 	for (const [key, dep] of Object.entries(prod)) {
+		// Pack refs are not entities — `info <name>` of a pack is a separate
+		// concern (deferred per docs/specs/packs.md "Future Work").
+		if (isPackDependency(dep)) continue;
 		if ((dep.name ?? key) === name) {
 			return { layer: "manifest", name, dep, group: "prod" };
 		}
 	}
 	const dev = expanded["dev-dependencies"] ?? {};
 	for (const [key, dep] of Object.entries(dev)) {
+		if (isPackDependency(dep)) continue;
 		if ((dep.name ?? key) === name) {
 			return { layer: "manifest", name, dep, group: "dev" };
 		}
@@ -322,7 +331,7 @@ function printManifestSection(m: ManifestMatch): void {
 		console.log(`  ${label("Source:")}       local`);
 		console.log(`  ${label("Path:")}         ${d.local}`);
 	}
-	if (d.type) console.log(`  ${label("Type:")}         ${d.type}`);
+	if (!isPackDependency(d) && d.type) console.log(`  ${label("Type:")}         ${d.type}`);
 }
 
 async function printRegistrySection(

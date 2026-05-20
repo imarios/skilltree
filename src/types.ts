@@ -42,7 +42,34 @@ export interface LocalDependency {
 	_sourceDir?: string;
 }
 
-export type Dependency = RemoteDependency | SourceDependency | LocalDependency;
+/**
+ * Reference to a named pack — a group of dependencies defined in some
+ * `skilltree.yml`'s `packs:` section. The resolver expands a `PackDependency`
+ * into N synthesized direct deps and then proceeds with normal resolution.
+ * A pack is never an entity itself: no path, no type, no install, no lockfile
+ * entry. See `docs/specs/packs.md`.
+ */
+export interface PackDependency {
+	pack: string;
+	/** Remote pack — repo containing the `packs:` section. */
+	repo?: string;
+	/** Remote pack via source alias (expanded to `repo` by `expandSources`). */
+	source?: string;
+	/** Semver constraint on the containing repo's git tag. Requires repo/source. */
+	version?: string;
+}
+
+export type Dependency = RemoteDependency | SourceDependency | LocalDependency | PackDependency;
+
+/**
+ * Members of a `packs:` entry. In v1 a member is a normal entity dependency;
+ * the structural union permits a future `PackDependency` for nested packs but
+ * the parser rejects that shape today (see `parsePackMember`).
+ */
+export type PackMember = RemoteDependency | SourceDependency | LocalDependency;
+
+/** Top-level `packs:` mapping: name → non-empty member list. */
+export type PacksSection = Record<string, PackMember[]>;
 
 /**
  * Configuration for `skilltree scan`. Authoring-only — never consulted in the
@@ -78,6 +105,7 @@ export interface Manifest {
 	sources?: Record<string, string>;
 	dependencies?: Record<string, Dependency>;
 	"dev-dependencies"?: Record<string, Dependency>;
+	packs?: PacksSection; // Named groups of dependencies (Oxygen). See docs/specs/packs.md.
 	scan?: ScanConfig; // Authoring-aid config; never used at install time. Issue #52.
 }
 
@@ -183,14 +211,23 @@ export interface CheckSummary {
 
 // --- Type guards ---
 
+/**
+ * A `PackDependency` may carry `repo` or `source`, so the entity-dep guards
+ * must explicitly exclude it. Without this, a pack reference would be treated
+ * as a remote/source entity dep and processed by the normal resolution path.
+ */
 export function isRemoteDependency(dep: Dependency): dep is RemoteDependency {
-	return "repo" in dep;
+	return "repo" in dep && !("pack" in dep);
 }
 
 export function isSourceDependency(dep: Dependency): dep is SourceDependency {
-	return "source" in dep;
+	return "source" in dep && !("pack" in dep);
 }
 
 export function isLocalDependency(dep: Dependency): dep is LocalDependency {
 	return "local" in dep;
+}
+
+export function isPackDependency(dep: Dependency): dep is PackDependency {
+	return "pack" in dep;
 }

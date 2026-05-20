@@ -1,7 +1,7 @@
 import { basename, dirname } from "node:path";
 import simpleGit from "simple-git";
 import YAML from "yaml";
-import type { Dependency, EntityType, IndexEntry, Manifest } from "../types.js";
+import type { EntityType, IndexEntry, LocalDependency, Manifest } from "../types.js";
 import { isLocalDependency } from "../types.js";
 import { entityNameFromPath, mdFileType } from "./entity-type.js";
 import { INDEX_NEW, MANIFEST_NEW, MANIFEST_NEW_ALT } from "./filenames.js";
@@ -157,7 +157,7 @@ function normalizeLocalPath(local: string): string | null {
 async function buildManifestEntry(
 	repoDir: string,
 	key: string,
-	dep: Dependency & { local: string },
+	dep: LocalDependency,
 	normalizedPath: string,
 ): Promise<IndexEntry | null> {
 	const type = inferEntityType(dep, normalizedPath);

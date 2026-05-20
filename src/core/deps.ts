@@ -31,6 +31,13 @@ export function canonicalSource(
 ): string {
 	if (!dep) return "local";
 
+	// Pack refs are a distinct namespace from entity deps even when they
+	// share `repo`/`source` — handle them first so a pack and an entity in
+	// the same repo never collide on this key.
+	if ("pack" in dep && typeof dep.pack === "string") {
+		return canonicalPackSource(dep, sources);
+	}
+
 	if ("repo" in dep && dep.repo) return dep.repo;
 
 	if ("source" in dep && dep.source) {
@@ -53,4 +60,18 @@ export function canonicalSource(
 	}
 
 	return "local";
+}
+
+function canonicalPackSource(
+	dep: { pack: string; repo?: string; source?: string },
+	sources?: Record<string, string>,
+): string {
+	const packName = dep.pack;
+	if (dep.repo) return `pack:${dep.repo}:${packName}`;
+	if (dep.source) {
+		const resolved = sources?.[dep.source];
+		if (!resolved) return `pack:unresolved source alias: ${dep.source}:${packName}`;
+		return `pack:${resolved}:${packName}`;
+	}
+	return `pack:local:${packName}`;
 }
