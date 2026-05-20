@@ -26,7 +26,7 @@ import {
 import { expandSources, parseManifest } from "./manifest.js";
 import { canonicalPath, expandTilde, stripDotSlash } from "./paths.js";
 import type { Constraint, ConstraintSource } from "./resolver.js";
-import { resolveIntersection } from "./resolver.js";
+import { filterSemverTags, resolveIntersection } from "./resolver.js";
 
 /**
  * Where a yaml key was declared — used to attribute collision errors (#85).
@@ -252,6 +252,7 @@ async function resolveOneRepo(
 			version: result.version,
 			commit,
 		});
+		warnIfCappedByTighterSibling(repo, tags, constraints, result.version, state);
 	} catch (e) {
 		const errMsg = e instanceof Error ? e.message : String(e);
 		try {
@@ -263,6 +264,38 @@ async function resolveOneRepo(
 			);
 		}
 	}
+}
+
+/**
+ * Issue #119 Bug A: detect when `*`-constrained deps were silently downgraded
+ * by a tighter sibling constraint and surface a "capped by" warning.
+ *
+ * Without this, `add tut --version ^0.5.0` to a repo where exp@* and
+ * commit-all@* were previously at 0.8.0 produces a silent downgrade — the
+ * user sees no signal that their unrelated deps just moved to 0.5.0.
+ */
+function warnIfCappedByTighterSibling(
+	repo: string,
+	tags: string[],
+	constraints: Constraint[],
+	pickedVersion: string,
+	state: ResolutionState,
+): void {
+	const sorted = filterSemverTags(tags);
+	const maxAvailable = sorted[0]?.version;
+	if (maxAvailable === undefined || maxAvailable === pickedVersion) return;
+
+	const cappedDeps = constraints.filter((c) => c.constraint === "*").map((c) => c.name);
+	if (cappedDeps.length === 0) return;
+
+	const cappingConstraints = constraints
+		.filter((c) => c.constraint !== "*" && !semver.satisfies(maxAvailable, c.constraint))
+		.map((c) => `${c.name}@${c.constraint}`);
+	if (cappingConstraints.length === 0) return;
+
+	state.warnings.push(
+		`${repo}: ${cappedDeps.join(", ")} capped at ${pickedVersion} by ${cappingConstraints.join(", ")} (latest available: ${maxAvailable}). Loosen the tighter constraint or split the dep across repos to upgrade the rest.`,
+	);
 }
 
 async function addTaglessRepoResolution(

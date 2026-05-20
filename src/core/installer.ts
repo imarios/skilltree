@@ -43,6 +43,12 @@ export interface InstallPlan {
 		entity: ResolvedEntity;
 		action: "symlink" | "copy";
 		targetPath: string;
+		/**
+		 * Commit recorded for this entity in the previous lockfile, if any.
+		 * Used by `prepareTarget` to force overwrite when the resolver picked
+		 * a different version than the one currently on disk (#119 Bug B).
+		 */
+		previousCommit?: string;
 	}>;
 	skipped: string[];
 	warnings: string[];
@@ -152,6 +158,7 @@ export async function planInstall(
 	installOrder: string[],
 	installBase: string,
 	options: InstallOptions,
+	previousLockfile?: Lockfile | null,
 ): Promise<InstallPlan> {
 	const toInstall: InstallPlan["toInstall"] = [];
 	const skipped: string[] = [];
@@ -176,7 +183,8 @@ export async function planInstall(
 			action = "copy";
 		}
 
-		toInstall.push({ entity, action, targetPath });
+		const previousCommit = previousLockfile?.packages[entity.key]?.commit;
+		toInstall.push({ entity, action, targetPath, previousCommit });
 	}
 
 	return { toInstall, skipped, warnings };
@@ -202,9 +210,9 @@ export async function executeInstall(
 	const repoIgnore = await readRepoIgnore(projectDir);
 
 	for (const item of plan.toInstall) {
-		const { entity, action, targetPath } = item;
+		const { entity, action, targetPath, previousCommit } = item;
 
-		const skip = await prepareTarget(targetPath, entity, options, plan);
+		const skip = await prepareTarget(targetPath, entity, options, plan, previousCommit);
 		if (skip) continue;
 
 		if (action === "symlink") {
@@ -250,19 +258,28 @@ async function readRepoIgnore(projectDir: string): Promise<IgnoreMatcher> {
 /**
  * Prepare the target path for installation. Removes existing files/symlinks.
  * Returns true if the item should be skipped (already installed, no --force).
+ *
+ * When the previous lockfile recorded a different commit than the one we're
+ * about to install (e.g. a tighter sibling constraint downgraded the repo —
+ * see #119), overwrite is forced so the on-disk content stays in sync with
+ * the lockfile. Without this, the installer would warn "already installed"
+ * and leave stale content on disk while rewriting the lockfile to the new
+ * version — a silent integrity break.
  */
 async function prepareTarget(
 	targetPath: string,
 	entity: ResolvedEntity,
 	options: InstallOptions,
 	plan: InstallPlan,
+	previousCommit?: string,
 ): Promise<boolean> {
 	try {
 		const stats = await lstat(targetPath);
 		if (stats.isSymbolicLink()) {
 			await rm(targetPath);
 		} else if (stats.isDirectory() || stats.isFile()) {
-			if (!options.force && !entity.local) {
+			const versionChanged = previousCommit !== undefined && previousCommit !== entity.commit;
+			if (!options.force && !entity.local && !versionChanged) {
 				plan.warnings.push(`${entity.name} already installed. Use --force to overwrite.`);
 				return true;
 			}
