@@ -1,8 +1,17 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import YAML from "yaml";
-import type { Dependency, EntityType, LocalDependency, Manifest, ScanConfig } from "../types.js";
-import { isSourceDependency } from "../types.js";
+import type {
+	Dependency,
+	EntityType,
+	LocalDependency,
+	Manifest,
+	PackDependency,
+	PackMember,
+	PacksSection,
+	ScanConfig,
+} from "../types.js";
+import { isPackDependency, isSourceDependency } from "../types.js";
 import { resolveGlobalTarget, resolveTarget } from "./agents.js";
 import { MANIFEST_NEW, resolveGlobalManifestPath, resolveManifestPath } from "./filenames.js";
 import { expandTilde, isLocalSource } from "./paths.js";
@@ -60,7 +69,57 @@ export function parseManifest(content: string): Manifest {
 		manifest.scan = parseScanConfig(raw.scan);
 	}
 
+	if (raw.packs !== undefined) {
+		manifest.packs = parsePacksSection(raw.packs);
+	}
+
 	return manifest;
+}
+
+/**
+ * Parse the `packs:` section. Mapping of pack name → non-empty list of
+ * member dep entries. Members are *full* dep entries (own repo/source/local +
+ * path/version/...) — not bare names. See `docs/specs/packs.md` R1.
+ *
+ * Strict on shape so a typo doesn't silently produce an empty/wrong group:
+ * matches `parseScanConfig` and `parseSources` strictness.
+ */
+function parsePacksSection(raw: unknown): PacksSection {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+		throw new Error(`Invalid manifest: \`packs\` must be a mapping, got ${describeType(raw)}.`);
+	}
+	const out: PacksSection = {};
+	for (const [name, members] of Object.entries(raw as Record<string, unknown>)) {
+		if (!Array.isArray(members)) {
+			throw new Error(
+				`Invalid manifest: packs.${name} must be a list of member entries, got ${describeType(members)}.`,
+			);
+		}
+		if (members.length === 0) {
+			throw new Error(`Invalid manifest: packs.${name} must contain at least one member.`);
+		}
+		out[name] = members.map((m, i) => parsePackMember(name, i, m));
+	}
+	return out;
+}
+
+function parsePackMember(packName: string, idx: number, raw: unknown): PackMember {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+		throw new Error(
+			`Invalid manifest: packs.${packName}[${idx}] must be a mapping, got ${describeType(raw)}.`,
+		);
+	}
+	const m = raw as Record<string, unknown>;
+	// v1 rejects nested packs (pack-in-pack). Lifting this check is the only
+	// code change needed to enable nesting later — see docs/specs/packs.md §10.
+	if ("pack" in m) {
+		throw new Error(
+			`Invalid manifest: packs.${packName}[${idx}] uses \`pack:\` — nested packs are not supported in this version.`,
+		);
+	}
+	// Defer semantic validation (repo/source/local mutex, etc.) to
+	// validateManifest so users see the same error path as for direct deps.
+	return raw as PackMember;
 }
 
 /**
@@ -230,6 +289,7 @@ export function getAllDependencyNames(manifest: Manifest): string[] {
 /**
  * Expand source shorthands in dependencies.
  * Replaces `source: alias` with `repo: url` using the sources map.
+ * Covers direct deps, pack references, and members of `packs:` entries.
  */
 export function expandSources(manifest: Manifest): Manifest {
 	const sources = manifest.sources ?? {};
@@ -237,6 +297,7 @@ export function expandSources(manifest: Manifest): Manifest {
 		...manifest,
 		dependencies: expandDeps(manifest.dependencies, sources),
 		"dev-dependencies": expandDeps(manifest["dev-dependencies"], sources),
+		packs: expandPacks(manifest.packs, sources),
 	};
 }
 
@@ -248,9 +309,47 @@ function expandDeps(
 
 	const expanded: Record<string, Dependency> = {};
 	for (const [key, dep] of Object.entries(deps)) {
-		expanded[key] = isSourceDependency(dep) ? expandSourceDep(key, dep, sources) : dep;
+		if (isPackDependency(dep)) {
+			expanded[key] = expandPackRefSource(key, dep, sources);
+		} else if (isSourceDependency(dep)) {
+			expanded[key] = expandSourceDep(key, dep, sources);
+		} else {
+			expanded[key] = dep;
+		}
 	}
 	return expanded;
+}
+
+function expandPackRefSource(
+	key: string,
+	dep: PackDependency,
+	sources: Record<string, string>,
+): PackDependency {
+	if (!dep.source) return dep;
+	const url = sources[dep.source];
+	if (!url) {
+		throw new Error(
+			`Unknown source alias "${dep.source}" in pack reference "${key}". Available sources: ${Object.keys(sources).join(", ") || "(none)"}`,
+		);
+	}
+	const { source: _, ...rest } = dep;
+	return { ...rest, repo: url };
+}
+
+function expandPacks(
+	packs: PacksSection | undefined,
+	sources: Record<string, string>,
+): PacksSection | undefined {
+	if (!packs) return undefined;
+	const out: PacksSection = {};
+	for (const [name, members] of Object.entries(packs)) {
+		out[name] = members.map((m, idx) =>
+			isSourceDependency(m)
+				? (expandSourceDep(`packs.${name}[${idx}]`, m, sources) as PackMember)
+				: m,
+		);
+	}
+	return out;
 }
 
 function expandSourceDep(
@@ -345,6 +444,83 @@ function describeType(value: unknown): string {
 }
 
 /**
+ * Validate a `PackDependency` entry in `dependencies:` / `dev-dependencies:`.
+ *
+ * A pack reference is its own shape — none of the entity dep fields
+ * (`path`/`type`/`name`/`local`/`force_path`) apply, and `version:` is only
+ * meaningful when paired with `repo:`/`source:` so the containing repo can be
+ * resolved at a specific tag.
+ */
+function validatePackRef(dep: PackDependency, group: string, key: string, errors: string[]): void {
+	const bag = dep as unknown as Record<string, unknown>;
+	const hasRepo = "repo" in dep && dep.repo !== undefined;
+	const hasSource = "source" in dep && dep.source !== undefined;
+
+	if (hasRepo && hasSource) {
+		errors.push(`${group}.${key}: "repo" and "source" are mutually exclusive on pack references`);
+	}
+
+	for (const field of ["path", "type", "name", "local", "force_path"] as const) {
+		if (field in bag) {
+			errors.push(
+				`${group}.${key}: "${field}" is not valid on pack references (packs have no entity surface)`,
+			);
+		}
+	}
+
+	if (dep.version !== undefined && !hasRepo && !hasSource) {
+		errors.push(
+			`${group}.${key}: "version" requires "repo" or "source" (a local pack ref has no remote tag to constrain)`,
+		);
+	}
+}
+
+/**
+ * Validate the `packs:` section.
+ *
+ * Each member is validated using the same entity-dep rules as direct deps
+ * (under a synthetic group like `packs.python-pack[0]`). Pack-name collisions
+ * with non-pack entries in `dependencies:` are flagged here so the author sees
+ * the conflict before the resolver runs.
+ */
+function validatePacksSection(manifest: Manifest, errors: string[]): void {
+	if (!manifest.packs) return;
+
+	for (const [packName, members] of Object.entries(manifest.packs)) {
+		for (let i = 0; i < members.length; i++) {
+			const member = members[i] as PackMember;
+			const group = `packs.${packName}[${i}]`;
+			const hasRepo = "repo" in member || "source" in member;
+			const hasLocal = "local" in member;
+
+			if (!hasRepo && !hasLocal) {
+				errors.push(`${group}: must have either "repo"/"source" or "local"`);
+			}
+			if (hasRepo && hasLocal) {
+				errors.push(`${group}: "repo"/"source" and "local" are mutually exclusive`);
+			}
+			validatePublishExclude(member as Dependency, "packs", `${packName}[${i}]`, hasLocal, errors);
+		}
+
+		// Collision: a pack named `X` and a non-pack `dependencies.X` shares a
+		// resolved name space. The resolver would either silently shadow one or
+		// surface a confusing duplicate. Catch it here with a fix-it hint.
+		const directEntry = manifest.dependencies?.[packName];
+		if (directEntry && !isPackDependency(directEntry)) {
+			errors.push(
+				`"${packName}" is defined under \`packs:\` but dependencies.${packName} is a skill/agent/command entry — use \`pack: ${packName}\` to reference the pack, or rename one.`,
+			);
+		}
+		const devEntry = manifest["dev-dependencies"]?.[packName];
+		if (devEntry && !isPackDependency(devEntry)) {
+			errors.push(
+				`"${packName}" is defined under \`packs:\` but dev-dependencies.${packName} is a skill/agent/command entry — use \`pack: ${packName}\` to reference the pack, or rename one.`,
+			);
+		}
+	}
+}
+
+/**
  * Validate a manifest for required fields and mutual exclusivity.
  * Returns a list of error messages (empty = valid).
  */
@@ -355,6 +531,11 @@ export function validateManifest(manifest: Manifest): string[] {
 		if (!deps) return;
 
 		for (const [key, dep] of Object.entries(deps)) {
+			if (isPackDependency(dep)) {
+				validatePackRef(dep, group, key, errors);
+				continue;
+			}
+
 			const hasRepo = "repo" in dep || "source" in dep;
 			const hasLocal = "local" in dep;
 
@@ -376,6 +557,7 @@ export function validateManifest(manifest: Manifest): string[] {
 
 	validateDeps(manifest.dependencies, "dependencies");
 	validateDeps(manifest["dev-dependencies"], "dev-dependencies");
+	validatePacksSection(manifest, errors);
 
 	// Reject empty install_targets explicitly. An empty array would otherwise
 	// pass through as a no-op install (loop runs zero times) — silent success
@@ -430,6 +612,12 @@ export function validateGlobalManifest(manifest: Manifest): string[] {
 	// `vendor:` but leaves `vendored_target:` still trips the rule.
 	if (manifest.vendor || manifest.vendored_target !== undefined) {
 		errors.push("Global manifest does not support vendor mode.");
+	}
+	// References to remote packs are allowed in the global manifest (treated as
+	// any other dep); defining packs there is not — they would be invisible to
+	// projects and confuse the resolver.
+	if (manifest.packs && Object.keys(manifest.packs).length > 0) {
+		errors.push("Global manifest does not support defining packs. Reference remote packs only.");
 	}
 
 	return errors;

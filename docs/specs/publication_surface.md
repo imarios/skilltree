@@ -127,6 +127,12 @@ Requirements are numbered for traceability between this spec and the phase plan 
 - Encrypted/private registries with auth. Different concern; `publish: false` is about repo-author intent, not access control.
 - Auto-promotion (e.g., "publish after N green CI runs"). Maintainer makes the call explicitly.
 
+## Packs (Oxygen)
+
+Packs have **no publish/exclude semantics of their own** — they are manifest-side groupings, not entities. The publication state of each pack member is governed by the member's own dep entry per the rules above. A pack itself is never published or vendored; the registry-indexing tier 2 emits one `kind: "pack"` entry per `packs:` definition so the pack is discoverable via `skilltree search`, but the visibility predicate (`publish`/`exclude`/dev-status) is not applicable to a pack since it has no entity surface.
+
+If a maintainer wants to hide a pack from registry discovery, they should not define it in `packs:` (or move it to a separate non-indexed repo). There is no per-pack `publish: false`.
+
 ## Related
 
 - Issue #63 — design discussion that produced this spec.

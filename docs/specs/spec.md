@@ -315,6 +315,52 @@ No filesystem collision (skills, agents, and commands install to different direc
 
 **Frontmatter disambiguation:** When `dependencies: [workflow-builder]` appears in frontmatter and both a skill and agent match, **skill always takes precedence**. The probe order in same-origin/same-repo lookup checks `skills/` first, then `agents/`, then `commands/`, so a same-named skill always wins. There is no frontmatter syntax to target a same-name agent -- this is a known limitation. If an agent needs to depend on another agent that shares a name with a skill, the agent must be renamed to have a unique name. See [decisions.md](decisions.md) #7 for full rules and test scenarios.
 
+### Packs
+
+A **pack** is a named group of dependencies declared under a `packs:` section. Consumers reference a pack with a single entry; the resolver expands it into the listed members. Packs work the same way locally and remotely.
+
+```yaml
+# In acme/skill-packs/skilltree.yml — the defining repo
+packs:
+  python-pack:
+    - repo: github.com/acme/python-skills
+      path: python-coding
+      version: ^1.0.0
+    - repo: github.com/acme/python-skills
+      path: fast-api
+    - source: tiangolo
+      path: pytest-testing
+```
+
+```yaml
+# In a consumer's skilltree.yml
+dependencies:
+  python-pack:
+    pack: python-pack
+    repo: github.com/acme/skill-packs
+    version: ^2.0.0
+```
+
+Local packs (defined and referenced in the consumer's own manifest):
+
+```yaml
+packs:
+  my-stack:
+    - repo: github.com/acme/skills
+      path: skill-a
+    - local: ./local-skills/skill-b
+
+dependencies:
+  my-stack:
+    pack: my-stack
+```
+
+Rules: pack members are full dep entries (not bare names) and may pull from multiple repos. A pack is never an entity — only its members become entities in `state.entities` and the lockfile. Pack-member collisions (consumer dep vs pack member, or two packs sharing a member) are resolver errors; no silent merge. Nested packs (pack-in-pack) are not supported in v1.
+
+`skilltree add` learns three paths for packs: an explicit `--pack` flag, a local short-circuit when the name matches a `packs:` entry, and registry resolution when an `IndexEntry` carries `kind: "pack"`.
+
+See [packs.md](packs.md) for the full spec.
+
 ## Commands
 
 ### `skilltree init`

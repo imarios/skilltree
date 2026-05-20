@@ -74,9 +74,14 @@ export async function searchCommand(
 		throw new Error(`No results for "${query}".`);
 	}
 
-	// Format results
+	// Format results — display "pack" for kind=pack entries instead of the
+	// placeholder `type: skill` carried in the index for schema reasons
+	// (registries.md, Oxygen). The install hint also branches per kind so
+	// packs suggest `--pack` instead of the misleading `--path pack:<name>`.
+	const labelFor = (r: { type: string; kind?: "entity" | "pack" }): string =>
+		r.kind === "pack" ? "pack" : r.type;
 	const nameW = Math.max(4, ...results.map((r) => r.name.length));
-	const typeW = Math.max(4, ...results.map((r) => r.type.length));
+	const typeW = Math.max(4, ...results.map((r) => labelFor(r).length));
 	const regW = Math.max(8, ...results.map((r) => r.registry.length));
 
 	console.log(
@@ -86,9 +91,13 @@ export async function searchCommand(
 	for (const r of results) {
 		const desc = r.description ? `  ${dim(r.description)}` : "";
 		console.log(
-			`  ${pc.bold(r.name.padEnd(nameW))}  ${dim(r.type.padEnd(typeW))}  ${dim(r.registry.padEnd(regW))}${desc}`,
+			`  ${pc.bold(r.name.padEnd(nameW))}  ${dim(labelFor(r).padEnd(typeW))}  ${dim(r.registry.padEnd(regW))}${desc}`,
 		);
-		console.log(`  ${pc.cyan(`→ skilltree add ${r.name} --repo ${r.repo} --path ${r.path}`)}`);
+		const installHint =
+			r.kind === "pack"
+				? `→ skilltree add ${r.name} --pack --repo ${r.repo}`
+				: `→ skilltree add ${r.name} --repo ${r.repo} --path ${r.path}`;
+		console.log(`  ${pc.cyan(installHint)}`);
 		console.log();
 	}
 }

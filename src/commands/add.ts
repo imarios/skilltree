@@ -14,9 +14,11 @@ import type {
 	EntityType,
 	IndexEntry,
 	LocalDependency,
+	PackDependency,
 	RemoteDependency,
 	SourceDependency,
 } from "../types.js";
+import { isPackDependency } from "../types.js";
 
 export interface AddOptions {
 	repo?: string;
@@ -52,6 +54,14 @@ export interface AddOptions {
 	 * exercise the verification code path.
 	 */
 	lsRemoteFn?: (url: string, opts: { timeoutMs: number }) => Promise<LsRemoteOutcome>;
+	/**
+	 * Pack reference. `true` → use the positional name as the pack name.
+	 * `string` → use this value as the pack name (yaml key still comes from the
+	 * positional name, enabling rename: `add my-stack --pack python-pack`).
+	 * Combine with `--repo`/`--source`/`--version` for a remote pack ref, or
+	 * use alone for a local pack ref. Oxygen Phase 3 / docs/specs/packs.md.
+	 */
+	pack?: boolean | string;
 }
 
 export async function addCommand(name: string, opts: AddOptions, dir: string): Promise<void> {
@@ -370,6 +380,30 @@ async function loadRegistryEntities(opts: AddOptions): Promise<RegistryEntity[]>
 const URL_LIKE_RE = /^(?:[a-z][a-z0-9+.-]*:\/\/|[\w.-]+@[\w.-]+:)/i;
 
 function validateAddFlags(opts: AddOptions): void {
+	if (opts.pack !== undefined) {
+		// A pack reference has no entity surface — none of the entity-shape
+		// flags make sense on it. Reject loudly so users don't end up with a
+		// pack ref that the resolver then errors on at install time.
+		if (opts.path !== undefined) {
+			throw new Error("--pack and --path are incompatible (packs have no path)");
+		}
+		if (opts.type !== undefined) {
+			throw new Error("--pack and --type are incompatible (packs aren't entities)");
+		}
+		if (opts.local !== undefined) {
+			throw new Error(
+				"--pack and --local are incompatible — define local packs in the `packs:` section and reference by name.",
+			);
+		}
+		// Catch the commander footgun: `--pack [name]` is an optional-value
+		// flag, and a typo like `--pack --dev` makes commander consume `--dev`
+		// as the pack name. A value beginning with `-` is never a valid name.
+		if (typeof opts.pack === "string" && opts.pack.startsWith("-")) {
+			throw new Error(
+				`--pack value cannot start with '-' (got "${opts.pack}"). Use \`--pack\` alone to use the positional name, or \`--pack <name>\` to rename.`,
+			);
+		}
+	}
 	if (opts.repo && opts.source) {
 		throw new Error("--repo and --source are mutually exclusive");
 	}
@@ -405,6 +439,20 @@ function validateAddFlags(opts: AddOptions): void {
 async function buildDependency(name: string, opts: AddOptions, dir: string): Promise<Dependency> {
 	const isRemote = opts.repo || opts.source;
 
+	// Explicit pack flag: build a PackDependency.
+	if (opts.pack !== undefined) {
+		return buildPackDep(name, opts);
+	}
+
+	// Local pack short-circuit: bare `skilltree add foo` with `packs.foo`
+	// already defined in the consumer's manifest. Resolve to a local pack ref
+	// without hitting any registry. Skip cleanly if loading the manifest fails
+	// (init/test paths may not have one yet) — fall through to registry resolution.
+	if (!isRemote && !opts.local) {
+		const packed = await tryLocalPackShortcircuit(name, opts, dir);
+		if (packed) return packed;
+	}
+
 	if (!isRemote && !opts.local) {
 		return resolveFromRegistries(name, opts);
 	}
@@ -435,6 +483,40 @@ async function buildDependency(name: string, opts: AddOptions, dir: string): Pro
 	throw new Error("Remote dependencies require --repo or --source");
 }
 
+function buildPackDep(name: string, opts: AddOptions): PackDependency {
+	const packName = typeof opts.pack === "string" ? opts.pack : name;
+	const dep: PackDependency = { pack: packName };
+	if (opts.repo) dep.repo = opts.repo;
+	if (opts.source) dep.source = opts.source;
+	if (opts.version) dep.version = opts.version;
+	return dep;
+}
+
+async function tryLocalPackShortcircuit(
+	name: string,
+	opts: AddOptions,
+	dir: string,
+): Promise<PackDependency | null> {
+	const globalDir = opts.globalDir ?? getGlobalDir();
+	let manifest: Awaited<ReturnType<typeof loadManifestOrThrow>>;
+	try {
+		manifest = await loadManifestOrThrow(dir, { global: opts.global, globalDir });
+	} catch (err) {
+		// `loadManifestOrThrow` already wraps the underlying error and prefixes
+		// its message with the file path. Only swallow the "no manifest yet"
+		// case — anything else (malformed YAML, bad schema) must surface so
+		// the user sees the real problem rather than a spurious "not found in
+		// any registry" downstream.
+		const msg = err instanceof Error ? err.message : String(err);
+		if (/No .*\.yml found/i.test(msg) || /Run `skilltree init`/i.test(msg)) {
+			return null;
+		}
+		throw err;
+	}
+	if (manifest.packs?.[name]) return { pack: name };
+	return null;
+}
+
 async function buildLocalDep(opts: AddOptions, dir: string): Promise<Dependency> {
 	const expandedPath = expandTilde(opts.local as string);
 	const localPath = expandedPath.startsWith("/") ? expandedPath : `${dir}/${expandedPath}`;
@@ -456,10 +538,23 @@ function checkOverwrite(
 	dep: Dependency,
 	sources?: Record<string, string>,
 ): void {
-	if (!(name in deps)) return;
 	const oldDep = deps[name];
+	if (!oldDep) return;
 	const oldSource = canonicalSource(oldDep, sources);
 	const newSource = canonicalSource(dep, sources);
+	// Pack refs and entity refs occupy different namespaces; print a pack-aware
+	// message when either side is a pack so the user can see "pack reference"
+	// rather than the generic source-diff text. Equality logic is reused from
+	// `canonicalSource`, which already discriminates pack refs from entities.
+	const eitherIsPack = isPackDependency(oldDep) || isPackDependency(dep);
+	if (eitherIsPack) {
+		if (oldSource !== newSource) {
+			warn(`overwriting "${name}" — changing pack reference from ${oldSource} to ${newSource}`);
+		} else {
+			warn(`overwriting existing pack reference "${name}" in ${group}`);
+		}
+		return;
+	}
 	if (oldSource !== newSource) {
 		warn(`overwriting "${name}" — changing source from ${oldSource} to ${newSource}`);
 	} else {
@@ -571,6 +666,18 @@ async function resolveFromRegistries(name: string, opts: AddOptions): Promise<De
 
 	if (filtered.length === 1) {
 		const m = filtered[0] as RegistryEntity;
+		if (m.entity.kind === "pack") {
+			// Pack discoverable via registry: build a remote pack reference, not
+			// an entity dep. The registry only ever serves one repo per pack
+			// (the pack-host), so no multi-repo composition at the consumer side.
+			console.log(`Resolved pack from registry '${m.registry}': ${dim(m.repo)}`);
+			const dep: PackDependency = {
+				pack: m.entity.name,
+				repo: m.repo,
+				version: opts.version ?? "*",
+			};
+			return dep;
+		}
 		console.log(`Resolved from registry '${m.registry}': ${dim(`${m.repo}/${m.entity.path}`)}`);
 		const dep: Dependency = { repo: m.repo, path: m.entity.path, version: opts.version ?? "*" };
 		if (opts.type) dep.type = opts.type;

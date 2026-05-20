@@ -92,6 +92,16 @@ deliberately left for a future cycle.
   Distinguish ENOENT from EPERM/EACCES and either re-raise the real error
   or report best-effort `bytesFreed` regardless of `cleaned`.
 
+## Oxygen follow-ups (packs)
+
+- [ ] **Nested packs (pack-in-pack).** v1 rejects `pack:` members at parse time. v2 lifts the guard and wraps `expandPackReferences` in a convergence loop with a visited set for cycle detection. Structural type already permits it; the change is additive.
+- [ ] **`skilltree why <pack-member>`.** Phase 2 sets `ResolvedEntity.viaPack` for every pack-injected member. Wire it into the `why` command output so users can see "declared in skilltree.yml via pack X". Small follow-up outside Oxygen scope.
+- [ ] **`skilltree why <pack>`.** Different shape — packs aren't entities. Decide whether to surface pack metadata (members + their origins) via `why <pack-name>` and how to disambiguate from `why <entity-name>`.
+- [ ] **Consumer-side pack overrides** (`exclude: [...]` member list, per-member `version` pin). Defer until real demand surfaces. Phase 1's data model already keeps this additive — extend `PackDependency` with optional fields and update `injectPackMembers`.
+- [ ] **`skilltree add 'pack-*'` glob mode.** Phase 3 punted. Either add pack-aware glob expansion in `addGlobCommand`, or document that glob mode is entity-only.
+- [ ] **Lockfile `pack_resolutions:` section.** Only if reproducibility of *which pack version was used* becomes a need. No current ask.
+- [ ] **Manual smoke against a real GitHub pack repo.** Phase 4 used `file://` fixtures; the e2e exercises every code path but doesn't hit GitHub's transport. Worth running once post-merge to confirm tag resolution against a public repo.
+
 ## Stale
 
 (none)

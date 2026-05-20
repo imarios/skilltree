@@ -84,6 +84,63 @@ scan:
 
 **Versioning:** Git tags (`v1.0.0` or `1.0.0`). One repo = one version -- all entities from the same repo share a tag. Multiple constraints on the same repo are intersected.
 
+#### Packs section
+
+A `packs:` top-level mapping defines named groups of dependencies. Each pack name maps to a non-empty list of member dep entries (same shape as direct deps; full source/path/version control).
+
+```yaml
+packs:
+  python-pack:
+    - repo: github.com/acme/python-skills
+      path: python-coding
+      version: ^1.0.0
+    - source: tiangolo
+      path: pytest-testing
+```
+
+A consumer references a pack with a `PackDependency` entry under `dependencies:` or `dev-dependencies:`:
+
+```yaml
+dependencies:
+  python-pack:
+    pack: python-pack          # required: the pack name to reference
+    repo: github.com/acme/skill-packs  # optional: remote pack — repo containing the packs: section
+    version: ^2.0.0            # optional: semver constraint on the containing repo's git tag
+```
+
+**Pack reference rules:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `pack:` | Yes | Name of the pack to reference. |
+| `repo:` | No | Remote pack — repo containing the `packs:` section. Mutually exclusive with `source:`. |
+| `source:` | No | Remote pack via source alias (expands to `repo:` at parse time). |
+| `version:` | No | Semver constraint on the containing repo's git tag. Requires `repo:` or `source:`. |
+
+A pack reference may not carry `path`, `type`, `name`, `force_path`, or `local`. With neither `repo:` nor `source:`, the pack is a **local pack reference** — it must resolve in the consumer's own `packs:` section.
+
+**Pack member rules:**
+
+- Members are full dep entries with the same shape as direct deps (no bare names).
+- A member may not itself be a `pack:` entry in v1 (nested packs deferred).
+- Local-path members (`local:`) in a **remote** pack must be relative; absolute paths are rejected (they would point at the pack author's filesystem).
+- Members may be drawn from multiple repos.
+
+**Error matrix:**
+
+| Scenario | Behavior |
+|---|---|
+| Local pack referenced but undefined | Resolver error: `Pack "X" is referenced under dependencies.X but not defined in this manifest's packs: section.` |
+| Remote manifest has no `packs:` / missing the pack | Resolver error names repo + ref + pack name. |
+| Pack member collides with a consumer-declared dep | Resolver error names both sides. No silent merge. |
+| Two packs share a member | Same collision error. |
+| `packs.X` + non-pack `dependencies.X` (same key) | Parse-time error with fix-it hint. |
+| `PackDependency` with `path`/`type`/`name`/`local`/`force_path` | Parse-time error names the field. |
+| `PackDependency` with `version` and no `repo`/`source` | Parse-time error. |
+| Local pack defined but never referenced | Non-blocking warning. |
+
+A pack is never registered as an entity — only its expanded members appear in `state.entities` and the lockfile. See [packs.md](packs.md) for the full spec.
+
 ### skilltree.lock (Lockfile)
 
 ```yaml

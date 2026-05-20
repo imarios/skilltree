@@ -186,6 +186,55 @@ skilltree add --global --source mine --discover
 
 **When to use global:** Personal productivity skills you want everywhere — `python-coding`, `general-coding`, `my-style`. If the *project* needs a skill, put it in the project's `skilltree.yml` — that's the contract teammates and CI rely on.
 
+### Packs — Named Groups of Dependencies
+
+Group multiple skills under one name so consumers depend on a single pack instead of listing each member individually.
+
+```yaml
+# In acme/skill-packs/skilltree.yml (the defining repo)
+packs:
+  python-pack:
+    - repo: github.com/acme/python-skills
+      path: python-coding
+      version: ^1.0.0
+    - repo: github.com/acme/python-skills
+      path: fast-api
+    - source: tiangolo
+      path: pytest-testing
+```
+
+```yaml
+# In a consumer's skilltree.yml — one entry, three skills installed
+dependencies:
+  python-pack:
+    pack: python-pack
+    repo: github.com/acme/skill-packs
+    version: ^2.0.0
+```
+
+Or define a pack locally and reference it by name:
+
+```yaml
+packs:
+  my-stack:
+    - repo: github.com/acme/skills
+      path: skill-a
+    - local: ./local-skills/skill-b
+
+dependencies:
+  my-stack:
+    pack: my-stack
+```
+
+Add packs from the CLI:
+
+```bash
+skilltree add python-pack --pack --repo github.com/acme/skill-packs --version ^2.0.0
+skilltree add my-stack                    # local short-circuit when packs.my-stack exists
+```
+
+A pack is purely a manifest-side grouping — it's never installed as an entity itself, only its members. Pack members are full dep entries (multi-repo composition supported). All-or-nothing in v1: no consumer-side `exclude:` or per-member version override. See `docs/specs/packs.md`.
+
 ### Vendor Mode
 
 Ship skills to consumers who don't have access to your upstream repos. Vendor copies all resolved deps into `.claude/` as committed files — `git clone` is all they need.

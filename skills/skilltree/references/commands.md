@@ -36,6 +36,16 @@ skilltree add my-style --local ./skills/my-style
 
 # Dev dependency
 skilltree add testing --dev --repo github.com/org/shared-skills --path skills/testing
+
+# Pack reference (remote pack from a repo with a packs: section)
+skilltree add python-pack --pack --repo github.com/acme/skill-packs --version "^2.0.0"
+
+# Pack reference with rename: yaml key is the positional, pack: field is the flag value
+skilltree add my-stack --pack python-pack --repo github.com/acme/skill-packs
+
+# Local pack short-circuit: when packs.my-stack is already defined in skilltree.yml,
+# bare `add my-stack` resolves to a local pack reference automatically — no flags needed.
+skilltree add my-stack
 ```
 
 **Flags:**
@@ -49,10 +59,16 @@ skilltree add testing --dev --repo github.com/org/shared-skills --path skills/te
 - `--registry <name>` — When no `--repo`, resolve from this registry only (disambiguates multiple matches)
 - `-g, --global` — Add to global dependencies (~/.skilltree/global.yaml)
 - `--no-verify` — Skip the `git ls-remote` reachability check on any repo-bearing dep (offline / pre-registering an unpushed repo)
+- `--pack [name]` — Add as a pack reference, not an entity. With no value, uses the positional name as the pack name. With a value (`--pack python-pack`), the positional name becomes the yaml key and `--pack`'s argument becomes the `pack:` field (enables renaming). Combine with `--repo`/`--source`/`--version` for a remote pack ref, or use alone for a local pack ref. Incompatible with `--path`, `--type`, `--local`.
 
 **Validation:**
 - For any dep that resolves to a `repo` URL — explicit `--repo <url>` **and** registry-resolved adds like `skilltree add python-coding` (issue #128) — probes the URL with `git ls-remote` (5s timeout). Unreachable URLs warn but still write the entry; auth-required URLs print a soft note. Use `--no-verify` to skip the probe.
 - For `--source <alias>`: must be an alias name registered under the manifest's `sources:` block. URLs are refused — use `--repo` for direct URLs.
+- For `--pack`: refuses values that start with `-` (catches the commander footgun where `--pack --dev` would otherwise consume `--dev` as the pack name).
+
+**Pack resolution order in `skilltree add <name>` (no `--pack` flag):**
+1. **Local short-circuit** — if `packs.<name>` is already defined in the manifest, writes `{pack: <name>}` and exits without touching any registry.
+2. **Registry** — otherwise resolves from registries. If the matched `IndexEntry` has `kind: "pack"`, builds a `PackDependency` pointing at the registry's repo (not an entity dep).
 
 ## `skilltree new`
 
