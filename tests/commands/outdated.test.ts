@@ -402,6 +402,17 @@ packages:
 				"v0.5.0",
 			);
 			const bareDir = await makeBareClone(repoDir, dir, "bare");
+			// Tag v0.8.0 BEFORE install so the upstream's "latest" is already
+			// 0.8.0 at install time. The resolver still pins both deps at
+			// 0.5.0 (capped by tut@^0.5.0), but `outdated` sees 0.8.0 as the
+			// available upstream without needing to re-fetch the cache.
+			// (Matches the pattern in install-version-change.test.ts that
+			// works reliably under CI's Linux+Bun matrix; the post-install
+			// addTagToRepo + ensureCached re-fetch sequence flakes there.)
+			await addTagToRepo(repoDir, bareDir, "v0.8.0", [
+				{ path: "skills/exp", name: "exp" },
+				{ path: "skills/tut", name: "tut" },
+			]);
 
 			await writeManifest(
 				dir,
@@ -417,11 +428,6 @@ packages:
 `,
 			);
 			await installCommand(dir, {});
-			// exp@* would accept 0.8.0; tut@^0.5.0 would not — so 0.8.0 is sibling-capped.
-			await addTagToRepo(repoDir, bareDir, "v0.8.0", [
-				{ path: "skills/exp", name: "exp" },
-				{ path: "skills/tut", name: "tut" },
-			]);
 
 			const { logs, restore } = captureConsole();
 			try {
@@ -534,6 +540,11 @@ packages:
 				"v0.5.0",
 			);
 			const bareDir = await makeBareClone(repoDir, dir, "bare");
+			// See sibling-cap test above for why v0.8.0 is tagged pre-install.
+			await addTagToRepo(repoDir, bareDir, "v0.8.0", [
+				{ path: "skills/exp", name: "exp" },
+				{ path: "skills/tut", name: "tut" },
+			]);
 
 			await writeManifest(
 				dir,
@@ -549,10 +560,6 @@ packages:
 `,
 			);
 			await installCommand(dir, {});
-			await addTagToRepo(repoDir, bareDir, "v0.8.0", [
-				{ path: "skills/exp", name: "exp" },
-				{ path: "skills/tut", name: "tut" },
-			]);
 
 			const { logs, restore } = captureConsole();
 			try {
