@@ -276,7 +276,7 @@ For each **repo** in the graph:
 3. List available git tags
 4. Find the highest tag satisfying the intersection
 5. Error if no tag satisfies all constraints
-6. **Capped-sibling warning**: if the intersection picks a version lower than the latest available tag *and* one or more `*`-constrained deps share the repo, emit a non-blocking warning naming the capped `*` deps and the tighter sibling constraint(s) that capped them. Without this, adding a sibling like `tut --version ^0.5.0` silently downgrades earlier `*`-constrained deps from the same repo.
+6. **Capped-sibling warning**: if the intersection picks a version lower than the latest available tag *and* one or more `*`-constrained deps share the repo, emit a non-blocking warning naming the capped `*` deps and the tighter sibling constraint(s) that capped them. Without this, adding a sibling like `tut --version ^0.5.0` silently downgrades earlier `*`-constrained deps from the same repo. `skilltree outdated` previews the same attribution under a `Notes` column (`capped by <name>@<constraint>`) so users can spot the cap before they try to bump.
 
 Local deps skip version resolution -- working tree is the source of truth.
 
