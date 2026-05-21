@@ -1,3 +1,9 @@
+## v0.36.3 (2026-05-21)
+
+### Fix
+
+- **outdated**: annotate when a bump is held back by a tighter sibling (#137)
+
 ## v0.36.2 (2026-05-20)
 
 ### Fix

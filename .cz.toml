@@ -1,6 +1,6 @@
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.36.2"
+version = "0.36.3"
 version_files = [
     "package.json:\"version\"",
     "package.json:skilltree-cli-darwin-arm64",
