@@ -385,4 +385,191 @@ packages:
 		const rows = JSON.parse(logs.join("")) as Array<Record<string, unknown>>;
 		expect(rows.length).toBe(2);
 	});
+
+	// Issue #136: annotate rows whose bump is silently blocked by a tighter
+	// sibling constraint in the same repo. Mirrors the #119 "capped by"
+	// warning at install/update time so users can preview the cap.
+	describe("cappedBy annotation (#136)", () => {
+		test("flags '*' dep when sibling ^constraint excludes the latest tag", async () => {
+			const dir = await makeTempDir();
+			const repoDir = await createTestRepo(
+				dir,
+				"repo",
+				[
+					{ path: "skills/exp", name: "exp" },
+					{ path: "skills/tut", name: "tut" },
+				],
+				"v0.5.0",
+			);
+			const bareDir = await makeBareClone(repoDir, dir, "bare");
+			// Tag v0.8.0 BEFORE install so the upstream's "latest" is already
+			// 0.8.0 at install time. The resolver still pins both deps at
+			// 0.5.0 (capped by tut@^0.5.0), but `outdated` sees 0.8.0 as the
+			// available upstream without needing to re-fetch the cache.
+			// (Matches the pattern in install-version-change.test.ts that
+			// works reliably under CI's Linux+Bun matrix; the post-install
+			// addTagToRepo + ensureCached re-fetch sequence flakes there.)
+			await addTagToRepo(repoDir, bareDir, "v0.8.0", [
+				{ path: "skills/exp", name: "exp" },
+				{ path: "skills/tut", name: "tut" },
+			]);
+
+			await writeManifest(
+				dir,
+				`dependencies:
+  exp:
+    repo: "file://${bareDir}"
+    path: skills/exp
+    version: "*"
+  tut:
+    repo: "file://${bareDir}"
+    path: skills/tut
+    version: "^0.5.0"
+`,
+			);
+			await installCommand(dir, {});
+
+			const { logs, restore } = captureConsole();
+			try {
+				await outdatedCommand(dir, undefined, { json: true });
+			} finally {
+				restore();
+			}
+
+			const rows = JSON.parse(logs.join("")) as Array<Record<string, unknown>>;
+			const expRow = rows.find((r) => r.name === "exp");
+			const tutRow = rows.find((r) => r.name === "tut");
+
+			expect(expRow?.latest).toBe("0.8.0");
+			expect(expRow?.cappedBy).toEqual(["tut@^0.5.0"]);
+
+			// tut's own constraint rejects 0.8.0, so the cap is self-imposed, not sibling.
+			expect(tutRow?.cappedBy).toBeNull();
+		});
+
+		test("no annotation when latest satisfies all sibling constraints", async () => {
+			const dir = await makeTempDir();
+			const repoDir = await createTestRepo(
+				dir,
+				"repo",
+				[
+					{ path: "skills/a", name: "a" },
+					{ path: "skills/b", name: "b" },
+				],
+				"v1.0.0",
+			);
+			const bareDir = await makeBareClone(repoDir, dir, "bare");
+
+			await writeManifest(
+				dir,
+				`dependencies:
+  a:
+    repo: "file://${bareDir}"
+    path: skills/a
+    version: "*"
+  b:
+    repo: "file://${bareDir}"
+    path: skills/b
+    version: "*"
+`,
+			);
+			await installCommand(dir, {});
+			await addTagToRepo(repoDir, bareDir, "v2.0.0", [
+				{ path: "skills/a", name: "a" },
+				{ path: "skills/b", name: "b" },
+			]);
+
+			const { logs, restore } = captureConsole();
+			try {
+				await outdatedCommand(dir, undefined, { json: true });
+			} finally {
+				restore();
+			}
+
+			const rows = JSON.parse(logs.join("")) as Array<Record<string, unknown>>;
+			for (const row of rows) {
+				expect(row.cappedBy).toBeNull();
+			}
+		});
+
+		test("siblings in different repos do not cross-cap", async () => {
+			const dir = await makeTempDir();
+			const repoA = await createTestRepo(dir, "repoA", [{ path: "skills/a", name: "a" }], "v0.5.0");
+			const repoB = await createTestRepo(dir, "repoB", [{ path: "skills/b", name: "b" }], "v0.5.0");
+			const bareA = await makeBareClone(repoA, dir, "bareA");
+			const bareB = await makeBareClone(repoB, dir, "bareB");
+
+			await writeManifest(
+				dir,
+				`dependencies:
+  a:
+    repo: "file://${bareA}"
+    path: skills/a
+    version: "*"
+  b:
+    repo: "file://${bareB}"
+    path: skills/b
+    version: "^0.5.0"
+`,
+			);
+			await installCommand(dir, {});
+			await addTagToRepo(repoA, bareA, "v0.8.0", [{ path: "skills/a", name: "a" }]);
+
+			const { logs, restore } = captureConsole();
+			try {
+				await outdatedCommand(dir, undefined, { json: true });
+			} finally {
+				restore();
+			}
+
+			const rows = JSON.parse(logs.join("")) as Array<Record<string, unknown>>;
+			// 'a' is in repoA only; 'b' is in repoB — b's constraint must not cap a.
+			const aRow = rows.find((r) => r.name === "a");
+			expect(aRow?.cappedBy).toBeNull();
+		});
+
+		test("table output renders 'capped by' note", async () => {
+			const dir = await makeTempDir();
+			const repoDir = await createTestRepo(
+				dir,
+				"repo",
+				[
+					{ path: "skills/exp", name: "exp" },
+					{ path: "skills/tut", name: "tut" },
+				],
+				"v0.5.0",
+			);
+			const bareDir = await makeBareClone(repoDir, dir, "bare");
+			// See sibling-cap test above for why v0.8.0 is tagged pre-install.
+			await addTagToRepo(repoDir, bareDir, "v0.8.0", [
+				{ path: "skills/exp", name: "exp" },
+				{ path: "skills/tut", name: "tut" },
+			]);
+
+			await writeManifest(
+				dir,
+				`dependencies:
+  exp:
+    repo: "file://${bareDir}"
+    path: skills/exp
+    version: "*"
+  tut:
+    repo: "file://${bareDir}"
+    path: skills/tut
+    version: "^0.5.0"
+`,
+			);
+			await installCommand(dir, {});
+
+			const { logs, restore } = captureConsole();
+			try {
+				await outdatedCommand(dir, undefined, {});
+			} finally {
+				restore();
+			}
+
+			const out = logs.join("\n");
+			expect(out).toContain("capped by tut@^0.5.0");
+		});
+	});
 });

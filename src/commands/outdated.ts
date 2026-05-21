@@ -2,10 +2,17 @@ import semver from "semver";
 import { MANIFEST_NEW, manifestExists } from "../core/filenames.js";
 import { ensureCached, listTags } from "../core/git.js";
 import { readGlobalLockfile, readLockfile } from "../core/lockfile.js";
+import { expandSources, readGlobalManifest, readManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
-import { filterSemverTags } from "../core/resolver.js";
+import { filterSemverTags, findCappingSiblings } from "../core/resolver.js";
 import { type ColumnDef, dim, pc, printTable } from "../core/ui.js";
-import type { EntityType, LockfileEntry } from "../types.js";
+import {
+	type EntityType,
+	isRemoteDependency,
+	isSourceDependency,
+	type LockfileEntry,
+	type Manifest,
+} from "../types.js";
 
 export interface OutdatedOptions {
 	json?: boolean;
@@ -30,6 +37,13 @@ export interface OutdatedRow {
 	bump: BumpKind;
 	/** The repo URL, or null for local deps. */
 	repo: string | null;
+	/**
+	 * Sibling constraints in the same repo that prevent this dep from
+	 * reaching `latest` even though its own constraint would allow it (#136).
+	 * Null when no cap applies or when the dep's own constraint already
+	 * excludes `latest`.
+	 */
+	cappedBy: string[] | null;
 }
 
 /**
@@ -76,9 +90,17 @@ export async function outdatedCommand(
 		entries = filtered;
 	}
 
+	// Read the manifest to attribute capping sibling constraints (#136). The
+	// lockfile alone doesn't carry constraint info — only the manifest does.
+	// A missing/unparsable manifest is non-fatal: rows just won't carry cap
+	// annotations.
+	const constraintsByRepo = await readConstraintsByRepo(isGlobal, dir, globalDir);
+
 	// Resolve rows in parallel — each row hits a different repo cache, and
 	// the network roundtrip dominates per-row work.
-	const rows = await Promise.all(entries.map(([key, entry]) => buildRow(key, entry)));
+	const rows = await Promise.all(
+		entries.map(([key, entry]) => buildRow(key, entry, constraintsByRepo)),
+	);
 
 	if (opts?.json) {
 		console.log(JSON.stringify(rows, null, 2));
@@ -94,7 +116,11 @@ export async function outdatedCommand(
 	}
 }
 
-async function buildRow(key: string, entry: LockfileEntry): Promise<OutdatedRow> {
+async function buildRow(
+	key: string,
+	entry: LockfileEntry,
+	constraintsByRepo: ConstraintsByRepo,
+): Promise<OutdatedRow> {
 	const name = entry.name ?? key;
 	const type = entry.type;
 
@@ -107,6 +133,7 @@ async function buildRow(key: string, entry: LockfileEntry): Promise<OutdatedRow>
 			latest: null,
 			bump: null,
 			repo: null,
+			cappedBy: null,
 		};
 	}
 
@@ -120,7 +147,16 @@ async function buildRow(key: string, entry: LockfileEntry): Promise<OutdatedRow>
 	if (!repo) {
 		// Defensive: a non-local entry without a repo URL is malformed but
 		// shouldn't crash a read-only command — report and move on.
-		return { name, type, current, currentCommit, latest: null, bump: null, repo: null };
+		return {
+			name,
+			type,
+			current,
+			currentCommit,
+			latest: null,
+			bump: null,
+			repo: null,
+			cappedBy: null,
+		};
 	}
 
 	let tags: string[];
@@ -128,7 +164,16 @@ async function buildRow(key: string, entry: LockfileEntry): Promise<OutdatedRow>
 		const cachePath = await ensureCached(repo);
 		tags = await listTags(cachePath);
 	} catch {
-		return { name, type, current, currentCommit, latest: null, bump: "error", repo };
+		return {
+			name,
+			type,
+			current,
+			currentCommit,
+			latest: null,
+			bump: "error",
+			repo,
+			cappedBy: null,
+		};
 	}
 
 	const semverTags = filterSemverTags(tags);
@@ -136,7 +181,7 @@ async function buildRow(key: string, entry: LockfileEntry): Promise<OutdatedRow>
 	// Empty array → no tags at all → no upstream signal.
 	const latest = semverTags[0]?.version;
 	if (!latest) {
-		return { name, type, current, currentCommit, latest: null, bump: null, repo };
+		return { name, type, current, currentCommit, latest: null, bump: null, repo, cappedBy: null };
 	}
 
 	const currentSemver = entry.version;
@@ -145,15 +190,90 @@ async function buildRow(key: string, entry: LockfileEntry): Promise<OutdatedRow>
 		// but can't compute a bump kind without a semver anchor on the
 		// current side. Matches the example in the issue body where
 		// `task-builder @a56045e | 2.0.0 | —` shows "—".
-		return { name, type, current, currentCommit, latest, bump: null, repo };
+		return { name, type, current, currentCommit, latest, bump: null, repo, cappedBy: null };
 	}
 
 	if (semver.eq(currentSemver, latest)) {
-		return { name, type, current, currentCommit, latest, bump: null, repo };
+		return { name, type, current, currentCommit, latest, bump: null, repo, cappedBy: null };
 	}
 
 	const bump = classifyBump(currentSemver, latest);
-	return { name, type, current, currentCommit, latest, bump, repo };
+	const cappedBy = computeCappedBy(repo, name, latest, constraintsByRepo);
+	return { name, type, current, currentCommit, latest, bump, repo, cappedBy };
+}
+
+type ConstraintsByRepo = Map<string, Array<{ name: string; constraint: string }>>;
+
+/**
+ * Build a per-repo index of `(name, constraint)` pairs from the project (or
+ * global) manifest, used to compute `cappedBy` annotations (#136). Reads
+ * both prod and dev dependencies; sources are pre-expanded so remote +
+ * source deps both end up keyed by their underlying `repo` URL. Pack
+ * references are skipped — their member constraints live upstream and
+ * aren't reachable through the consumer manifest alone.
+ *
+ * Errors are swallowed: a missing/malformed manifest means no annotations,
+ * not a crashed `outdated` run.
+ */
+async function readConstraintsByRepo(
+	isGlobal: boolean,
+	dir: string,
+	globalDir: string,
+): Promise<ConstraintsByRepo> {
+	let manifest: Manifest;
+	try {
+		const raw = isGlobal ? await readGlobalManifest(globalDir) : await readManifest(dir);
+		manifest = expandSources(raw);
+	} catch {
+		return new Map();
+	}
+
+	const result: ConstraintsByRepo = new Map();
+	for (const group of [manifest.dependencies, manifest["dev-dependencies"]]) {
+		if (!group) continue;
+		for (const [name, dep] of Object.entries(group)) {
+			// Source deps are flattened to repo form by expandSources, but the
+			// guard pair is kept for forward-compat against future shapes.
+			if (!isRemoteDependency(dep) && !isSourceDependency(dep)) continue;
+			const repo = "repo" in dep ? dep.repo : undefined;
+			if (repo === undefined) continue;
+			const constraint = dep.version ?? "*";
+			const list = result.get(repo) ?? [];
+			list.push({ name, constraint });
+			result.set(repo, list);
+		}
+	}
+	return result;
+}
+
+/**
+ * Compute the `cappedBy` list for a single row. Returns the formatted
+ * sibling constraint strings (e.g. `["tut@^0.5.0"]`) only when:
+ *  1. The dep's own constraint accepts `latest` (otherwise the cap is
+ *     self-imposed and not interesting to annotate).
+ *  2. At least one sibling in the same repo carries a tighter constraint
+ *     that excludes `latest`.
+ *
+ * Returns `null` otherwise. A `null` result also covers the edge case where
+ * the manifest doesn't list this dep (e.g. it was removed but the lockfile
+ * still has the entry).
+ */
+function computeCappedBy(
+	repo: string,
+	name: string,
+	latest: string,
+	constraintsByRepo: ConstraintsByRepo,
+): string[] | null {
+	const siblings = constraintsByRepo.get(repo);
+	if (siblings === undefined) return null;
+
+	const self = siblings.find((s) => s.name === name);
+	if (self !== undefined && self.constraint !== "*" && !semver.satisfies(latest, self.constraint)) {
+		return null;
+	}
+
+	const capped = findCappingSiblings(siblings, latest, name);
+	return capped.length > 0 ? capped : null;
 }
 
 /**
@@ -181,6 +301,7 @@ interface DisplayRow {
 	current: string;
 	latest: string;
 	bump: string;
+	notes: string;
 }
 
 const OUTDATED_COLUMNS: ColumnDef<DisplayRow>[] = [
@@ -188,6 +309,7 @@ const OUTDATED_COLUMNS: ColumnDef<DisplayRow>[] = [
 	{ header: "Current", value: (r) => r.current },
 	{ header: "Latest", value: (r) => r.latest, color: pc.green },
 	{ header: "Bump", value: (r) => r.bump, color: colorBump },
+	{ header: "Notes", value: (r) => r.notes, color: dim },
 ];
 
 function printOutdatedTable(rows: OutdatedRow[]): void {
@@ -196,8 +318,14 @@ function printOutdatedTable(rows: OutdatedRow[]): void {
 		current: r.current,
 		latest: r.latest ?? EMDASH,
 		bump: r.bump ?? EMDASH,
+		notes: r.cappedBy ? `capped by ${r.cappedBy.join(", ")}` : "",
 	}));
-	printTable(display, OUTDATED_COLUMNS);
+	// Drop the Notes column entirely when no row has anything to say — keeps
+	// the simple `outdated` table from growing a useless trailing column.
+	const columns = display.some((r) => r.notes !== "")
+		? OUTDATED_COLUMNS
+		: OUTDATED_COLUMNS.filter((c) => c.header !== "Notes");
+	printTable(display, columns);
 }
 
 function colorBump(bump: string): string {

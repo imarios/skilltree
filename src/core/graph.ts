@@ -26,7 +26,7 @@ import {
 import { expandSources, parseManifest } from "./manifest.js";
 import { canonicalPath, expandTilde, stripDotSlash } from "./paths.js";
 import type { Constraint, ConstraintSource } from "./resolver.js";
-import { filterSemverTags, resolveIntersection } from "./resolver.js";
+import { filterSemverTags, findCappingSiblings, resolveIntersection } from "./resolver.js";
 
 /**
  * Where a yaml key was declared — used to attribute collision errors (#85).
@@ -288,9 +288,7 @@ function warnIfCappedByTighterSibling(
 	const cappedDeps = constraints.filter((c) => c.constraint === "*").map((c) => c.name);
 	if (cappedDeps.length === 0) return;
 
-	const cappingConstraints = constraints
-		.filter((c) => c.constraint !== "*" && !semver.satisfies(maxAvailable, c.constraint))
-		.map((c) => `${c.name}@${c.constraint}`);
+	const cappingConstraints = findCappingSiblings(constraints, maxAvailable);
 	if (cappingConstraints.length === 0) return;
 
 	state.warnings.push(

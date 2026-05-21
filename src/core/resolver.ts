@@ -117,3 +117,21 @@ export function resolveIntersection(
 		error: `Incompatible version constraints:\n${lines.join("\n")}\n\nNo git tag satisfies all constraints.`,
 	};
 }
+
+/**
+ * Pure form of the cap-detection used at install time (#119) and surfaced
+ * by `outdated` (#136). Given the set of constraints on a single repo and
+ * a candidate `version`, return the formatted sibling constraints that
+ * would reject it. `*` constraints are skipped (they cap nothing).
+ * `selfName` excludes the dep being checked from its own sibling list.
+ */
+export function findCappingSiblings(
+	constraints: Array<{ name: string; constraint: string }>,
+	version: string,
+	selfName?: string,
+): string[] {
+	return constraints
+		.filter((c) => c.name !== selfName && c.constraint !== "*")
+		.filter((c) => !semver.satisfies(version, c.constraint))
+		.map((c) => `${c.name}@${c.constraint}`);
+}
