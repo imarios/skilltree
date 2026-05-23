@@ -215,7 +215,7 @@ describe("packs — local pack errors", () => {
 		expect(result.errors.some((e) => /collides/.test(e))).toBe(true);
 	});
 
-	test("I4 — unreferenced local pack → non-blocking warning", async () => {
+	test("I4 — unreferenced local pack with other pack refs → non-blocking warning", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-packs-i4-"));
 		const origin = await createTestRepo(
 			tempDir,
@@ -225,7 +225,11 @@ describe("packs — local pack errors", () => {
 		);
 
 		const manifest: Manifest = {
-			packs: { unused: [{ repo: `file://${origin}`, path: "foo", version: "*" }] },
+			packs: {
+				unused: [{ repo: `file://${origin}`, path: "foo", version: "*" }],
+				used: [{ repo: `file://${origin}`, path: "foo", version: "*" }],
+			},
+			dependencies: { used: { pack: "used" } },
 		};
 
 		const result = await resolveAll(manifest, tempDir);
@@ -233,6 +237,28 @@ describe("packs — local pack errors", () => {
 		expect(result.warnings.some((w) => /"unused"/.test(w) && /never referenced/.test(w))).toBe(
 			true,
 		);
+	});
+
+	test("I5 — publisher repo (packs defined, no pack refs) → no 'never referenced' warning (issue #145)", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-packs-i5-"));
+		const origin = await createTestRepo(
+			tempDir,
+			"origin",
+			[{ path: "foo", name: "foo" }],
+			"v1.0.0",
+		);
+
+		// Manifest defines packs for downstream consumers but doesn't reference
+		// any pack itself — the canonical publisher pattern.
+		const manifest: Manifest = {
+			packs: {
+				"published-pack": [{ repo: `file://${origin}`, path: "foo", version: "*" }],
+			},
+		};
+
+		const result = await resolveAll(manifest, tempDir);
+		expect(result.errors).toEqual([]);
+		expect(result.warnings.some((w) => /never referenced/.test(w))).toBe(false);
 	});
 });
 

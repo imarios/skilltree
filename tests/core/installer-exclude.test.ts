@@ -250,3 +250,146 @@ describe("installer — exclude applied when copying from git cache (issue #139)
 		expect(existsSync(join(targetPath, "experiments/a/SKILL.md"))).toBe(true);
 	});
 });
+
+describe("installer — origin's .skilltreeignore applied to remote installs (issue #148)", () => {
+	test("origin's .skilltreeignore filters blobs when consumer installs as a remote dep", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(
+			dir,
+			"origin",
+			[{ path: "skills/foo", name: "foo" }],
+			undefined,
+		);
+		await writeFile(join(repoDir, "skills/foo/keep.md"), "keep\n", "utf-8");
+		await writeFile(join(repoDir, "skills/foo/notes.scratch"), "scratch\n", "utf-8");
+		await mkdir(join(repoDir, "skills/foo/sub"), { recursive: true });
+		await writeFile(join(repoDir, "skills/foo/sub/inner.scratch"), "deep scratch\n", "utf-8");
+		await writeFile(join(repoDir, ".skilltreeignore"), "**/*.scratch\n", "utf-8");
+		const git = simpleGit(repoDir);
+		await git.add(".");
+		await git.commit("Add .skilltreeignore and scratch files");
+		await git.addTag("v1.0.0");
+
+		const bareDir = join(dir, "bare");
+		await simpleGit().clone(repoDir, bareDir, ["--bare"]);
+
+		const installBase = join(dir, ".claude");
+		const targetPath = join(installBase, "skills", "foo");
+		const entity: ResolvedEntity = {
+			key: "foo",
+			name: "foo",
+			type: "skill",
+			group: "prod",
+			repo: "github.com/test/origin",
+			path: "skills/foo",
+			version: "1.0.0",
+			tag: "v1.0.0",
+			commit: "deadbeef",
+			local: false,
+			dependencies: [],
+			cachePath: bareDir,
+		};
+
+		const plan = {
+			toInstall: [{ entity, action: "copy" as const, targetPath }],
+			skipped: [],
+			warnings: [],
+		};
+		await executeInstall(plan, dir, { installPath: installBase, force: true });
+
+		expect(existsSync(join(targetPath, "SKILL.md"))).toBe(true);
+		expect(existsSync(join(targetPath, "keep.md"))).toBe(true);
+		expect(existsSync(join(targetPath, "notes.scratch"))).toBe(false);
+		expect(existsSync(join(targetPath, "sub/inner.scratch"))).toBe(false);
+	});
+
+	test("origin's .skilltreeignore layers with per-entity exclude (union of patterns)", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(
+			dir,
+			"origin",
+			[{ path: "skills/foo", name: "foo" }],
+			undefined,
+		);
+		await writeFile(join(repoDir, "skills/foo/keep.md"), "keep\n", "utf-8");
+		await writeFile(join(repoDir, "skills/foo/notes.scratch"), "scratch\n", "utf-8");
+		await mkdir(join(repoDir, "skills/foo/experiments"), { recursive: true });
+		await writeFile(join(repoDir, "skills/foo/experiments/e.md"), "exp\n", "utf-8");
+		await writeFile(join(repoDir, ".skilltreeignore"), "**/*.scratch\n", "utf-8");
+		const git = simpleGit(repoDir);
+		await git.add(".");
+		await git.commit("Add .skilltreeignore + experiments");
+		await git.addTag("v1.0.0");
+
+		const bareDir = join(dir, "bare");
+		await simpleGit().clone(repoDir, bareDir, ["--bare"]);
+
+		const installBase = join(dir, ".claude");
+		const targetPath = join(installBase, "skills", "foo");
+		const entity: ResolvedEntity = {
+			key: "foo",
+			name: "foo",
+			type: "skill",
+			group: "prod",
+			repo: "github.com/test/origin",
+			path: "skills/foo",
+			version: "1.0.0",
+			tag: "v1.0.0",
+			commit: "deadbeef",
+			local: false,
+			dependencies: [],
+			cachePath: bareDir,
+			exclude: ["experiments/"],
+		};
+
+		const plan = {
+			toInstall: [{ entity, action: "copy" as const, targetPath }],
+			skipped: [],
+			warnings: [],
+		};
+		await executeInstall(plan, dir, { installPath: installBase, force: true });
+
+		expect(existsSync(join(targetPath, "SKILL.md"))).toBe(true);
+		expect(existsSync(join(targetPath, "keep.md"))).toBe(true);
+		expect(existsSync(join(targetPath, "notes.scratch"))).toBe(false);
+		expect(existsSync(join(targetPath, "experiments"))).toBe(false);
+	});
+
+	test("no .skilltreeignore in origin → every blob still copied (regression guard)", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(
+			dir,
+			"origin",
+			[{ path: "skills/foo", name: "foo" }],
+			"v1.0.0",
+		);
+		const bareDir = join(dir, "bare");
+		await simpleGit().clone(repoDir, bareDir, ["--bare"]);
+
+		const installBase = join(dir, ".claude");
+		const targetPath = join(installBase, "skills", "foo");
+		const entity: ResolvedEntity = {
+			key: "foo",
+			name: "foo",
+			type: "skill",
+			group: "prod",
+			repo: "github.com/test/origin",
+			path: "skills/foo",
+			version: "1.0.0",
+			tag: "v1.0.0",
+			commit: "deadbeef",
+			local: false,
+			dependencies: [],
+			cachePath: bareDir,
+		};
+
+		const plan = {
+			toInstall: [{ entity, action: "copy" as const, targetPath }],
+			skipped: [],
+			warnings: [],
+		};
+		await executeInstall(plan, dir, { installPath: installBase, force: true });
+
+		expect(existsSync(join(targetPath, "SKILL.md"))).toBe(true);
+	});
+});

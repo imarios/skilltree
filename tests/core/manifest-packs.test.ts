@@ -500,6 +500,24 @@ dependencies:
 		);
 	});
 
+	test("D3.a.i — R8 collision error suggests a -pack suffix as a rename hint (issue #144)", () => {
+		const m = parseManifest(`
+packs:
+  elastic-architect:
+    - repo: a
+      path: foo
+dependencies:
+  elastic-architect:
+    repo: b
+    path: bar
+`);
+		const errors = validateManifest(m);
+		const r8 = errors.find((e) => /elastic-architect/.test(e) && /packs:/.test(e));
+		expect(r8).toBeDefined();
+		// Names a concrete renamed alternative the publisher can use:
+		expect(r8).toMatch(/elastic-architect-pack/);
+	});
+
 	test("D3.b — packs.X with matching pack ref is fine", () => {
 		const m = parseManifest(`
 packs:

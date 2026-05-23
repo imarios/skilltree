@@ -100,6 +100,65 @@ dependencies:
     pack: my-stack
 ```
 
+## Publishing Patterns
+
+When a repository **defines** packs for downstream consumers (instead of, or in addition to, consuming them), three details bite the first time around. The spec rules don't change — these are conventions on top of them.
+
+### Suffix the bundle alias when it would collide with a local skill
+
+R8 (parse-time) rejects a manifest where `packs.<name>` and a non-pack `dependencies.<name>` share a key. Publisher repos hit this whenever the natural pack name matches a skill they also expose locally — e.g. an `elastic-architect` skill that the maintainer wants to bundle under the same name.
+
+Resolve it by suffixing the **bundle alias** (members keep their original names):
+
+```yaml
+# instead of `elastic-architect:` (collides with the local dep of the same name)
+packs:
+  elastic-architect-pack:
+    - repo: https://github.com/marios-oss/elastic-skills
+      name: elastic-architect
+      version: "*"
+```
+
+`-pack` is the recommended suffix; `-bundle` is fine too. The R8 error message names both options as fix-it hints.
+
+### Use `name:` to set a member's identifier when `path:` is absent or misleading
+
+Pack members are a YAML list, so each member needs its own identifier. The resolver derives the key as follows (first match wins): `name:` → `basename(path)` → `basename(local)`. Two cases force you to set `name:`:
+
+1. **`basename(path)` doesn't match the skill's published name.** If your skill lives at `plugins/kibana/skills/agent-builder` but is published as `kibana-agent-builder`, you must set `name:` so the installer finds the right entity:
+
+   ```yaml
+   - repo: https://github.com/elastic/agent-skills
+     name: kibana-agent-builder
+     path: plugins/kibana/skills/agent-builder
+     version: "*"
+   ```
+
+2. **You're using the self-referential `repo:` pattern with no explicit `path:`** (see next section). With no `path:` and no `local:`, the resolver has nothing to derive a key from — set `name:` or you'll get *"Pack member has no derivable name."*
+
+### Self-reference your own repo to ship locally-defined skills in a remote pack
+
+Remote packs reject `local:` members — a relative path is meaningless on the consumer's filesystem, and an absolute path is worse. The workaround: declare a member that points back at the publishing repo using `repo:`. When a consumer installs the pack, the resolver fetches the repo (the same one that defined the pack), reads origin's `skilltree.yml` to find `<name>`, and installs the matching skill.
+
+```yaml
+# In the publisher's skilltree.yml — bundles a locally-defined skill into a remote pack
+packs:
+  elastic-stack:
+    - repo: https://github.com/marios-oss/elastic-skills
+      name: esql-details
+      version: "*"
+```
+
+A few behavioral subtleties worth knowing:
+
+- Members are installed **as copies from the bare cache**, not symlinks. The maintainer's working-tree edits aren't visible to consumers until a new tag is published.
+- The self-referential version `"*"` picks up whatever the latest tag is — pin to a specific version for stability.
+- The `name:` field is mandatory in this shape (per the previous section), because origin-manifest resolution supplies the `path:` rather than the pack member declaring it.
+
+### The "pack defined but never referenced" warning
+
+A publisher manifest that defines packs but doesn't consume them itself **does not** trigger the unreferenced-pack warning — that warning fires only when the manifest references at least one pack and one definition is orphaned (typo, rename, dead code). On a pure publisher manifest, every pack is "unreferenced" by design and the resolver stays silent.
+
 ## Constraints
 
 - **No new file type.** Packs are a `skilltree.yml` section; this keeps the manifest the single source of truth.

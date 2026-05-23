@@ -505,19 +505,28 @@ function validatePacksSection(manifest: Manifest, errors: string[]): void {
 		// Collision: a pack named `X` and a non-pack `dependencies.X` shares a
 		// resolved name space. The resolver would either silently shadow one or
 		// surface a confusing duplicate. Catch it here with a fix-it hint.
+		// The `-pack` / `-bundle` suffix is the publisher-repo convention
+		// (#144) — publisher repos that consume their own skills locally hit
+		// this rule most often and need a concrete rename to suggest.
 		const directEntry = manifest.dependencies?.[packName];
 		if (directEntry && !isPackDependency(directEntry)) {
-			errors.push(
-				`"${packName}" is defined under \`packs:\` but dependencies.${packName} is a skill/agent/command entry — use \`pack: ${packName}\` to reference the pack, or rename one.`,
-			);
+			errors.push(formatPackCollisionError(packName, "dependencies"));
 		}
 		const devEntry = manifest["dev-dependencies"]?.[packName];
 		if (devEntry && !isPackDependency(devEntry)) {
-			errors.push(
-				`"${packName}" is defined under \`packs:\` but dev-dependencies.${packName} is a skill/agent/command entry — use \`pack: ${packName}\` to reference the pack, or rename one.`,
-			);
+			errors.push(formatPackCollisionError(packName, "dev-dependencies"));
 		}
 	}
+}
+
+function formatPackCollisionError(
+	packName: string,
+	group: "dependencies" | "dev-dependencies",
+): string {
+	return (
+		`"${packName}" is defined under \`packs:\` but ${group}.${packName} is a skill/agent/command entry — use \`pack: ${packName}\` to reference the pack, ` +
+		`or rename the pack (publisher convention: \`${packName}-pack\` or \`${packName}-bundle\`).`
+	);
 }
 
 /**

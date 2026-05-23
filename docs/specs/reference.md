@@ -123,8 +123,10 @@ A pack reference may not carry `path`, `type`, `name`, `force_path`, or `local`.
 
 - Members are full dep entries with the same shape as direct deps (no bare names).
 - A member may not itself be a `pack:` entry in v1 (nested packs deferred).
-- Local-path members (`local:`) in a **remote** pack must be relative; absolute paths are rejected (they would point at the pack author's filesystem).
+- Local-path members (`local:`) in a **remote** pack must be relative; absolute paths are rejected (they would point at the pack author's filesystem). To bundle locally-defined skills into a remote pack, use the self-referential `repo:` pattern — see "Publishing Patterns" in [packs.md](packs.md).
 - Members may be drawn from multiple repos.
+
+**Member identifier (`deriveMemberKey`):** the resolver derives the key by first match — `name:` → `basename(path)` → `basename(local)`. Set `name:` explicitly when the path basename doesn't match the published skill name, or when the member has neither `path:` nor `local:` (self-referential `repo:` pattern).
 
 **Error matrix:**
 
@@ -134,10 +136,11 @@ A pack reference may not carry `path`, `type`, `name`, `force_path`, or `local`.
 | Remote manifest has no `packs:` / missing the pack | Resolver error names repo + ref + pack name. |
 | Pack member collides with a consumer-declared dep | Resolver error names both sides. No silent merge. |
 | Two packs share a member | Same collision error. |
-| `packs.X` + non-pack `dependencies.X` (same key) | Parse-time error with fix-it hint. |
+| `packs.X` + non-pack `dependencies.X` (same key) | Parse-time error names both sides and suggests `pack: X` or a `-pack` / `-bundle` rename. |
 | `PackDependency` with `path`/`type`/`name`/`local`/`force_path` | Parse-time error names the field. |
 | `PackDependency` with `version` and no `repo`/`source` | Parse-time error. |
-| Local pack defined but never referenced | Non-blocking warning. |
+| Pack member has no derivable name (no `name:`, `path:`, or `local:`) | Resolver error names the pack. |
+| Local pack defined but never referenced (manifest also references at least one pack) | Non-blocking warning. Pure publisher manifests — packs defined, no pack refs — are silent. |
 
 A pack is never registered as an entity — only its expanded members appear in `state.entities` and the lockfile. See [packs.md](packs.md) for the full spec.
 
