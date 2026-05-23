@@ -13,7 +13,12 @@ Set LetterSpacing 0
 Set Padding 20
 Set TypingSpeed 35ms
 
-# --- Hidden setup: clean HOME so registries start empty ---
+# --- Hidden setup: clean HOME so registries start empty.
+# We also pre-run `skilltree teach` to mirror a returning user's
+# state — the bundled skilltree skill is a one-time global install,
+# not something `skilltree install` (re)does per project. Without
+# this, Scene 8's doctor would warn about a missing skill that a
+# real user wouldn't actually be missing.
 
 Hide
 Type "export DEMO_HOME=$(mktemp -d)"
@@ -21,6 +26,8 @@ Enter
 Type "mkdir -p $DEMO_HOME/.claude $DEMO_HOME/.cursor"
 Enter
 Type "export HOME=$DEMO_HOME"
+Enter
+Type "skilltree teach >/dev/null 2>&1"
 Enter
 Type "cd $(mktemp -d)"
 Enter
