@@ -92,6 +92,12 @@ interface ListRow {
 	source: string;
 	/** Resolved commit SHA — present for remote deps, omitted for `source: local`. */
 	commit?: string;
+	/**
+	 * Consumer-side pack attribution (#153). Populated only for entries
+	 * injected by a pack expansion; rendered as the "Via Pack" column in
+	 * text mode and as `viaPack` in --json output.
+	 */
+	viaPack?: string;
 }
 
 /** Short SHA convention used elsewhere in the codebase (see graph.ts install warnings). */
@@ -129,6 +135,14 @@ function buildRows(lockfile: Lockfile): ListRow[] {
 		if (entry.source !== "local" && entry.commit) {
 			row.commit = entry.commit;
 		}
+		// #153: only attach viaPack when present so direct deps stay clean in
+		// JSON output and the column-presence check in `printProjectTable`
+		// can use a plain `=== undefined` test. Presence check per the
+		// hardening pattern — a hand-edited `via_pack: ""` flows through
+		// unchanged so the bad data is visible rather than silently dropped.
+		if (entry.via_pack !== undefined) {
+			row.viaPack = entry.via_pack;
+		}
 		return row;
 	});
 }
@@ -143,19 +157,28 @@ const VERSION_COL: ColumnDef<ListRow> = {
 	color: pc.green,
 };
 const SOURCE_COL: ColumnDef<ListRow> = { header: "Source", value: (r) => r.source, color: dim };
+const VIA_PACK_COL: ColumnDef<ListRow> = {
+	header: "Via Pack",
+	value: (r) => r.viaPack ?? "—",
+	color: pc.magenta,
+};
 
 function printGlobalTable(rows: ListRow[]): void {
 	printTable(rows, [NAME_COL, TYPE_COL, VERSION_COL, SOURCE_COL]);
 }
 
 async function printProjectTable(rows: ListRow[], dir: string, globalDir: string): Promise<void> {
-	printTable(rows, [
+	// #153: only show the Via Pack column when at least one row has pack
+	// attribution. Projects that don't use packs stay visually unchanged.
+	const hasPackAttribution = rows.some((r) => r.viaPack !== undefined);
+	const columns: ColumnDef<ListRow>[] = [
 		NAME_COL,
 		TYPE_COL,
 		{ header: "Group", value: (r) => r.group, color: dim },
-		VERSION_COL,
-		SOURCE_COL,
-	]);
+	];
+	if (hasPackAttribution) columns.push(VIA_PACK_COL);
+	columns.push(VERSION_COL, SOURCE_COL);
+	printTable(rows, columns);
 
 	// Vendor mode indicator
 	try {

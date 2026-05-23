@@ -81,6 +81,12 @@ describe("e2e packs", () => {
 		expect(lock.packages.bar).toBeDefined();
 		expect(lock.packages.baz).toBeDefined();
 		expect(lock.packages["python-pack"]).toBeUndefined();
+
+		// #153: each expanded member carries the consumer's yaml key for the
+		// pack so `list` can render the "Via Pack" column.
+		expect(lock.packages.foo?.via_pack).toBe("python-pack");
+		expect(lock.packages.bar?.via_pack).toBe("python-pack");
+		expect(lock.packages.baz?.via_pack).toBe("python-pack");
 	});
 
 	test("remote pack: install reads pack from origin manifest and installs members", async () => {
@@ -138,5 +144,9 @@ describe("e2e packs", () => {
 		expect(lock.packages.foo).toBeDefined();
 		expect(lock.packages.bar).toBeDefined();
 		expect(lock.packages["python-pack"]).toBeUndefined();
+
+		// #153: members of a remote pack also record consumer-side attribution.
+		expect(lock.packages.foo?.via_pack).toBe("python-pack");
+		expect(lock.packages.bar?.via_pack).toBe("python-pack");
 	});
 });

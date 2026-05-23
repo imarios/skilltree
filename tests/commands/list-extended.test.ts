@@ -229,6 +229,125 @@ describe("listCommand extended", () => {
 		expect(joined).not.toMatch(/Defined packs/i);
 	});
 
+	test("consumer: text output shows 'Via Pack' column when pack-attributed entries exist (#153)", async () => {
+		// Resolver expands packs into N flat members before writing the lockfile.
+		// Without the via_pack column the consumer can't tell which top-level
+		// pack reference each row came from.
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-viapack-"));
+		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
+		await writeFile(
+			join(tempDir, "skilltree.lock"),
+			[
+				"lockfile_version: 1",
+				"packages:",
+				"  elastic-architect:",
+				"    type: skill",
+				"    group: prod",
+				"    repo: github.com/marios-oss/elastic-skills",
+				"    path: skills/elastic-architect",
+				"    version: 0.1.5",
+				"    commit: abc1234",
+				"    via_pack: elastic-stack",
+				"    dependencies: []",
+				"  esql-details:",
+				"    type: skill",
+				"    group: prod",
+				"    repo: github.com/marios-oss/elastic-skills",
+				"    path: skills/esql-details",
+				"    version: 0.1.5",
+				"    commit: abc1234",
+				"    via_pack: elastic-stack",
+				"    dependencies: []",
+				"  standalone:",
+				"    type: skill",
+				"    group: prod",
+				"    repo: github.com/user/skills",
+				"    path: skills/standalone",
+				"    version: 1.0.0",
+				"    commit: def5678",
+				"    dependencies: []",
+				"",
+			].join("\n"),
+		);
+
+		const { logs, restore } = captureConsole();
+		try {
+			await listCommand(tempDir);
+		} finally {
+			restore();
+		}
+
+		const joined = logs.join("\n");
+		expect(joined).toMatch(/Via Pack/);
+		// Pack-injected rows surface the pack name; the standalone row stays blank.
+		const elasticRow = logs.find((l) => l.includes("elastic-architect"));
+		expect(elasticRow).toMatch(/elastic-stack/);
+		const standaloneRow = logs.find((l) => l.includes("standalone"));
+		expect(standaloneRow).not.toMatch(/elastic-stack/);
+	});
+
+	test("consumer: text output omits 'Via Pack' column when no entry has via_pack (#153)", async () => {
+		// Don't clutter the table for projects that don't use packs at all.
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-noviapack-"));
+		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
+		await writeFile(join(tempDir, "skilltree.lock"), LOCKFILE_WITH_DEPS);
+
+		const { logs, restore } = captureConsole();
+		try {
+			await listCommand(tempDir);
+		} finally {
+			restore();
+		}
+		const joined = logs.join("\n");
+		expect(joined).not.toMatch(/Via Pack/);
+	});
+
+	test("--json: pack-attributed rows include viaPack field; others omit it (#153)", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-viapack-json-"));
+		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
+		await writeFile(
+			join(tempDir, "skilltree.lock"),
+			[
+				"lockfile_version: 1",
+				"packages:",
+				"  elastic-architect:",
+				"    type: skill",
+				"    group: prod",
+				"    repo: github.com/marios-oss/elastic-skills",
+				"    path: skills/elastic-architect",
+				"    version: 0.1.5",
+				"    commit: abc1234",
+				"    via_pack: elastic-stack",
+				"    dependencies: []",
+				"  standalone:",
+				"    type: skill",
+				"    group: prod",
+				"    repo: github.com/user/skills",
+				"    path: skills/standalone",
+				"    version: 1.0.0",
+				"    commit: def5678",
+				"    dependencies: []",
+				"",
+			].join("\n"),
+		);
+
+		const { logs, restore } = captureConsole();
+		try {
+			await listCommand(tempDir, { json: true });
+		} finally {
+			restore();
+		}
+
+		const json = JSON.parse(logs.join("")) as Array<{ name: string; viaPack?: string }>;
+		const elastic = json.find((r) => r.name === "elastic-architect");
+		const standalone = json.find((r) => r.name === "standalone");
+		expect(elastic?.viaPack).toBe("elastic-stack");
+		expect(standalone).toBeDefined();
+		expect(standalone?.viaPack).toBeUndefined();
+		// Back-compat: output is still a bare array, not an object wrapper.
+		expect(Array.isArray(json)).toBe(true);
+	});
+
 	test("--json includes commit field and omits '-' version for unpinned remote dep (issue #76)", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-"));
 		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");

@@ -120,6 +120,13 @@ export interface LockfileEntry {
 	integrity?: string;
 	name?: string;
 	dependencies: string[];
+	/**
+	 * Consumer-side pack attribution (#153). When this entry was injected by
+	 * expanding a `pack:` reference, holds the consumer's yaml key for that
+	 * pack. Omitted for directly-declared deps. Read by `list` to surface a
+	 * "Via Pack" column; never used in the install path.
+	 */
+	via_pack?: string;
 }
 
 export interface Lockfile {

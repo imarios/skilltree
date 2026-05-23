@@ -54,6 +54,15 @@ export function buildLockfile(
 			entry.name = entity.name;
 		}
 
+		// #153: persist pack provenance so `list` can render the consumer-side
+		// "Via Pack" column. The resolver expands packs into N flat entries
+		// before the lockfile is written, so without this field the attribution
+		// is lost by the time `list` reads back. Presence check, per the
+		// hardening pattern — direct deps leave the field unset, not "".
+		if (entity.viaPack !== undefined) {
+			entry.via_pack = entity.viaPack;
+		}
+
 		packages[entity.key] = entry;
 	}
 
