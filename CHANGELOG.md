@@ -1,3 +1,9 @@
+## v0.36.4 (2026-05-23)
+
+### Fix
+
+- **installer**: apply origin's exclude: rules when installing remote deps (#142)
+
 ## v0.36.3 (2026-05-21)
 
 ### Fix
