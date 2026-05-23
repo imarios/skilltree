@@ -26,12 +26,17 @@ Realistic integration tests that create actual git repos, run real commands, and
 - [x] Lifecycle e2e test — init → add → install → verify → update → remove → verify (1 test, 21 assertions)
 - [x] Edge case e2e tests — diamond deps, mixed skill+agent, version conflict, --prod --frozen --install-path, orphan cascade, tagless repo, re-install after remove, deep cross-repo chain, empty manifest (10 tests)
 
-## Phase 3: Bundled-bugfix sweep (2026-05-23)
+## Phase 3: Bundled-bugfix sweep (2026-05-23) ✅ COMPLETE
 
-Single PR bundling four independent bugfixes, one commit per issue. No new spec — each issue carries its own reproduction.
+Shipped as PR #152 (squashed to commit f5bcfd3). Four independent bugfixes in four commits, single version bump. Follow-up #153 tracks the deferred consumer-side pack attribution from #143.
 
 ### Tasks
-- [ ] **#150** — `lsRemote` tests fail under `GIT_EDITOR=true`. Extend env-scrub in `src/core/git.ts` (currently strips `LC_ALL`/`LANG`) to also delete `GIT_EDITOR` and `GIT_PAGER` before spawning. lsRemote is a non-interactive probe; it has no business inheriting editor config.
-- [ ] **#138** — `doctor` doesn't audit `.gitignore` drift. Add `checkGitignore` (warn-level) that diffs `getSkillAgentIgnoreEntriesForTarget(target)` against on-disk `.gitignore` for every entry in `install_targets`. Skip in `--global` mode. Reuses the same helper `init`/`targets` write, so the check can't drift from the writer.
-- [ ] **#143** — `list` is blind to pack definitions on the publisher side. Add a "Defined packs" section to `list` output when `manifest.packs` is non-empty. Consumer-side pack attribution (Via Pack column) deferred — needs `pack_resolutions:` in the lockfile, which was explicitly deferred in the Oxygen spec. Follow-up issue files cross-link.
-- [ ] **#72** — `targets remove` doesn't clean up installed artifacts + 2 install-time housekeeping bugs. (a) `targets remove` deletes the resolved target's `skills/`/`agents/`/`commands/` subdirs (with `--keep-files` opt-out and shared-dir guard). (b) `install` only `mkdir`s for agents listed in `install_targets`. (c) "already installed" warning only fires on integrity mismatch, not on clean idempotent re-install.
+- [x] **#150** — Scrubbed `GIT_EDITOR`/`GIT_PAGER` from the `lsRemote` spawn env. Forward-looking guard against simple-git 3.36+'s `allowUnsafeEditor` check.
+- [x] **#138** — New doctor check `gitignore` (warn-level, D25). Diffs `getSkillAgentIgnoreEntriesForTarget(target)` against on-disk `.gitignore` per `install_targets` entry. Skipped under `--global`. Spec: `docs/specs/doctor.md` v1.2.
+- [x] **#143** — Publisher half: `list` now prints a "Defined packs" footer when manifest has a non-empty `packs:`. Consumer half deferred → follow-up #153 (needs `pack_resolutions:` in lockfile).
+- [x] **#72** — `targets remove` deletes the target's installed dir (+ `--keep-files` opt-out, shared-dir guard via `canonicalPath`); `executeInstall` no longer over-mkdir's the default `.claude/` triad; idempotent re-install at the same commit is silent. Spec: `docs/specs/multi-agent.md` R13 updated.
+
+### Retro
+- TDD worked cleanly for #138, #143, #72. For #150 the bug isn't reproducible against the pinned simple-git 3.33; shipped as defensive hygiene with a forward-looking regression guard and an explicit note in the commit + test comment.
+- The biome auto-formatter ran post-commit-hook three times; cycle is fine but means most fixes need two commit attempts (commit → format → commit).
+- One inverted regression test (`command-type.test.ts`) replaced a "stable layout" assertion with the new "create only what the plan asks for" contract — captured in the same commit as the underlying fix so the contract change is reviewable.
