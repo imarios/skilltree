@@ -147,3 +147,14 @@ Enter
 Type "# Added 1 skill, got 2 — works across Claude Code, Cursor, Codex, and more"
 Enter
 Sleep 3s
+
+# Bottom padding — the player's play-button overlay sits at the bottom-center
+# of the final frame and obscures the last 2-3 lines. Push the real content
+# up with a few quiet blank prompts so the closing message stays readable.
+Type ""
+Enter
+Type ""
+Enter
+Type ""
+Enter
+Sleep 1.5s
