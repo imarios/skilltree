@@ -370,12 +370,12 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `skilltree verify` | Check installed files against lockfile |
 | `skilltree check` | Lint `skilltree.yml` for design-time issues (asymmetric publish, frontmatter) |
 | `skilltree doctor` | Preflight: schema + lint + lockfile sync + targets + gitignore + registries + frontmatter + bundled-skill freshness |
-| `skilltree list` | List installed dependencies |
+| `skilltree list` | List installed dependencies; appends a "Defined packs" footer for publisher repos with a non-empty `packs:` section |
 | `skilltree projects` | List skilltree-managed projects discoverable on this machine (read-only) |
 | `skilltree deps tree` | Show dependency tree |
 | `skilltree why <name>` | Reverse-lookup which top-level dep pulled in `<name>` |
 | `skilltree scan <paths...>` | Detect undeclared deps in skill body text |
-| `skilltree vendor` | Enter vendor mode (copy deps, commit to git) |
+| `skilltree vendor` | Enter vendor mode (copy deps, commit to git); requires `--target <name>` when multiple `install_targets` are configured |
 | `skilltree unvendor` | Exit vendor mode (restore symlinks + gitignore) |
 | `skilltree teach` | Install the skilltree skill to all detected coding agents |
 | `skilltree targets list` | Show detected and configured coding agents |

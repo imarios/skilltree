@@ -97,7 +97,7 @@ Type "skilltree deps tree"
 Enter
 Sleep 2s
 
-# --- Scene 7: Show installed files ---
+# --- Scene 7: Show install targets ---
 
 Type ""
 Enter
@@ -105,7 +105,31 @@ Type "# 7. Skills installed to every detected agent"
 Enter
 Sleep 500ms
 
-Type "ls .claude/skills/ .codex/skills/"
+Type "skilltree targets list"
+Enter
+Sleep 2s
+
+# --- Scene 8: Doctor — preflight health check ---
+
+Type ""
+Enter
+Type "# 8. Doctor — schema, lockfile, targets, gitignore, registries, frontmatter"
+Enter
+Sleep 500ms
+
+Type "skilltree doctor"
+Enter
+Sleep 3s
+
+# --- Scene 9: List installed deps ---
+
+Type ""
+Enter
+Type "# 9. List installed deps with versions + sources"
+Enter
+Sleep 500ms
+
+Type "skilltree list"
 Enter
 Sleep 2s
 
