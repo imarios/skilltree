@@ -229,7 +229,8 @@ export async function executeInstall(
 					repoIgnore,
 				});
 			} else if (entity.cachePath) {
-				await copyFromGitCache(entity, targetPath);
+				const entityIgnore = new IgnoreMatcher(entity.exclude ?? []);
+				await copyFromGitCache(entity, targetPath, entityIgnore);
 			}
 			await setReadOnly(targetPath);
 			integrityMap.set(entity.key, await computeIntegrity(targetPath));
@@ -356,8 +357,18 @@ function shouldExclude(src: string, sourcePath: string, ctx: CopyContext): boole
 
 /**
  * Copy files from git cache at a specific ref.
+ *
+ * For multi-file entities the optional `entityIgnore` filters blobs against
+ * the per-entity `exclude:` patterns the origin declared in its manifest
+ * (publication_surface.md §PS17 — applied symmetrically on the consumer
+ * side per issue #139). Single-file entities (agents, commands) skip the
+ * matcher: the file IS the entity, so there is nothing to filter inside.
  */
-async function copyFromGitCache(entity: ResolvedEntity, targetPath: string): Promise<void> {
+async function copyFromGitCache(
+	entity: ResolvedEntity,
+	targetPath: string,
+	entityIgnore?: IgnoreMatcher,
+): Promise<void> {
 	if (!entity.cachePath) return;
 
 	const ref = entity.tag ?? entity.commit;
@@ -370,7 +381,7 @@ async function copyFromGitCache(entity: ResolvedEntity, targetPath: string): Pro
 			await writeFile(targetPath, content, "utf-8");
 		} else {
 			await mkdir(targetPath, { recursive: true });
-			await copyTreeFromGit(entity.cachePath, ref, path, targetPath);
+			await copyTreeFromGit(entity.cachePath, ref, path, targetPath, entityIgnore);
 		}
 	} catch (cause) {
 		const refLabel = entity.tag ?? entity.commit.slice(0, 8);
@@ -385,12 +396,16 @@ async function copyFromGitCache(entity: ResolvedEntity, targetPath: string): Pro
 /**
  * Copy a directory tree from a git bare repo using a single `ls-tree -r`
  * call instead of recursive subprocess spawning.
+ *
+ * Optional `entityIgnore` filters blobs by their entity-relative path —
+ * the same matcher the local-copy path applies for `exclude:` rules.
  */
 async function copyTreeFromGit(
 	cachePath: string,
 	ref: string,
 	treePath: string,
 	targetDir: string,
+	entityIgnore?: IgnoreMatcher,
 ): Promise<void> {
 	const git = simpleGit(cachePath);
 
@@ -405,6 +420,10 @@ async function copyTreeFromGit(
 
 		const [, , relativePath] = match;
 		if (!relativePath) continue;
+
+		if (entityIgnore && !entityIgnore.isEmpty && entityIgnore.ignores(relativePath)) {
+			continue;
+		}
 
 		const itemPath = treePath === "." ? relativePath : `${treePath}/${relativePath}`;
 		const targetItemPath = join(targetDir, relativePath);

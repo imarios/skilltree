@@ -3,8 +3,10 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import simpleGit from "simple-git";
 import type { ResolvedEntity } from "../../src/core/graph.js";
 import { executeInstall } from "../../src/core/installer.js";
+import { createTestRepo } from "../helpers/git-fixtures.js";
 
 let tempDir: string;
 
@@ -148,5 +150,103 @@ describe("installer — exclude + .skilltreeignore (Carbon Phase 3)", () => {
 
 		expect(existsSync(join(dir, ".claude/skills/foo/SKILL.md"))).toBe(true);
 		expect(existsSync(join(dir, ".claude/skills/foo/experiments/x.md"))).toBe(true);
+	});
+});
+
+describe("installer — exclude applied when copying from git cache (issue #139)", () => {
+	test("per-entity exclude filters blobs read from the bare repo", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(
+			dir,
+			"origin",
+			[
+				{ path: "skills/foo", name: "foo" },
+				{ path: "skills/foo/experiments/a", name: "experiment-a" },
+				{ path: "skills/foo/experiments/b", name: "experiment-b" },
+				{ path: "skills/foo/docs/raw", name: "docs-raw" },
+			],
+			"v1.0.0",
+		);
+		await writeFile(join(repoDir, "skills/foo/keep.md"), "keep\n", "utf-8");
+		const git = simpleGit(repoDir);
+		await git.add(".");
+		await git.commit("Add keep.md");
+		await git.tag(["-d", "v1.0.0"]);
+		await git.addTag("v1.0.0");
+
+		const bareDir = join(dir, "bare");
+		await simpleGit().clone(repoDir, bareDir, ["--bare"]);
+
+		const installBase = join(dir, ".claude");
+		const targetPath = join(installBase, "skills", "foo");
+		const entity: ResolvedEntity = {
+			key: "foo",
+			name: "foo",
+			type: "skill",
+			group: "prod",
+			repo: "github.com/test/origin",
+			path: "skills/foo",
+			version: "1.0.0",
+			tag: "v1.0.0",
+			commit: "deadbeef",
+			local: false,
+			dependencies: [],
+			cachePath: bareDir,
+			exclude: ["experiments/", "docs/"],
+		};
+
+		const plan = {
+			toInstall: [{ entity, action: "copy" as const, targetPath }],
+			skipped: [],
+			warnings: [],
+		};
+		await executeInstall(plan, dir, { installPath: installBase, force: true });
+
+		expect(existsSync(join(targetPath, "SKILL.md"))).toBe(true);
+		expect(existsSync(join(targetPath, "keep.md"))).toBe(true);
+		expect(existsSync(join(targetPath, "experiments"))).toBe(false);
+		expect(existsSync(join(targetPath, "docs"))).toBe(false);
+	});
+
+	test("no exclude on remote entity → every blob is copied (regression guard)", async () => {
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(
+			dir,
+			"origin",
+			[
+				{ path: "skills/foo", name: "foo" },
+				{ path: "skills/foo/experiments/a", name: "experiment-a" },
+			],
+			"v1.0.0",
+		);
+		const bareDir = join(dir, "bare");
+		await simpleGit().clone(repoDir, bareDir, ["--bare"]);
+
+		const installBase = join(dir, ".claude");
+		const targetPath = join(installBase, "skills", "foo");
+		const entity: ResolvedEntity = {
+			key: "foo",
+			name: "foo",
+			type: "skill",
+			group: "prod",
+			repo: "github.com/test/origin",
+			path: "skills/foo",
+			version: "1.0.0",
+			tag: "v1.0.0",
+			commit: "deadbeef",
+			local: false,
+			dependencies: [],
+			cachePath: bareDir,
+		};
+
+		const plan = {
+			toInstall: [{ entity, action: "copy" as const, targetPath }],
+			skipped: [],
+			warnings: [],
+		};
+		await executeInstall(plan, dir, { installPath: installBase, force: true });
+
+		expect(existsSync(join(targetPath, "SKILL.md"))).toBe(true);
+		expect(existsSync(join(targetPath, "experiments/a/SKILL.md"))).toBe(true);
 	});
 });

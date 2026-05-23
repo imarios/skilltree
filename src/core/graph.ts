@@ -775,6 +775,8 @@ async function resolveRemoteEntity(
 		declaredIn,
 		cachePath: resolution.cachePath,
 	};
+	const originExclude = await readOriginExclude(entityName, resolution);
+	if (originExclude) entity.exclude = originExclude;
 	if (viaPack) entity.viaPack = viaPack;
 
 	registerEntity(entity, state);
@@ -860,6 +862,32 @@ async function readOriginManifestAtRef(cachePath: string, ref: string): Promise<
 		return await readFileAtRef(cachePath, ref, MANIFEST_NEW);
 	} catch {
 		return await readFileAtRef(cachePath, ref, MANIFEST_NEW_ALT);
+	}
+}
+
+/**
+ * Read origin's `exclude:` patterns for `entityName` from origin's manifest,
+ * or null if the manifest is missing, malformed, the entry doesn't declare
+ * `exclude:`, or the entry is not a local dependency (only `local:` entries
+ * support `exclude:` per publication_surface.md §PS6–PS8). Propagated onto
+ * the remote `ResolvedEntity` so the installer can filter blobs the same
+ * way it does for the local-copy path (issue #139, §PS17 applied symmetrically).
+ */
+async function readOriginExclude(
+	entityName: string,
+	resolution: RepoResolution,
+): Promise<string[] | null> {
+	const ref = resolution.tag ?? resolution.commit;
+	try {
+		const manifestContent = await readOriginManifestAtRef(resolution.cachePath, ref);
+		const originManifest = parseManifest(manifestContent);
+		const expanded = expandSources(originManifest);
+		const entry = expanded.dependencies?.[entityName];
+		if (!entry || !isLocalDependency(entry)) return null;
+		const exclude = entry.exclude;
+		return exclude && exclude.length > 0 ? [...exclude] : null;
+	} catch {
+		return null;
 	}
 }
 
