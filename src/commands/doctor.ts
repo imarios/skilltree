@@ -14,6 +14,7 @@ import pkg from "../../package.json" with { type: "json" };
 import { detectInstalledAgents, getAgentLabel, resolveAgentHome } from "../core/agents.js";
 import { parseFrontmatter } from "../core/frontmatter.js";
 import { type LsRemoteOutcome, lsRemote } from "../core/git.js";
+import { getSkillAgentIgnoreEntriesForTarget } from "../core/gitignore.js";
 import { diffManifestLockfile, readLockfile } from "../core/lockfile.js";
 import { loadManifestOrThrow, validateGlobalManifest, validateManifest } from "../core/manifest.js";
 import { listRegistries } from "../core/registry-config.js";
@@ -89,6 +90,7 @@ export async function runDoctor(dir: string, opts: DoctorOptions = {}): Promise<
 	checks.push(checkLint(summary, lintError, manifest));
 	checks.push(await checkLockfileSync(manifest, dir, isGlobal));
 	checks.push(await checkTargetConsistency(manifest, isGlobal));
+	checks.push(await checkGitignore(manifest, dir, isGlobal));
 	checks.push(await checkRegistryReachability(probe, opts.registryConfigPath));
 	checks.push(checkFrontmatter(summary, lintError, manifest));
 	checks.push(await checkBundledSkill(opts.homeDir));
@@ -256,6 +258,66 @@ async function checkTargetConsistency(
 			detail: err instanceof Error ? err.message : String(err),
 		};
 	}
+}
+
+/**
+ * Spec D25 (issue #138): audit `.gitignore` for entries the installer relies
+ * on. Each `install_targets` entry resolves to a `<dir>/skills/`,
+ * `<dir>/agents/`, `<dir>/commands/` trio that `init`/`targets add` writes
+ * into `.gitignore`. If those entries drift (user hand-edit, target added
+ * without re-running `init`), installed artifacts surface in `git status`
+ * and get silently committed.
+ *
+ * Warn-level — never fails the run (spec D20). Skipped under `--global`
+ * (the global home has no `.gitignore` story).
+ *
+ * Reuses `getSkillAgentIgnoreEntriesForTarget`, the same helper `init` and
+ * `targets` write through, so this check can't drift from the writer
+ * (regression guard for #32).
+ */
+async function checkGitignore(
+	manifest: Manifest | null,
+	dir: string,
+	isGlobal: boolean,
+): Promise<CheckResult> {
+	if (isGlobal) {
+		return { name: "gitignore", status: "skip", detail: "global mode" };
+	}
+	if (!manifest) {
+		return { name: "gitignore", status: "skip", detail: "no manifest" };
+	}
+	const targets = manifest.install_targets ?? [];
+	if (targets.length === 0) {
+		return { name: "gitignore", status: "pass" };
+	}
+	const expected = new Set<string>();
+	for (const target of targets) {
+		for (const entry of getSkillAgentIgnoreEntriesForTarget(target)) {
+			expected.add(entry);
+		}
+	}
+	let content = "";
+	try {
+		content = await readFile(join(dir, ".gitignore"), "utf-8");
+	} catch {
+		// Missing .gitignore — every expected entry counts as missing.
+	}
+	const present = new Set(
+		content
+			.split("\n")
+			.map((line) => line.trim())
+			.filter((line) => line.length > 0 && !line.startsWith("#")),
+	);
+	const missing = [...expected].filter((entry) => !present.has(entry));
+	if (missing.length === 0) {
+		return { name: "gitignore", status: "pass" };
+	}
+	return {
+		name: "gitignore",
+		status: "warn",
+		detail: `${missing.length} missing entr${missing.length === 1 ? "y" : "ies"}: ${missing.join(", ")}`,
+		fix: "Run `skilltree init` to refresh .gitignore",
+	};
 }
 
 /**

@@ -3,7 +3,7 @@ import { readGlobalLockfile, readLockfile } from "../core/lockfile.js";
 import { readManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
 import { type ColumnDef, dim, pc, printTable } from "../core/ui.js";
-import type { Lockfile } from "../types.js";
+import type { Lockfile, Manifest } from "../types.js";
 
 export interface ListOptions {
 	json?: boolean;
@@ -21,16 +21,25 @@ export async function listCommand(dir: string, opts?: ListOptions): Promise<void
 		throw new Error(`No ${MANIFEST_NEW} found. Run \`skilltree init\` first.`);
 	}
 
+	// Read manifest up front (project mode only) so we can render the
+	// publisher-side "Defined packs" footer (#143) regardless of whether the
+	// lockfile is empty. Global mode has no packs surface.
+	const manifest = !isGlobal ? await safeReadManifest(dir) : undefined;
+
 	if (!lockfile || Object.keys(lockfile.packages).length === 0) {
 		if (opts?.json) {
 			console.log("[]");
-			return;
+		} else {
+			console.log(
+				isGlobal
+					? "No global dependencies installed. Run `skilltree install --global`."
+					: "No dependencies installed. Run `skilltree install`.",
+			);
 		}
-		console.log(
-			isGlobal
-				? "No global dependencies installed. Run `skilltree install --global`."
-				: "No dependencies installed. Run `skilltree install`.",
-		);
+		// Publisher repos commonly define packs without installing them
+		// locally. Surface them even when the entity table is empty so
+		// maintainers can confirm what their repo publishes.
+		if (!opts?.json && manifest) printDefinedPacks(manifest);
 		return;
 	}
 
@@ -44,7 +53,34 @@ export async function listCommand(dir: string, opts?: ListOptions): Promise<void
 	if (isGlobal) {
 		printGlobalTable(rows);
 	} else {
-		printProjectTable(rows, dir, globalDir);
+		await printProjectTable(rows, dir, globalDir);
+		if (manifest) printDefinedPacks(manifest);
+	}
+}
+
+async function safeReadManifest(dir: string): Promise<Manifest | undefined> {
+	try {
+		return await readManifest(dir);
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Publisher-side pack visibility (#143). Renders one line per pack defined
+ * in `manifest.packs`, with its member count. No-op when packs is absent
+ * or empty. Consumer-side pack attribution (Via Pack column on member
+ * rows) is deferred — needs `pack_resolutions:` in the lockfile, which
+ * was explicitly future-work in the Oxygen spec.
+ */
+function printDefinedPacks(manifest: Manifest): void {
+	const packs = manifest.packs ?? {};
+	const entries = Object.entries(packs);
+	if (entries.length === 0) return;
+	console.log(pc.bold("\nDefined packs:"));
+	for (const [name, members] of entries) {
+		const count = members.length;
+		console.log(`  ${pc.cyan(name)}  ${dim(`${count} member${count === 1 ? "" : "s"}`)}`);
 	}
 }
 

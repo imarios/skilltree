@@ -43,6 +43,13 @@ export type LsRemoteOutcome =
  * appear regardless of the user's locale (issue #114). Also set
  * `GIT_TERMINAL_PROMPT=0` so a private-repo URL never blocks waiting
  * for credentials when ssh/key-helpers aren't configured.
+ *
+ * `GIT_EDITOR` and `GIT_PAGER` are stripped explicitly: lsRemote is a
+ * non-interactive probe and never opens an editor or paginates output.
+ * Inheriting them is harmless on current simple-git (3.33), but newer
+ * versions (3.36+) gate them behind `unsafe.allowUnsafeEditor` and
+ * refuse the spawn outright when the parent shell exports them — a
+ * common pattern in IDE terminals (issue #150).
  */
 export async function lsRemote(
 	url: string,
@@ -50,8 +57,9 @@ export async function lsRemote(
 ): Promise<LsRemoteOutcome> {
 	const timeoutMs = opts.timeoutMs ?? 5000;
 	const cloneUrl = toGitCloneUrl(url);
+	const { GIT_EDITOR: _editor, GIT_PAGER: _pager, ...safeEnv } = process.env;
 	const git = simpleGit().env({
-		...process.env,
+		...safeEnv,
 		LC_ALL: "C",
 		LANG: "C",
 		GIT_TERMINAL_PROMPT: "0",

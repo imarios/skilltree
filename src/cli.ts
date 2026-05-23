@@ -495,8 +495,15 @@ export function buildProgram(): Command {
 		.command("remove <target>")
 		.description("Remove an agent or path from install_targets")
 		.option("-g, --global", "Remove from global manifest")
+		.option(
+			"--keep-files",
+			"Leave installed artifacts on disk (keeps .gitignore entries so the orphan stays ignored)",
+		)
 		.action(async (target: string, opts) => {
-			await targetsRemoveCommand(target, process.cwd(), { global: opts.global });
+			await targetsRemoveCommand(target, process.cwd(), {
+				global: opts.global,
+				keepFiles: opts.keepFiles,
+			});
 		});
 
 	targets

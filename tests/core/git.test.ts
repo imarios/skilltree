@@ -75,6 +75,31 @@ describe("lsRemote", () => {
 		}
 	});
 
+	test("succeeds even when GIT_EDITOR/GIT_PAGER are inherited from the env (#150)", async () => {
+		// Issue #150: simple-git 3.36+ refuses to spawn when GIT_EDITOR is
+		// inherited from the parent env (`Use of "GIT_EDITOR" is not permitted
+		// without enabling allowUnsafeEditor`). This currently passes against
+		// our pinned 3.33 even without the env scrub — the test exists as a
+		// forward-looking regression guard for when we bump simple-git, and to
+		// pin the contract that lsRemote (a non-interactive probe) must never
+		// inherit interactive editor/pager config.
+		const dir = await makeTempDir();
+		const repoDir = await createTestRepo(dir, "editor-env", [{ path: "skills/a", name: "a" }]);
+		const originalEditor = process.env.GIT_EDITOR;
+		const originalPager = process.env.GIT_PAGER;
+		process.env.GIT_EDITOR = "true";
+		process.env.GIT_PAGER = "less";
+		try {
+			const outcome = await lsRemote(`file://${repoDir}`);
+			expect(outcome.ok).toBe(true);
+		} finally {
+			if (originalEditor === undefined) delete process.env.GIT_EDITOR;
+			else process.env.GIT_EDITOR = originalEditor;
+			if (originalPager === undefined) delete process.env.GIT_PAGER;
+			else process.env.GIT_PAGER = originalPager;
+		}
+	});
+
 	test("locale-independent: stderr stays English under a non-English LC_ALL (#114)", async () => {
 		// Issue #114: classification of git stderr (auth / unreachable / other)
 		// uses English substring matching. Without locale pinning, a French/

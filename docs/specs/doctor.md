@@ -1,9 +1,14 @@
 # Doctor — Preflight Health Check
 
 +++
-version = "1.1"
+version = "1.2"
 date = "2026-05-23"
 status = "active"
+
+[[changelog]]
+version = "1.2"
+date = "2026-05-23"
+summary = "Add gitignore drift check (D25, issue #138). Doctor warns when `.gitignore` is missing any of the entries that `init`/`targets add` would write for the declared `install_targets`, so hand-edited or stale .gitignore files surface before installed artifacts leak into commits. Skipped under `--global`."
 
 [[changelog]]
 version = "1.1"
@@ -62,6 +67,7 @@ Numbered for spec-to-phase traceability.
 - **D9 — Registry reachability**: For each registry in `~/.skilltree/config.yaml`, run `git ls-remote <url>` with a 5s timeout. Pass: all reachable. **Warn** (do not fail) when a registry requires auth and is skipped. Fail: surface the unreachable URL and the underlying error. When `--global` is set, this check still runs (registries are global config).
 - **D10 — Frontmatter validity**: Covered by D6 (the lint check already includes frontmatter validation). The doctor output lists it as a separate row for readability; internally it is the same check.
 - **D23 — Bundled-skill freshness** (Fluorine, 2026-05-23): For each agent detected on the user's machine (`detectInstalledAgents`), look up `<agent globalHome>/skills/skilltree/SKILL.md` and read its frontmatter `version`. Pass: all detected agents carry a `version` greater than or equal to the running CLI version. **Warn** (never fail) when any of: the file is missing, the file lacks a `version` field (legacy install predating Fluorine), or `semver.lt(installed, cliVersion)`. Skip when no agents are detected. Suggested fix string: `Run \`skilltree teach\` to install/update the skilltree skill`. The version is stamped into the materialized SKILL.md frontmatter at `materializeBundledSkill` time using the CLI's `package.json` version — the checked-in `skills/skilltree/SKILL.md` source carries no version. Runs in both project and `--global` mode (skill installation is global by nature).
+- **D25 — Gitignore drift** (2026-05-23, issue #138): For each entry in `install_targets`, compute the expected `.gitignore` entries via `getSkillAgentIgnoreEntriesForTarget` (the same helper `init`/`targets add` writes through) and diff against the on-disk `.gitignore`. Pass: every expected entry is present. **Warn** (never fail) when any entry is missing, listing each missing entry in the detail. Suggested fix: `Run \`skilltree init\` to refresh .gitignore`. Extra user-authored lines are ignored; only missing entries are flagged. Skipped under `--global` (the global home has no `.gitignore` story) and on `install_targets: []` (vacuous pass).
 
 ### Output — text mode (default)
 
