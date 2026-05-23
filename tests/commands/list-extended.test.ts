@@ -156,6 +156,79 @@ describe("listCommand extended", () => {
 		expect(dataRows.some((l) => / - /.test(l))).toBe(false);
 	});
 
+	test("publisher: lists defined packs in text output when manifest has packs: (#143)", async () => {
+		// Publisher repos define packs for downstream consumers without
+		// necessarily consuming the pack themselves. `list` previously read only
+		// the lockfile, so maintainers had no way to confirm what packs their
+		// repo publishes without grepping skilltree.yml. Show a footer listing
+		// each defined pack with its member count.
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-packs-"));
+		await writeFile(
+			join(tempDir, "skilltree.yml"),
+			[
+				"name: publisher",
+				"packs:",
+				"  my-stack:",
+				"    - local: ./skills/a",
+				"    - local: ./skills/b",
+				"  small-pack:",
+				"    - local: ./skills/c",
+				"",
+			].join("\n"),
+		);
+		await writeFile(join(tempDir, "skilltree.lock"), LOCKFILE_WITH_DEPS);
+
+		const { logs, restore } = captureConsole();
+		try {
+			await listCommand(tempDir);
+		} finally {
+			restore();
+		}
+		const joined = logs.join("\n");
+		expect(joined).toMatch(/Defined packs/i);
+		expect(joined).toMatch(/my-stack/);
+		expect(joined).toMatch(/small-pack/);
+		// Member counts are surfaced so maintainers can sanity-check expansion.
+		expect(joined).toMatch(/2 members?/);
+		expect(joined).toMatch(/1 member/);
+	});
+
+	test("publisher: empty lockfile still surfaces defined packs (#143)", async () => {
+		// Pure publisher repo — packs defined but nothing installed locally. The
+		// previous "No dependencies installed" early-return swallowed the packs
+		// summary entirely.
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-packs-empty-"));
+		await writeFile(
+			join(tempDir, "skilltree.yml"),
+			["name: pure-publisher", "packs:", "  only-pack:", "    - local: ./skills/x", ""].join("\n"),
+		);
+
+		const { logs, restore } = captureConsole();
+		try {
+			await listCommand(tempDir);
+		} finally {
+			restore();
+		}
+		const joined = logs.join("\n");
+		expect(joined).toMatch(/Defined packs/i);
+		expect(joined).toMatch(/only-pack/);
+	});
+
+	test("no packs: section → list output omits the Defined packs section (#143)", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-nopacks-"));
+		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
+		await writeFile(join(tempDir, "skilltree.lock"), LOCKFILE_WITH_DEPS);
+
+		const { logs, restore } = captureConsole();
+		try {
+			await listCommand(tempDir);
+		} finally {
+			restore();
+		}
+		const joined = logs.join("\n");
+		expect(joined).not.toMatch(/Defined packs/i);
+	});
+
 	test("--json includes commit field and omits '-' version for unpinned remote dep (issue #76)", async () => {
 		tempDir = await mkdtemp(join(tmpdir(), "skilltree-list-"));
 		await writeFile(join(tempDir, "skilltree.yml"), "name: test\n");
