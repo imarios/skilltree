@@ -85,6 +85,11 @@ describe("init auto-detection", () => {
 		});
 
 		expect(question).toContain("Include all?");
+		// The hint must not advertise indices the user can't pick. With 2
+		// detected agents the printed list is [1] / [2], so the hint should
+		// stay inside that range.
+		expect(question).toContain("1,2");
+		expect(question).not.toContain("1,3,5");
 		const manifest = await readManifest(dir);
 		expect(manifest.install_targets).toContain("claude");
 		expect(manifest.install_targets).toContain("codex");

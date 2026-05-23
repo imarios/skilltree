@@ -13,14 +13,21 @@ Set LetterSpacing 0
 Set Padding 20
 Set TypingSpeed 35ms
 
-# --- Hidden setup: clean HOME so registries start empty ---
+# --- Hidden setup: clean HOME so registries start empty.
+# We also pre-run `skilltree teach` to mirror a returning user's
+# state — the bundled skilltree skill is a one-time global install,
+# not something `skilltree install` (re)does per project. Without
+# this, Scene 8's doctor would warn about a missing skill that a
+# real user wouldn't actually be missing.
 
 Hide
 Type "export DEMO_HOME=$(mktemp -d)"
 Enter
-Type "mkdir -p $DEMO_HOME/.claude $DEMO_HOME/.codex"
+Type "mkdir -p $DEMO_HOME/.claude $DEMO_HOME/.cursor"
 Enter
 Type "export HOME=$DEMO_HOME"
+Enter
+Type "skilltree teach >/dev/null 2>&1"
 Enter
 Type "cd $(mktemp -d)"
 Enter
@@ -97,7 +104,7 @@ Type "skilltree deps tree"
 Enter
 Sleep 2s
 
-# --- Scene 7: Show installed files ---
+# --- Scene 7: Show install targets ---
 
 Type ""
 Enter
@@ -105,7 +112,31 @@ Type "# 7. Skills installed to every detected agent"
 Enter
 Sleep 500ms
 
-Type "ls .claude/skills/ .codex/skills/"
+Type "skilltree targets list"
+Enter
+Sleep 2s
+
+# --- Scene 8: Doctor — preflight health check ---
+
+Type ""
+Enter
+Type "# 8. Doctor — schema, lockfile, targets, gitignore, registries, frontmatter"
+Enter
+Sleep 500ms
+
+Type "skilltree doctor"
+Enter
+Sleep 3s
+
+# --- Scene 9: List installed deps ---
+
+Type ""
+Enter
+Type "# 9. List installed deps with versions + sources"
+Enter
+Sleep 500ms
+
+Type "skilltree list"
 Enter
 Sleep 2s
 
@@ -113,6 +144,17 @@ Sleep 2s
 
 Type ""
 Enter
-Type "# Added 1 skill, got 2 — works across Claude Code, Codex, and more"
+Type "# Added 1 skill, got 2 — works across Claude Code, Cursor, Codex, and more"
 Enter
 Sleep 3s
+
+# Bottom padding — the player's play-button overlay sits at the bottom-center
+# of the final frame and obscures the last 2-3 lines. Push the real content
+# up with a few quiet blank prompts so the closing message stays readable.
+Type ""
+Enter
+Type ""
+Enter
+Type ""
+Enter
+Sleep 1.5s

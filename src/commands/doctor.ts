@@ -465,7 +465,7 @@ function formatAgentState(s: AgentSkillState, cliVersion: string): string {
 	const label = getAgentLabel(s.agent) ?? s.agent;
 	switch (s.kind) {
 		case "missing":
-			return `${label}: not installed`;
+			return `${label}: skill missing`;
 		case "no-version":
 			return `${label}: predates version tracking`;
 		case "stale":

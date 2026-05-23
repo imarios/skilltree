@@ -1012,6 +1012,11 @@ describe("runDoctor — bundled-skill freshness (Fluorine)", () => {
 		expect(row?.status).toBe("warn");
 		expect(row?.detail ?? "").toMatch(/claude/i);
 		expect(row?.fix ?? "").toMatch(/skilltree teach/);
+		// The wording must not read as "the AGENT is not installed". The user
+		// is plainly using the agent (they're running skilltree doctor from
+		// inside it); what's missing is the skilltree SKILL for that agent.
+		expect(row?.detail ?? "").not.toMatch(/not installed/i);
+		expect(row?.detail ?? "").toMatch(/skill/i);
 		await rm(home, { recursive: true, force: true });
 	});
 

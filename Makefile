@@ -100,13 +100,18 @@ setup-bump: ## Post-bump variant of setup: binary + completions only, skips `tea
 demo: ## Record demo GIF + MP4 locally (no publish)
 	@command -v vhs >/dev/null || (echo "Error: vhs not installed. Run: brew install vhs"; exit 1)
 	@command -v ffmpeg >/dev/null || (echo "Error: ffmpeg not installed. Run: brew install ffmpeg"; exit 1)
+	@command -v gifsicle >/dev/null || (echo "Error: gifsicle not installed. Run: brew install gifsicle"; exit 1)
 	vhs demo/demo.tape
 	ffmpeg -y -i demo/demo.gif -movflags faststart -pix_fmt yuv420p \
 		-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" demo/demo.mp4
+	# GitHub camo proxy rejects images > ~5 MB with a silent 404 — README
+	# image stops rendering on the repo page. Compress in place so we stay
+	# safely under the limit no matter how the tape grows.
+	gifsicle -O3 --lossy=80 --colors 128 -b demo/demo.gif
 	@echo ""
 	@echo "  \033[32m✔\033[0m Recorded locally"
-	@echo "  GIF: demo/demo.gif"
-	@echo "  MP4: demo/demo.mp4"
+	@echo "  GIF: demo/demo.gif ($$(du -h demo/demo.gif | cut -f1))"
+	@echo "  MP4: demo/demo.mp4 ($$(du -h demo/demo.mp4 | cut -f1))"
 	@echo "  Run 'make gh-demo' to publish to GitHub Pages"
 
 gh-demo: demo ## Record demo and publish to GitHub Pages

@@ -167,7 +167,8 @@ async function initGlobal(globalDirOverride?: string): Promise<void> {
  *  4. Multiple detected + `--yes` → enrol all. Preserves the pre-#74 behaviour
  *     as an opt-in.
  *  5. Multiple detected + interactive (TTY or `askFn`) → prompt
- *     "Include all? [Y/n/1,3,5]".
+ *     "Include all? [Y/n/<sample indices>]" (sample sized to detected count
+ *     via `buildSelectionHint`).
  *  6. Multiple detected + non-interactive (CI / pipe) → default to `[claude]`.
  *     Reversible with `skilltree targets detect` later.
  *
@@ -241,7 +242,7 @@ async function promptForTargetSelection(agents: string[], ask: AskFn): Promise<s
 		idx++;
 	}
 	console.log("");
-	const answer = (await ask("Include all? [Y/n/1,3,5] ")).trim();
+	const answer = (await ask(`Include all? [${buildSelectionHint(agents.length)}] `)).trim();
 	return parseAgentSelectionAnswer(answer, agents);
 }
 
@@ -280,7 +281,7 @@ type AskFn = (question: string) => Promise<string>;
 
 async function promptForSelection(entries: LocalEntry[], ask: AskFn): Promise<LocalEntry[]> {
 	printDiscovered(entries);
-	const answer = (await ask("Include all? [Y/n/1,3,5] ")).trim();
+	const answer = (await ask(`Include all? [${buildSelectionHint(entries.length)}] `)).trim();
 	return parseSelectionAnswer(answer, entries);
 }
 
@@ -347,6 +348,24 @@ export function parseSelectionAnswer(answer: string, entries: LocalEntry[]): Loc
  * (scan discoveries) and `string[]` (agent enrolment). Empty-result handling
  * lives in the caller, not here.
  */
+/**
+ * Build the example-indices portion of the `Include all? [Y/n/...]` prompt.
+ * The "1,3,5" sample teaches the comma-separated subset grammar, but the
+ * indices have to actually exist in the printed list — otherwise users see
+ * `[1] / [2]` followed by a hint that suggests `3` and `5` are valid too.
+ *
+ * Strategy: walk odd indices up to `n` (capped at 5 for brevity), and fall
+ * back to `1,2` when `n === 2` so the hint still demonstrates the comma
+ * separator without inventing a missing index.
+ */
+export function buildSelectionHint(n: number): string {
+	if (n <= 1) return "Y/n";
+	if (n === 2) return "Y/n/1,2";
+	const samples: number[] = [];
+	for (let i = 1; i <= Math.min(n, 5); i += 2) samples.push(i);
+	return `Y/n/${samples.join(",")}`;
+}
+
 export function parseIndexedSelection<T>(answer: string, items: T[]): T[] {
 	const trimmed = answer.trim();
 	const lower = trimmed.toLowerCase();
