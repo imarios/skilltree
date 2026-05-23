@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ResolvedEntity } from "../../src/core/graph.js";
@@ -9,6 +9,7 @@ import {
 	planInstall,
 	verifyInstalled,
 } from "../../src/core/installer.js";
+import type { Lockfile } from "../../src/types.js";
 import { createLocalSkill } from "../helpers/git-fixtures.js";
 
 let tempDir: string;
@@ -239,6 +240,35 @@ describe("integrity hash edge cases", () => {
 	});
 });
 
+describe("executeInstall — no over-mkdir for unenrolled agent dirs (#72)", () => {
+	test("empty plan does not create the default .claude/ tree when installPath is elsewhere", async () => {
+		// Reproduction of #72 bug B: install used to unconditionally mkdir
+		// .claude/{skills,agents,commands} even when claude wasn't an
+		// install target (e.g. codex-only project). Those dirs landed in
+		// the working tree un-ignored and got silently committed by `git add .`.
+		const dir = await makeTempDir();
+		const agentsBase = join(dir, ".agents");
+
+		await executeInstall({ toInstall: [], skipped: [], warnings: [] }, dir, {
+			installPath: agentsBase,
+		});
+
+		await expect(stat(join(dir, ".claude"))).rejects.toThrow(/ENOENT/);
+	});
+
+	test("empty plan with no installPath also creates nothing — defaults aren't an obligation", async () => {
+		// Side benefit of removing the unconditional mkdirs: even the default
+		// `.claude` path is only created when there's something to put there.
+		// Avoids surprising tree pollution on `install` against a zero-dep
+		// manifest.
+		const dir = await makeTempDir();
+
+		await executeInstall({ toInstall: [], skipped: [], warnings: [] }, dir, {});
+
+		await expect(stat(join(dir, ".claude"))).rejects.toThrow(/ENOENT/);
+	});
+});
+
 describe("install with existing non-symlink files (no --force)", () => {
 	test("warns when remote dep already installed without --force", async () => {
 		const dir = await makeTempDir();
@@ -270,5 +300,53 @@ describe("install with existing non-symlink files (no --force)", () => {
 
 		// Should have a warning about already installed
 		expect(plan.warnings.some((w) => w.includes("already installed"))).toBe(true);
+	});
+
+	test("idempotent re-install at the same commit is silent — no 'already installed' nag (#72)", async () => {
+		// Bug C from #72: running `skilltree install` twice on an unchanged
+		// project produced "already installed. Use --force to overwrite." on
+		// every entity in the second run, prompting users toward a wasteful
+		// --force re-copy. When the previous lockfile records the same commit
+		// as the entity we're about to install, it's a clean idempotent
+		// re-install — skip silently.
+		const dir = await makeTempDir();
+		const installBase = join(dir, ".claude");
+		await mkdir(join(installBase, "skills", "stable"), { recursive: true });
+		await writeFile(join(installBase, "skills", "stable", "SKILL.md"), "# stable\n");
+
+		const entity: ResolvedEntity = {
+			key: "stable",
+			name: "stable",
+			type: "skill",
+			group: "prod",
+			repo: "github.com/test/repo",
+			path: "skills/stable",
+			version: "1.0.0",
+			tag: "v1.0.0",
+			commit: "deadbeef",
+			local: false,
+			dependencies: [],
+		};
+		const entities = new Map<string, ResolvedEntity>([["skill:stable", entity]]);
+		const previousLockfile: Lockfile = {
+			lockfile_version: 1,
+			packages: {
+				stable: {
+					type: "skill",
+					group: "prod",
+					source: "remote",
+					repo: "github.com/test/repo",
+					path: "skills/stable",
+					commit: "deadbeef",
+					version: "1.0.0",
+					dependencies: [],
+				},
+			},
+		};
+
+		const plan = await planInstall(entities, ["skill:stable"], installBase, {}, previousLockfile);
+		await executeInstall(plan, dir, {});
+
+		expect(plan.warnings).toEqual([]);
 	});
 });

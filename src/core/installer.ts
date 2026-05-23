@@ -200,11 +200,16 @@ export async function executeInstall(
 ): Promise<Map<string, string>> {
 	const integrityMap = new Map<string, string>();
 
-	// Ensure install directories exist
-	const installBase = options.installPath ?? join(projectDir, ".claude");
-	await mkdir(join(installBase, "skills"), { recursive: true });
-	await mkdir(join(installBase, "agents"), { recursive: true });
-	await mkdir(join(installBase, "commands"), { recursive: true });
+	// Per-entity copy/symlink calls below `mkdir` their parent paths on demand,
+	// so pre-creating the canonical `<base>/{skills,agents,commands}/` triad
+	// here would only run for its side effects. That actively backfired (#72,
+	// bug B): when an `installToTargets` loop iterates over targets, this
+	// function only ever sees the original `options` (no per-target
+	// `installPath` override), so the fallback to `.claude` materialized a
+	// stray `.claude/{skills,agents,commands}/` even on codex-only projects
+	// — un-ignored and ripe for accidental commit. Deleting the upfront
+	// mkdirs makes the function honest: it creates only what the plan asks
+	// for, and never leaks dirs to the wrong base.
 
 	// Repo-wide ignore patterns apply to every local entity copy. Read once.
 	const repoIgnore = await readRepoIgnore(projectDir);
@@ -314,12 +319,22 @@ async function prepareTarget(
 			await rm(targetPath);
 		} else if (stats.isDirectory() || stats.isFile()) {
 			const versionChanged = previousCommit !== undefined && previousCommit !== entity.commit;
-			if (!options.force && !entity.local && !versionChanged) {
+			// Distinguish "the lockfile says this is what's on disk" from
+			// "something already exists at this path that we didn't put here."
+			// The first case is a clean idempotent re-install — skip silently
+			// (#72, bug C). The second case is content we shouldn't trample
+			// without --force — warn and skip (preserved behavior).
+			const idempotentReinstall = previousCommit !== undefined && previousCommit === entity.commit;
+			const shouldOverwrite = options.force === true || entity.local === true || versionChanged;
+			if (shouldOverwrite) {
+				await makeWritable(targetPath);
+				await rm(targetPath, { recursive: true });
+			} else if (idempotentReinstall) {
+				return true;
+			} else {
 				plan.warnings.push(`${entity.name} already installed. Use --force to overwrite.`);
 				return true;
 			}
-			await makeWritable(targetPath);
-			await rm(targetPath, { recursive: true });
 		}
 	} catch {
 		// Target doesn't exist — that's fine

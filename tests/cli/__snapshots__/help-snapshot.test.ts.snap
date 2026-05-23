@@ -554,6 +554,8 @@ Remove an agent or path from install_targets
 
 Options:
   -g, --global  Remove from global manifest
+  --keep-files  Leave installed artifacts on disk (keeps .gitignore entries so
+                the orphan stays ignored)
   -h, --help    display help for command
 "
 `;

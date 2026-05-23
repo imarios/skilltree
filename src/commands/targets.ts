@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { readdir, rm, rmdir, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import {
 	detectInstalledAgents,
@@ -12,7 +12,7 @@ import {
 	removeGitignoreEntries,
 } from "../core/gitignore.js";
 import { loadManifestOrThrow, writeManifest } from "../core/manifest.js";
-import { expandTilde, isLocalSource } from "../core/paths.js";
+import { canonicalPath, expandTilde, isLocalSource } from "../core/paths.js";
 import { dim, success, warn } from "../core/ui.js";
 import type { Manifest } from "../types.js";
 
@@ -22,6 +22,12 @@ interface TargetsOpts {
 	homeDir?: string;
 	/** Only honoured by `targetsListCommand`. Other targets verbs ignore it. */
 	json?: boolean;
+	/**
+	 * Honoured by `targetsRemoveCommand`. When true: leave installed files on
+	 * disk AND keep the gitignore entries so the orphan stays ignored. Mirrors
+	 * `skilltree remove --keep-files`. See issue #72.
+	 */
+	keepFiles?: boolean;
 }
 
 /**
@@ -231,21 +237,95 @@ export async function targetsRemoveCommand(
 	targets.splice(idx, 1);
 	await writeManifest(dir, manifest);
 
-	// Keep .gitignore in sync — but only remove entries that no remaining
-	// target still needs. Two targets can resolve to the same install dir
-	// (e.g., a literal path that aliases a known agent), so we compute the
-	// set still in use and subtract. Fixes #33.
-	const stillNeeded = new Set<string>();
-	for (const remaining of targets) {
-		for (const entry of getSkillAgentIgnoreEntriesForTarget(remaining)) {
-			stillNeeded.add(entry);
-		}
+	const sharedWithRemaining = remainingTargetsResolveSameDir(target, targets);
+
+	// Delete the on-disk install artifacts unless the user opted out, AND
+	// only when no remaining target still resolves to the same install dir.
+	// Order: delete files first, then update .gitignore — that way a failed
+	// delete leaves the gitignore entries in place and the orphan stays
+	// ignored. See issue #72.
+	const filesDeleted = !opts?.keepFiles && !sharedWithRemaining;
+	if (filesDeleted) {
+		await pruneInstalledTargetDir(dir, target);
 	}
-	const candidates = getSkillAgentIgnoreEntriesForTarget(target).filter((e) => !stillNeeded.has(e));
+
+	// Keep .gitignore in sync — but only remove entries that no remaining
+	// target still needs (existing #33 fix preserved). When --keep-files is
+	// set, also keep the gitignore entries so the leftover orphan doesn't
+	// surface to `git add .` — that's the whole point of --keep-files.
+	const candidates = opts?.keepFiles
+		? []
+		: getSkillAgentIgnoreEntriesForTarget(target).filter((entry) => {
+				const stillNeeded = new Set<string>();
+				for (const remaining of targets) {
+					for (const e of getSkillAgentIgnoreEntriesForTarget(remaining)) {
+						stillNeeded.add(e);
+					}
+				}
+				return !stillNeeded.has(entry);
+			});
 	const removed = await removeGitignoreEntries(dir, candidates);
 	success(`Removed ${target} from install_targets.`);
 	if (removed.length > 0) {
 		success(`Updated .gitignore (removed ${removed.join(", ")})`);
+	}
+	if (opts?.keepFiles) {
+		console.log(dim("  --keep-files: installed artifacts left in place."));
+	}
+}
+
+/**
+ * True when any remaining target resolves to the same install directory as
+ * the one being removed. Prevents `targets remove` from trampling a sibling
+ * target's installed artifacts when the user has aliased a known agent
+ * (e.g. `claude` + `./.claude` both resolving to `.claude`). See issue #72.
+ */
+function remainingTargetsResolveSameDir(removed: string, remaining: string[]): boolean {
+	const removedDir = safeResolveTarget(removed);
+	if (removedDir === null) return false;
+	const removedCanon = canonicalPath(removedDir);
+	for (const candidate of remaining) {
+		const dir = safeResolveTarget(candidate);
+		if (dir === null) continue;
+		if (canonicalPath(dir) === removedCanon) return true;
+	}
+	return false;
+}
+
+function safeResolveTarget(target: string): string | null {
+	try {
+		return resolveTarget(target);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Best-effort cleanup of the `<target>/skills/`, `<target>/agents/`, and
+ * `<target>/commands/` subtrees installed for the removed target. Errors are
+ * swallowed — the cleanup is convenience, not correctness; the user can
+ * always rm the dirs themselves. After pruning the managed subdirs, attempts
+ * to remove the parent directory iff it's now empty (so unrelated user files
+ * under the same dir are preserved). Issue #72.
+ */
+async function pruneInstalledTargetDir(dir: string, target: string): Promise<void> {
+	const targetDir = safeResolveTarget(target);
+	if (targetDir === null) return;
+	const base = join(dir, targetDir);
+	for (const subdir of ["skills", "agents", "commands"]) {
+		const full = join(base, subdir);
+		try {
+			await rm(full, { recursive: true, force: true });
+		} catch {
+			// Best-effort
+		}
+	}
+	// If the parent dir is now empty (no user files snuck in), drop it too.
+	try {
+		const remaining = await readdir(base);
+		if (remaining.length === 0) await rmdir(base);
+	} catch {
+		// Parent didn't exist or has user files — leave it alone
 	}
 }
 

@@ -68,7 +68,7 @@ skilltree installs skills to a single directory (default `.claude/`). Users who 
 
 - **R11**: `skilltree targets list` shows all known agents with two indicators: detected on system, and present in `install_targets`. Also shows custom paths from `install_targets`.
 - **R12**: `skilltree targets add <name|path>` adds a target to `install_targets` in `skilltree.yml`
-- **R13**: `skilltree targets remove <name|path>` removes a target from `install_targets`
+- **R13**: `skilltree targets remove <name|path>` removes a target from `install_targets` AND deletes the target's installed artifacts (`<dir>/skills/`, `<dir>/agents/`, `<dir>/commands/`). When the parent dir becomes empty after the prune, it is removed too. The `--keep-files` flag preserves the on-disk artifacts AND keeps the `.gitignore` entries so the orphan stays ignored (mirrors `skilltree remove --keep-files`). When another remaining target resolves to the same install dir (e.g. `claude` aliased as `./.claude`), the prune is skipped so the sibling target's files aren't trampled. Order of operations: delete files first, then update `.gitignore` — a failed delete leaves the entries in place so the orphan stays ignored. Issue #72.
 - **R14**: `skilltree targets detect` scans for installed agents and adds any missing ones to `install_targets`
 - **R15**: `skilltree targets migrate` converts `dev_install_path` → `install_targets` and removes `dev_install_path` from the manifest. Known paths are reverse-looked-up to agent names (`.claude` → `claude`); unknown paths become literal (`./custom` → `./custom`)
 - **R16**: `targets add/remove/detect` error if `dev_install_path` is still set, directing the user to run `skilltree targets migrate` first

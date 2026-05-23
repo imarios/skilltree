@@ -156,16 +156,18 @@ describe("executeInstall for commands", () => {
 		expect(content).toContain("name: review");
 	});
 
-	test("creates the commands/ directory even when no commands install", async () => {
-		// The install loop unconditionally creates skills/, agents/, and now
-		// commands/ — so consumers always have a stable layout to drop files
-		// into manually if they want.
+	test("does NOT pre-create commands/ when nothing installs there (#72)", async () => {
+		// Reversal of the original "stable layout" test. The unconditional
+		// mkdir was the root of #72 bug B: in a per-target install loop the
+		// fallback to .claude leaked stray, un-ignored dirs into the working
+		// tree on codex-only projects. The new contract is "create only what
+		// the plan asks for"; users who want an empty layout can `mkdir`
+		// themselves.
 		const dir = await makeTempDir("skilltree-cmd-mkdir-");
 		const installBase = join(dir, ".claude");
 		const plan = await planInstall(new Map(), [], installBase, {});
 		await executeInstall(plan, dir, {});
-		const stats = await lstat(join(installBase, "commands"));
-		expect(stats.isDirectory()).toBe(true);
+		await expect(lstat(join(installBase, "commands"))).rejects.toThrow(/ENOENT/);
 	});
 });
 

@@ -136,6 +136,77 @@ describe("targetsRemoveCommand", () => {
 
 		await expect(targetsRemoveCommand("claude", dir)).rejects.toThrow("targets migrate");
 	});
+
+	test("deletes the removed target's installed dirs by default (#72)", async () => {
+		// Reproduction of #72: removing a target from install_targets used to
+		// leave the on-disk install dir behind. Combined with the gitignore
+		// entries being removed in the same call, the orphan became visible to
+		// `git add .` and got silently committed. Now we delete the dir as
+		// part of the same action.
+		const dir = await makeTempDir();
+		await writeManifestFile(dir, "install_targets:\n  - claude\n  - codex\ndependencies: {}\n");
+		// Simulate a prior install having populated .agents/.
+		await mkdir(join(dir, ".agents", "skills", "foo"), { recursive: true });
+		await writeFile(join(dir, ".agents", "skills", "foo", "SKILL.md"), "# foo\n");
+
+		await targetsRemoveCommand("codex", dir);
+
+		await expect(stat(join(dir, ".agents"))).rejects.toThrow(/ENOENT/);
+	});
+
+	test("preserves other targets' installed dirs (#72)", async () => {
+		const dir = await makeTempDir();
+		await writeManifestFile(dir, "install_targets:\n  - claude\n  - codex\ndependencies: {}\n");
+		await mkdir(join(dir, ".claude", "skills", "foo"), { recursive: true });
+		await mkdir(join(dir, ".agents", "skills", "foo"), { recursive: true });
+
+		await targetsRemoveCommand("codex", dir);
+
+		// .claude/ untouched
+		await expect(stat(join(dir, ".claude", "skills", "foo"))).resolves.toBeDefined();
+	});
+
+	test("--keep-files leaves the dir AND keeps the gitignore entries (#72)", async () => {
+		// With --keep-files we want the orphan to stay BUT we also want the
+		// gitignore entries to stay so the orphan doesn't become visible to
+		// `git add .`. This is the safe escape hatch for users who want to
+		// manage the artifact themselves.
+		const dir = await makeTempDir();
+		await writeManifestFile(dir, "install_targets:\n  - claude\n  - codex\ndependencies: {}\n");
+		await writeFile(
+			join(dir, ".gitignore"),
+			".claude/skills/\n.claude/agents/\n.claude/commands/\n.agents/skills/\n.agents/agents/\n.agents/commands/\n",
+			"utf-8",
+		);
+		await mkdir(join(dir, ".agents", "skills", "foo"), { recursive: true });
+
+		await targetsRemoveCommand("codex", dir, { keepFiles: true });
+
+		await expect(stat(join(dir, ".agents", "skills", "foo"))).resolves.toBeDefined();
+		const gi = await readFile(join(dir, ".gitignore"), "utf-8");
+		expect(gi).toMatch(/\.agents\/skills\//);
+	});
+
+	test("shared-dir guard: doesn't delete when another remaining target resolves to the same dir (#72)", async () => {
+		// Two install_targets pointing at the same resolved dir (e.g. the
+		// agent and a literal alias). Removing one must NOT trample the other.
+		const dir = await makeTempDir();
+		await writeManifestFile(dir, "install_targets:\n  - claude\n  - ./.claude\ndependencies: {}\n");
+		await mkdir(join(dir, ".claude", "skills", "foo"), { recursive: true });
+
+		await targetsRemoveCommand("claude", dir);
+
+		await expect(stat(join(dir, ".claude", "skills", "foo"))).resolves.toBeDefined();
+	});
+
+	test("survives when the install dir doesn't exist (#72)", async () => {
+		// Removing a target before install ever ran shouldn't error — the
+		// cleanup is a best-effort step.
+		const dir = await makeTempDir();
+		await writeManifestFile(dir, "install_targets:\n  - claude\n  - codex\ndependencies: {}\n");
+
+		await expect(targetsRemoveCommand("codex", dir)).resolves.toBeUndefined();
+	});
 });
 
 describe("targetsDetectCommand", () => {
