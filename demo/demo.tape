@@ -18,7 +18,7 @@ Set TypingSpeed 35ms
 Hide
 Type "export DEMO_HOME=$(mktemp -d)"
 Enter
-Type "mkdir -p $DEMO_HOME/.claude $DEMO_HOME/.codex"
+Type "mkdir -p $DEMO_HOME/.claude $DEMO_HOME/.cursor"
 Enter
 Type "export HOME=$DEMO_HOME"
 Enter
@@ -137,6 +137,6 @@ Sleep 2s
 
 Type ""
 Enter
-Type "# Added 1 skill, got 2 — works across Claude Code, Codex, and more"
+Type "# Added 1 skill, got 2 — works across Claude Code, Cursor, Codex, and more"
 Enter
 Sleep 3s

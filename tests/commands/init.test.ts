@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	buildSelectionHint,
 	initCommand,
 	parseAgentSelectionAnswer,
 	parseIndexedSelection,
@@ -294,6 +295,27 @@ describe("initCommand", () => {
 			expect(out).not.toBe(items);
 			expect(out).toEqual(items);
 		});
+	});
+
+	// The "Include all? [Y/n/1,3,5]" hint is a *teaching* hint: it shows the
+	// comma-separated grammar via example indices. Hard-coding "1,3,5" leaks
+	// indices that don't exist when the printed list is shorter — e.g., with
+	// two detected agents the user sees `[1] claude / [2] codex` followed by
+	// `[Y/n/1,3,5]`, suggesting indices 3 and 5 are valid. The hint must
+	// derive its sample from the actual item count.
+	describe("buildSelectionHint", () => {
+		const cases: Array<[number, string]> = [
+			[2, "Y/n/1,2"],
+			[3, "Y/n/1,3"],
+			[4, "Y/n/1,3"],
+			[5, "Y/n/1,3,5"],
+			[10, "Y/n/1,3,5"],
+		];
+		for (const [n, expected] of cases) {
+			test(`n=${n} → "${expected}"`, () => {
+				expect(buildSelectionHint(n)).toBe(expected);
+			});
+		}
 	});
 
 	test("--scan with askFn drives the interactive prompt and prints the listing", async () => {
