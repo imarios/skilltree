@@ -771,4 +771,44 @@ describe("origin-manifest transitive resolution", () => {
 		expect(grandchild?.repo).toBe(`file://${thirdPartyRepo}`);
 		expect(grandchild?.path).toBe("skills/source/grandchild");
 	});
+
+	test("propagates exclude: from origin's manifest onto remote resolved entity (issue #139)", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-origin-manifest-"));
+
+		const originManifestYaml = [
+			"name: origin",
+			"dependencies:",
+			"  esql-details:",
+			"    local: ./esql-details",
+			"    exclude:",
+			'      - "docs/"',
+			'      - "evals/"',
+			"",
+		].join("\n");
+
+		const originRepo = await createTestRepo(
+			tempDir,
+			"origin",
+			[{ path: "esql-details", name: "esql-details" }],
+			"v1.0.0",
+			originManifestYaml,
+		);
+
+		const consumerManifest: Manifest = {
+			dependencies: {
+				"esql-details": {
+					repo: `file://${originRepo}`,
+					version: "*",
+				},
+			},
+		};
+
+		const result = await resolveAll(consumerManifest, tempDir);
+
+		expect(result.errors).toEqual([]);
+		const entity = result.entities.get("skill:esql-details");
+		expect(entity).toBeDefined();
+		expect(entity?.local).toBe(false);
+		expect(entity?.exclude).toEqual(["docs/", "evals/"]);
+	});
 });
