@@ -481,6 +481,14 @@ function describeCollidingDep(key: string, dep: Dependency, state: ResolutionSta
 function warnUnreferencedPacks(state: ResolutionState): void {
 	const packs = state.expanded.packs;
 	if (!packs) return;
+	// Publisher-repo heuristic (#145): if the manifest defines packs but
+	// references none of them, treat the file as consumer-facing and stay
+	// silent. The warning is meant to catch typos and orphaned definitions
+	// in *consuming* manifests; on a publisher repo every install would fire
+	// it, training maintainers to ignore the signal. A manifest with at
+	// least one pack reference still gets the per-pack warning for any
+	// pack name that wasn't actually used.
+	if (state.packsReferencedByName.size === 0) return;
 	for (const name of Object.keys(packs)) {
 		if (!state.packsReferencedByName.has(name)) {
 			state.warnings.push(

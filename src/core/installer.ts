@@ -209,6 +209,11 @@ export async function executeInstall(
 	// Repo-wide ignore patterns apply to every local entity copy. Read once.
 	const repoIgnore = await readRepoIgnore(projectDir);
 
+	// Origin's `.skilltreeignore` is repo-wide and ref-stable, so cache by
+	// `cachePath@ref` to avoid re-reading from the bare repo for every sibling
+	// entity drawn from the same source (issue #148).
+	const originRepoIgnoreCache = new Map<string, IgnoreMatcher>();
+
 	for (const item of plan.toInstall) {
 		const { entity, action, targetPath, previousCommit } = item;
 
@@ -230,7 +235,8 @@ export async function executeInstall(
 				});
 			} else if (entity.cachePath) {
 				const entityIgnore = new IgnoreMatcher(entity.exclude ?? []);
-				await copyFromGitCache(entity, targetPath, entityIgnore);
+				const originRepoIgnore = await getOriginRepoIgnore(entity, originRepoIgnoreCache);
+				await copyFromGitCache(entity, targetPath, entityIgnore, originRepoIgnore);
 			}
 			await setReadOnly(targetPath);
 			integrityMap.set(entity.key, await computeIntegrity(targetPath));
@@ -238,6 +244,34 @@ export async function executeInstall(
 	}
 
 	return integrityMap;
+}
+
+/**
+ * Load origin's `.skilltreeignore` from the bare cache once per `cachePath@ref`.
+ * Returns an empty matcher when origin has no `.skilltreeignore` at that ref —
+ * the bug being fixed (issue #148) is the symmetric half of `.skilltreeignore`
+ * support: `publication_surface.md` §PS9–PS11 describes a repo-root file that
+ * should apply both when the maintainer installs locally and when a downstream
+ * consumer pulls the same skill as a remote dep.
+ */
+async function getOriginRepoIgnore(
+	entity: ResolvedEntity,
+	cache: Map<string, IgnoreMatcher>,
+): Promise<IgnoreMatcher> {
+	if (!entity.cachePath) return new IgnoreMatcher([]);
+	const ref = entity.tag ?? entity.commit;
+	const cacheKey = `${entity.cachePath}@${ref}`;
+	const cached = cache.get(cacheKey);
+	if (cached) return cached;
+	let matcher: IgnoreMatcher;
+	try {
+		const content = await readFileAtRef(entity.cachePath, ref, ".skilltreeignore");
+		matcher = new IgnoreMatcher(content.split(/\r?\n/));
+	} catch {
+		matcher = new IgnoreMatcher([]);
+	}
+	cache.set(cacheKey, matcher);
+	return matcher;
 }
 
 /**
@@ -358,16 +392,20 @@ function shouldExclude(src: string, sourcePath: string, ctx: CopyContext): boole
 /**
  * Copy files from git cache at a specific ref.
  *
- * For multi-file entities the optional `entityIgnore` filters blobs against
- * the per-entity `exclude:` patterns the origin declared in its manifest
- * (publication_surface.md §PS17 — applied symmetrically on the consumer
- * side per issue #139). Single-file entities (agents, commands) skip the
- * matcher: the file IS the entity, so there is nothing to filter inside.
+ * For multi-file entities two matchers may filter blobs before write:
+ * - `entityIgnore` — per-entity `exclude:` (entity-relative paths, §PS17)
+ * - `repoIgnore` — origin's `.skilltreeignore` (repo-root-relative, §PS9–PS11)
+ *
+ * Both halves of `publication_surface.md` are now applied symmetrically on the
+ * consumer side (#139 covered `exclude:`; #148 added `.skilltreeignore`).
+ * Single-file entities (agents, commands) skip both matchers: the file IS the
+ * entity, so there is nothing to filter inside.
  */
 async function copyFromGitCache(
 	entity: ResolvedEntity,
 	targetPath: string,
 	entityIgnore?: IgnoreMatcher,
+	repoIgnore?: IgnoreMatcher,
 ): Promise<void> {
 	if (!entity.cachePath) return;
 
@@ -381,7 +419,7 @@ async function copyFromGitCache(
 			await writeFile(targetPath, content, "utf-8");
 		} else {
 			await mkdir(targetPath, { recursive: true });
-			await copyTreeFromGit(entity.cachePath, ref, path, targetPath, entityIgnore);
+			await copyTreeFromGit(entity.cachePath, ref, path, targetPath, entityIgnore, repoIgnore);
 		}
 	} catch (cause) {
 		const refLabel = entity.tag ?? entity.commit.slice(0, 8);
@@ -397,8 +435,10 @@ async function copyFromGitCache(
  * Copy a directory tree from a git bare repo using a single `ls-tree -r`
  * call instead of recursive subprocess spawning.
  *
- * Optional `entityIgnore` filters blobs by their entity-relative path —
- * the same matcher the local-copy path applies for `exclude:` rules.
+ * Two optional matchers filter blobs before write — see `copyFromGitCache`
+ * for the §PS17 / §PS9–PS11 mapping. `entityIgnore` is tested against the
+ * entity-relative path; `repoIgnore` against the repo-relative path. Either
+ * match → skip the blob.
  */
 async function copyTreeFromGit(
 	cachePath: string,
@@ -406,6 +446,7 @@ async function copyTreeFromGit(
 	treePath: string,
 	targetDir: string,
 	entityIgnore?: IgnoreMatcher,
+	repoIgnore?: IgnoreMatcher,
 ): Promise<void> {
 	const git = simpleGit(cachePath);
 
@@ -426,6 +467,11 @@ async function copyTreeFromGit(
 		}
 
 		const itemPath = treePath === "." ? relativePath : `${treePath}/${relativePath}`;
+
+		if (repoIgnore && !repoIgnore.isEmpty && repoIgnore.ignores(itemPath)) {
+			continue;
+		}
+
 		const targetItemPath = join(targetDir, relativePath);
 
 		await mkdir(dirname(targetItemPath), { recursive: true });
