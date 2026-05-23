@@ -45,6 +45,14 @@ function cleanProject(): ProjectSpec {
 	return {
 		manifest: ["name: clean", "install_targets:", "  - claude", "dependencies: {}", ""].join("\n"),
 		lockfile: emptyLockfile(),
+		// init writes .gitignore on a fresh project; mirror that so the
+		// gitignore check (D25) doesn't warn on the canonical clean fixture.
+		files: [
+			{
+				path: ".gitignore",
+				content: ".claude/skills/\n.claude/agents/\n.claude/commands/\n",
+			},
+		],
 	};
 }
 
@@ -313,6 +321,119 @@ describe("runDoctor — target consistency", () => {
 	});
 });
 
+describe("runDoctor — gitignore drift (#138)", () => {
+	test("complete .gitignore for the declared targets → pass", async () => {
+		const dir = await makeProject({
+			manifest: ["name: gi-clean", "install_targets:", "  - claude", "dependencies: {}", ""].join(
+				"\n",
+			),
+			lockfile: emptyLockfile(),
+			files: [
+				{
+					path: ".gitignore",
+					content: ".claude/skills/\n.claude/agents/\n.claude/commands/\n",
+				},
+			],
+		});
+		const report = await runDoctorIsolated(dir);
+		const gi = report.checks.find((c) => c.name === "gitignore");
+		expect(gi?.status).toBe("pass");
+	});
+
+	test("missing entries for a declared target → warn naming the missing entries", async () => {
+		// init/targets writes .agents/{skills,agents,commands}/ for codex; if the
+		// user hand-edited .gitignore (or added codex without re-running init),
+		// installed artifacts leak into git status — exactly what doctor should
+		// catch.
+		const dir = await makeProject({
+			manifest: [
+				"name: gi-drift",
+				"install_targets:",
+				"  - claude",
+				"  - codex",
+				"dependencies: {}",
+				"",
+			].join("\n"),
+			lockfile: { ...emptyLockfile(), install_targets: ["claude", "codex"] },
+			files: [
+				{
+					path: ".gitignore",
+					content: ".claude/skills/\n.claude/agents/\n.claude/commands/\n",
+				},
+			],
+		});
+		const report = await runDoctorIsolated(dir);
+		const gi = report.checks.find((c) => c.name === "gitignore");
+		expect(gi?.status).toBe("warn");
+		expect(gi?.detail ?? "").toMatch(/\.agents\/skills\//);
+		expect(gi?.fix ?? "").toMatch(/skilltree init/);
+	});
+
+	test("missing .gitignore entirely → warn", async () => {
+		const dir = await makeProject({
+			manifest: ["name: gi-none", "install_targets:", "  - claude", "dependencies: {}", ""].join(
+				"\n",
+			),
+			lockfile: emptyLockfile(),
+		});
+		const report = await runDoctorIsolated(dir);
+		const gi = report.checks.find((c) => c.name === "gitignore");
+		expect(gi?.status).toBe("warn");
+		expect(gi?.detail ?? "").toMatch(/\.claude\/skills\//);
+	});
+
+	test("extra user-authored entries are ignored — only missing entries flagged", async () => {
+		const dir = await makeProject({
+			manifest: ["name: gi-extra", "install_targets:", "  - claude", "dependencies: {}", ""].join(
+				"\n",
+			),
+			lockfile: emptyLockfile(),
+			files: [
+				{
+					path: ".gitignore",
+					content: [
+						"node_modules/",
+						"# my notes",
+						".env",
+						".claude/skills/",
+						".claude/agents/",
+						".claude/commands/",
+						"build/",
+					].join("\n"),
+				},
+			],
+		});
+		const report = await runDoctorIsolated(dir);
+		const gi = report.checks.find((c) => c.name === "gitignore");
+		expect(gi?.status).toBe("pass");
+	});
+
+	test("--global mode skips the gitignore check", async () => {
+		const { globalDir } = await makeGlobalProject({
+			manifest: "name: global\ndependencies: {}\n",
+		});
+		const report = await runDoctor("/no-such-project-dir", {
+			global: true,
+			globalDir,
+			probe: okProbe,
+			registryConfigPath: await writeRegistriesFile([]),
+		});
+		const gi = report.checks.find((c) => c.name === "gitignore");
+		expect(gi?.status).toBe("skip");
+		expect(gi?.detail ?? "").toMatch(/global/i);
+	});
+
+	test("no install_targets → vacuous pass (nothing to ignore)", async () => {
+		const dir = await makeProject({
+			manifest: ["name: notargets", "dependencies: {}", ""].join("\n"),
+			lockfile: emptyLockfile(),
+		});
+		const report = await runDoctorIsolated(dir);
+		const gi = report.checks.find((c) => c.name === "gitignore");
+		expect(gi?.status).toBe("pass");
+	});
+});
+
 describe("runDoctor — registry reachability (Phase 3, default)", () => {
 	test("with no registries configured → pass", async () => {
 		const dir = await makeProject(cleanProject());
@@ -335,6 +456,7 @@ describe("runDoctor — check ordering and stability", () => {
 			"lint",
 			"lockfile-sync",
 			"target-consistency",
+			"gitignore",
 			"registry-reachability",
 			"frontmatter",
 			"bundled-skill",
@@ -450,6 +572,7 @@ describe("runDoctor — --json output", () => {
 			"lint",
 			"lockfile-sync",
 			"target-consistency",
+			"gitignore",
 			"registry-reachability",
 			"frontmatter",
 			"bundled-skill",
