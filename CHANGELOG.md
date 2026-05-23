@@ -1,3 +1,9 @@
+## v0.37.0 (2026-05-23)
+
+### Feat
+
+- **doctor**: warn when skilltree skill is missing or stale (Fluorine) (#151)
+
 ## v0.36.5 (2026-05-23)
 
 ### Fix

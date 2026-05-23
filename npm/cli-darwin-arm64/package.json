@@ -1,6 +1,6 @@
 {
   "name": "@imarios/skilltree-cli-darwin-arm64",
-  "version": "0.36.5",
+  "version": "0.37.0",
   "description": "skilltree binary for macOS Apple Silicon",
   "license": "MIT",
   "repository": {
