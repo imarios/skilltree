@@ -1,3 +1,9 @@
+## v0.38.0 (2026-05-23)
+
+### Feat
+
+- **list**: surface consumer-side pack attribution via via_pack lockfile field (#156)
+
 ## v0.37.0 (2026-05-23)
 
 ### Feat
