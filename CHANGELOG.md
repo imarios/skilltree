@@ -1,3 +1,9 @@
+## v0.36.5 (2026-05-23)
+
+### Fix
+
+- **packs**: publisher-repo UX cluster + .skilltreeignore for remote installs (#149)
+
 ## v0.36.4 (2026-05-23)
 
 ### Fix
