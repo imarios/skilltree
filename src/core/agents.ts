@@ -90,6 +90,23 @@ export function pathToAgentName(path: string): string | null {
 }
 
 /**
+ * Resolve an agent's global home directory, optionally rooted at a custom
+ * `homeDir` instead of the user's real `$HOME`. The `homeDir` override lets
+ * tests stage a fake home without touching the developer's filesystem
+ * (used by doctor's bundled-skill check — Fluorine).
+ *
+ * Returns null for unknown agents so callers can skip them quietly rather
+ * than throw.
+ */
+export function resolveAgentHome(agent: string, homeDir?: string): string | null {
+	const entry = AGENT_REGISTRY[agent];
+	if (!entry) return null;
+	const base = homeDir ?? expandTilde("~");
+	const rel = entry.globalHome.replace(/^~\//, "");
+	return join(base, rel);
+}
+
+/**
  * Detect which known agents are installed by checking for their
  * home directories. Defaults to checking in the user's home directory,
  * but accepts an override for testing.

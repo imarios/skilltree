@@ -111,6 +111,35 @@ skills: runbooks-manager
 		const result = parseFrontmatter(content);
 		expect(result?.skills).toEqual(["runbooks-manager"]);
 	});
+
+	test("extracts version when present as a string (Fluorine)", () => {
+		const content = `---
+name: skilltree
+version: "0.36.3"
+description: A skill
+---
+# Body`;
+		const result = parseFrontmatter(content);
+		expect(result?.version).toBe("0.36.3");
+	});
+
+	test("omits version when absent (Fluorine)", () => {
+		const content = `---
+name: skilltree
+description: A skill
+---`;
+		const result = parseFrontmatter(content);
+		expect(result?.version).toBeUndefined();
+	});
+
+	test("ignores non-string version (Fluorine)", () => {
+		const content = `---
+name: skilltree
+version: 42
+---`;
+		const result = parseFrontmatter(content);
+		expect(result?.version).toBeUndefined();
+	});
 });
 
 describe("getDeclaredDeps", () => {

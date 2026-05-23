@@ -2,7 +2,7 @@
 // Phase 2 landed text mode + exit codes + acceptance criteria 1-3.
 // Phase 3 adds --json, --global, real registry reachability, and the
 // read-only invariant test.
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -150,11 +150,24 @@ async function writeRegistriesFile(
  * Wrapper around `runDoctor` that defaults to network-free execution.
  * Tests that explicitly want to test reachability override `probe` and/or
  * `registryConfigPath`. This isolates the suite from the developer's
- * actual `~/.skilltree/config.yaml`.
+ * actual `~/.skilltree/config.yaml`. Defaults `homeDir` to an empty
+ * directory so the bundled-skill check (Fluorine) doesn't fall back to
+ * the developer's real `$HOME` and produce non-deterministic results.
  */
+let isolatedEmptyHome: string | undefined;
+async function getIsolatedHomeDir(): Promise<string> {
+	if (!isolatedEmptyHome) {
+		isolatedEmptyHome = await mkdtemp(join(tmpdir(), "skilltree-doctor-iso-home-"));
+	}
+	return isolatedEmptyHome;
+}
+afterAll(async () => {
+	if (isolatedEmptyHome) await rm(isolatedEmptyHome, { recursive: true, force: true });
+});
 async function runDoctorIsolated(dir: string, opts: Parameters<typeof runDoctor>[1] = {}) {
 	const cfg = opts.registryConfigPath ?? (await writeRegistriesFile([]));
-	return runDoctor(dir, { probe: okProbe, registryConfigPath: cfg, ...opts });
+	const homeDir = opts.homeDir ?? (await getIsolatedHomeDir());
+	return runDoctor(dir, { probe: okProbe, registryConfigPath: cfg, homeDir, ...opts });
 }
 
 // ---------------------------------------------------------------------------
@@ -324,6 +337,7 @@ describe("runDoctor — check ordering and stability", () => {
 			"target-consistency",
 			"registry-reachability",
 			"frontmatter",
+			"bundled-skill",
 		]);
 	});
 
@@ -438,6 +452,7 @@ describe("runDoctor — --json output", () => {
 			"target-consistency",
 			"registry-reachability",
 			"frontmatter",
+			"bundled-skill",
 		]);
 	});
 
@@ -834,5 +849,142 @@ describe("runDoctor — manifest / lockfile error attribution (#123)", () => {
 		expect(lock?.status).toBe("fail");
 		expect(lock?.detail ?? "").toMatch(/lockfile_version/);
 		expect(lock?.detail ?? "").not.toMatch(/undefined/);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// Bundled-skill freshness check (Fluorine)
+// ---------------------------------------------------------------------------
+
+import pkg from "../../package.json";
+
+async function makeHomeDir(): Promise<string> {
+	const dir = await mkdtemp(join(tmpdir(), "skilltree-doctor-home-"));
+	// Track for cleanup via the outer `tempDir` afterEach is not reused here —
+	// each home is independent. We rely on the suite's tmpdir cleanup at OS
+	// level + explicit rm in tests where needed. Doctor must remain read-only,
+	// so we don't write back into the home after construction.
+	return dir;
+}
+
+async function placeSkill(homeDir: string, agentDir: string, version: string | null) {
+	const skillDir = join(homeDir, agentDir, "skills", "skilltree");
+	await mkdir(skillDir, { recursive: true });
+	const versionLine = version === null ? "" : `version: "${version}"\n`;
+	const body = `---\nname: skilltree\n${versionLine}description: Skilltree skill\n---\n\n# Body\n`;
+	await writeFile(join(skillDir, "SKILL.md"), body, "utf-8");
+}
+
+async function placeAgentDir(homeDir: string, agentDir: string) {
+	await mkdir(join(homeDir, agentDir), { recursive: true });
+}
+
+describe("runDoctor — bundled-skill freshness (Fluorine)", () => {
+	test("BSC1: skill missing on detected agent → warn with teach hint", async () => {
+		const dir = await makeProject(cleanProject());
+		const home = await makeHomeDir();
+		await placeAgentDir(home, ".claude"); // detect claude, but no skill
+		const report = await runDoctorIsolated(dir, { homeDir: home });
+		const row = report.checks.find((c) => c.name === "bundled-skill");
+		expect(row?.status).toBe("warn");
+		expect(row?.detail ?? "").toMatch(/claude/i);
+		expect(row?.fix ?? "").toMatch(/skilltree teach/);
+		await rm(home, { recursive: true, force: true });
+	});
+
+	test("BSC2: skill at current version → pass", async () => {
+		const dir = await makeProject(cleanProject());
+		const home = await makeHomeDir();
+		await placeSkill(home, ".claude", pkg.version);
+		const report = await runDoctorIsolated(dir, { homeDir: home });
+		const row = report.checks.find((c) => c.name === "bundled-skill");
+		expect(row?.status).toBe("pass");
+		await rm(home, { recursive: true, force: true });
+	});
+
+	test("BSC3: skill behind CLI version → warn", async () => {
+		const dir = await makeProject(cleanProject());
+		const home = await makeHomeDir();
+		await placeSkill(home, ".claude", "0.0.1");
+		const report = await runDoctorIsolated(dir, { homeDir: home });
+		const row = report.checks.find((c) => c.name === "bundled-skill");
+		expect(row?.status).toBe("warn");
+		expect(row?.detail ?? "").toMatch(/0\.0\.1/);
+		expect(row?.fix ?? "").toMatch(/skilltree teach/);
+		await rm(home, { recursive: true, force: true });
+	});
+
+	test("BSC4: skill present but no version field → warn", async () => {
+		const dir = await makeProject(cleanProject());
+		const home = await makeHomeDir();
+		await placeSkill(home, ".claude", null);
+		const report = await runDoctorIsolated(dir, { homeDir: home });
+		const row = report.checks.find((c) => c.name === "bundled-skill");
+		expect(row?.status).toBe("warn");
+		expect(row?.detail ?? "").toMatch(/version/i);
+		await rm(home, { recursive: true, force: true });
+	});
+
+	test("BSC5: no agents detected → skip", async () => {
+		const dir = await makeProject(cleanProject());
+		const home = await makeHomeDir();
+		const report = await runDoctorIsolated(dir, { homeDir: home });
+		const row = report.checks.find((c) => c.name === "bundled-skill");
+		expect(row?.status).toBe("skip");
+		expect(row?.detail ?? "").toMatch(/no.*agent/i);
+		await rm(home, { recursive: true, force: true });
+	});
+
+	test("BSC6: mixed agents (claude current, cursor stale) → warn with per-agent detail", async () => {
+		const dir = await makeProject(cleanProject());
+		const home = await makeHomeDir();
+		await placeSkill(home, ".claude", pkg.version);
+		await placeSkill(home, ".cursor", "0.0.1");
+		const report = await runDoctorIsolated(dir, { homeDir: home });
+		const row = report.checks.find((c) => c.name === "bundled-skill");
+		expect(row?.status).toBe("warn");
+		expect(row?.detail ?? "").toMatch(/cursor/i);
+		expect(row?.detail ?? "").toMatch(/0\.0\.1/);
+		await rm(home, { recursive: true, force: true });
+	});
+
+	test("BSC7: --json includes bundled-skill row", async () => {
+		const dir = await makeProject(cleanProject());
+		const home = await makeHomeDir();
+		await placeSkill(home, ".claude", pkg.version);
+		const { logs } = await runCli(dir, { json: true, homeDir: home });
+		const parsed = JSON.parse(logs.join(""));
+		const names = parsed.checks.map((c: { name: string }) => c.name);
+		expect(names).toContain("bundled-skill");
+		await rm(home, { recursive: true, force: true });
+	});
+
+	test("BSC8: --global mode still runs bundled-skill check", async () => {
+		const { globalDir } = await makeGlobalProject({
+			manifest: "name: global\ndependencies: {}\n",
+		});
+		const home = await makeHomeDir();
+		await placeAgentDir(home, ".claude");
+		const cfg = await writeRegistriesFile([]);
+		const report = await runDoctor("/no-such-project-dir", {
+			global: true,
+			globalDir,
+			probe: okProbe,
+			registryConfigPath: cfg,
+			homeDir: home,
+		});
+		const row = report.checks.find((c) => c.name === "bundled-skill");
+		expect(row?.status).toBe("warn"); // skill missing → warn
+		await rm(home, { recursive: true, force: true });
+	});
+
+	test("BSC9: skill ahead of CLI → pass (no false negative)", async () => {
+		const dir = await makeProject(cleanProject());
+		const home = await makeHomeDir();
+		await placeSkill(home, ".claude", "99.0.0");
+		const report = await runDoctorIsolated(dir, { homeDir: home });
+		const row = report.checks.find((c) => c.name === "bundled-skill");
+		expect(row?.status).toBe("pass");
+		await rm(home, { recursive: true, force: true });
 	});
 });

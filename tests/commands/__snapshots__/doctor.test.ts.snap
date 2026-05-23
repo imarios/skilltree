@@ -9,6 +9,7 @@ exports[`runDoctor — --json output J1: JSON shape stable across clean run 1`] 
     "target-consistency",
     "registry-reachability",
     "frontmatter",
+    "bundled-skill",
   ],
   "statuses": [
     "pass",
@@ -17,6 +18,7 @@ exports[`runDoctor — --json output J1: JSON shape stable across clean run 1`] 
     "pass",
     "pass",
     "pass",
+    "skip",
   ],
   "summaryKeys": [
     "fail",

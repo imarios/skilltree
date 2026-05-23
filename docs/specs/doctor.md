@@ -1,9 +1,14 @@
 # Doctor — Preflight Health Check
 
 +++
-version = "1.0"
-date = "2026-05-17"
+version = "1.1"
+date = "2026-05-23"
 status = "active"
+
+[[changelog]]
+version = "1.1"
+date = "2026-05-23"
+summary = "Add bundled-skill freshness check (D23, Fluorine). Doctor warns when the skilltree skill is missing from a detected agent or when its frontmatter version lags behind the CLI binary. Renderer extended to show the `→ fix` line on warn rows (not just fail)."
 
 [[changelog]]
 version = "1.0"
@@ -56,12 +61,13 @@ Numbered for spec-to-phase traceability.
 - **D8 — Target consistency**: Call the resolution helper underlying `targets list` (currently inside `src/commands/targets.ts`). Pass: every entry in `install_targets` resolves through the agent registry, OR is a literal path that exists. Fail: list the first unresolved target. Suggested fix: `Check install_targets in skilltree.yml`.
 - **D9 — Registry reachability**: For each registry in `~/.skilltree/config.yaml`, run `git ls-remote <url>` with a 5s timeout. Pass: all reachable. **Warn** (do not fail) when a registry requires auth and is skipped. Fail: surface the unreachable URL and the underlying error. When `--global` is set, this check still runs (registries are global config).
 - **D10 — Frontmatter validity**: Covered by D6 (the lint check already includes frontmatter validation). The doctor output lists it as a separate row for readability; internally it is the same check.
+- **D23 — Bundled-skill freshness** (Fluorine, 2026-05-23): For each agent detected on the user's machine (`detectInstalledAgents`), look up `<agent globalHome>/skills/skilltree/SKILL.md` and read its frontmatter `version`. Pass: all detected agents carry a `version` greater than or equal to the running CLI version. **Warn** (never fail) when any of: the file is missing, the file lacks a `version` field (legacy install predating Fluorine), or `semver.lt(installed, cliVersion)`. Skip when no agents are detected. Suggested fix string: `Run \`skilltree teach\` to install/update the skilltree skill`. The version is stamped into the materialized SKILL.md frontmatter at `materializeBundledSkill` time using the CLI's `package.json` version — the checked-in `skills/skilltree/SKILL.md` source carries no version. Runs in both project and `--global` mode (skill installation is global by nature).
 
 ### Output — text mode (default)
 
 - **D11**: Aligned two-column table. Left column = check name, right column = status symbol + detail/fix.
 - **D12**: Status symbols: `✔` pass, `✘` fail, `⚠` warn, `–` skip (used for project checks under `--global`).
-- **D13**: Failed checks render a second indented line starting with `→` containing the suggested fix string (when one exists).
+- **D13**: Failed and warned checks render a second indented line starting with `→` containing the suggested fix string (when one exists). (v1.0 limited this to failures; v1.1 extended it to warnings so that actionable advisories — e.g., the bundled-skill check telling the user to run `skilltree teach` — are visible.)
 - **D14**: Footer: `✘ doctor: N failure(s), M warning(s)` (red) on fail, `✔ doctor: all checks passed` (green, possibly with a warning suffix) on pass.
 - **D15**: Colors honor existing `NO_COLOR` / TTY-detection patterns already used elsewhere in the CLI.
 
