@@ -103,6 +103,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.release.outputs.tag }}
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -131,9 +132,18 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Verify published packages
+        # Retry with backoff: npm registry CDN propagation can take 30–90s.
+        # A fixed 10s sleep raced propagation and produced spurious E404
+        # failures on otherwise-successful releases.
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          echo "Waiting for npm to propagate..."
-          sleep 10
-          npm view skilltree-pm@${VERSION} version
-          echo "Successfully verified skilltree-pm@${VERSION} on npm"
+          for i in 1 2 3 4 5 6; do
+            if npm view "skilltree-pm@${VERSION}" version 2>/dev/null; then
+              echo "✔ Verified skilltree-pm@${VERSION} on npm (attempt ${i})"
+              exit 0
+            fi
+            echo "Not visible yet (attempt ${i}/6) — waiting 15s..."
+            sleep 15
+          done
+          echo "::error::skilltree-pm@${VERSION} not visible on npm after ~90s"
+          exit 1
