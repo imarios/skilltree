@@ -148,7 +148,7 @@ dependencies:
 
 Run `skilltree check` to catch the asymmetric-publish footgun: a published entity that transitively depends on a `publish: false` same-repo entity will install fine for you but fail for consumers. The check reports the chain so the fix is obvious. `check` also lints the frontmatter of every local `SKILL.md` / agent / command — missing `name:`, missing `description:`, invalid semver in `version:`, or a malformed `skills:` block become warnings (and exit 1 under `--strict`).
 
-For an "am I ready to publish?" preflight, run **`skilltree doctor`** — it bundles `check` with manifest-schema validation, lockfile-sync verification, target consistency, registry reachability, and frontmatter lint into one verb. Exit 0 means every check passed; exit 1 means at least one failed. The natural lifecycle is `new → check → doctor → git tag`.
+For an "am I ready to publish?" preflight, run **`skilltree doctor`** — it bundles `check` with manifest-schema validation, lockfile-sync verification, target consistency, registry reachability, frontmatter lint, and a bundled-skill freshness check (warns when the skilltree skill on disk is missing or behind the installed CLI; run `skilltree teach` to refresh) into one verb. Exit 0 means every check passed; exit 1 means at least one failed. The natural lifecycle is `new → check → doctor → git tag`.
 
 This is **authoring intent, not access control** — anyone with git access to your repo can read every file regardless of these flags. They're about what your repo *offers*, not what it *protects*.
 
@@ -369,7 +369,7 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `skilltree remove <name>` | Remove a dependency |
 | `skilltree verify` | Check installed files against lockfile |
 | `skilltree check` | Lint `skilltree.yml` for design-time issues (asymmetric publish, frontmatter) |
-| `skilltree doctor` | Preflight: schema + lint + lockfile sync + targets + registries + frontmatter |
+| `skilltree doctor` | Preflight: schema + lint + lockfile sync + targets + registries + frontmatter + bundled-skill freshness |
 | `skilltree list` | List installed dependencies |
 | `skilltree projects` | List skilltree-managed projects discoverable on this machine (read-only) |
 | `skilltree deps tree` | Show dependency tree |

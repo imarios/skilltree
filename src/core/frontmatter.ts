@@ -43,6 +43,13 @@ export function parseFrontmatter(content: string): SkillFrontmatter | null {
 		result.description = parsed.description;
 	}
 
+	// `version` is informational here — doctor's bundled-skill check (Fluorine)
+	// reads it to detect a stale installed copy. Validation (semver) is the
+	// linter's job; we accept any string and let bad values surface there.
+	if (typeof parsed.version === "string") {
+		result.version = parsed.version;
+	}
+
 	// SKILL.md: `dependencies: [a, b]` (YAML array)
 	if (Array.isArray(parsed.dependencies)) {
 		result.dependencies = parsed.dependencies.filter((d): d is string => typeof d === "string");

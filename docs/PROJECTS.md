@@ -16,6 +16,8 @@ Project Naming Theme: Elements
 
 - **Carbon** (05/14/2026): Publication surface — `skilltree.yml` as registry-index fallback, `publish: false` for WIP local entities, `exclude:` + `.skilltreeignore` for file-level trim, unified visibility predicate across indexing/vendor/origin-manifest lookup, `check` lint for asymmetric publish state (resolves #63)
 
+- **Fluorine** (05/23/2026): Bundled-skill freshness — `materializeBundledSkill` stamps the CLI's `package.json` version into the SKILL.md frontmatter; new `bundled-skill` doctor check warns when the installed skilltree skill is missing or behind the CLI on any detected agent. Renderer extended to show `→ fix` hints on warn rows. Spec: docs/specs/doctor.md v1.1.
+
 ## Completed Projects
 
 - **Oxygen** (05/19/2026 → 05/19/2026): Skill packs — `packs:` section in `skilltree.yml`, `PackDependency` references (local + remote), full-entry members supporting multi-repo composition, all-or-nothing v1, nested-packs door left open. Shipped across 4 phases (types + manifest, resolver Phase 1.5, add/remove/registry surface, docs + e2e). 86 new tests, 4 commits. See [docs/specs/packs.md](specs/packs.md).

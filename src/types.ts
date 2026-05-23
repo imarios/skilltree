@@ -131,6 +131,12 @@ export interface Lockfile {
 export interface SkillFrontmatter {
 	name?: string;
 	description?: string;
+	/**
+	 * Optional semver version. Read by `doctor`'s bundled-skill check
+	 * (Fluorine) to detect when an installed copy of a skill lags behind
+	 * the CLI that would install it today.
+	 */
+	version?: string;
 	dependencies?: string[]; // SKILL.md: `dependencies: [a, b]`
 	skills?: string[]; // Agent .md: `skills:` field (comma-separated or array)
 }

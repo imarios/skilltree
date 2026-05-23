@@ -7,6 +7,12 @@
 //
 // Spec: docs/specs/doctor.md.
 
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import semver from "semver";
+import pkg from "../../package.json" with { type: "json" };
+import { detectInstalledAgents, getAgentLabel, resolveAgentHome } from "../core/agents.js";
+import { parseFrontmatter } from "../core/frontmatter.js";
 import { type LsRemoteOutcome, lsRemote } from "../core/git.js";
 import { diffManifestLockfile, readLockfile } from "../core/lockfile.js";
 import { loadManifestOrThrow, validateGlobalManifest, validateManifest } from "../core/manifest.js";
@@ -34,6 +40,11 @@ export interface DoctorOptions {
 	registryConfigPath?: string;
 	/** Override the network probe (testing). */
 	probe?: ReachabilityProbe;
+	/**
+	 * Override the user's home directory for the bundled-skill check
+	 * (testing). Defaults to `$HOME`.
+	 */
+	homeDir?: string;
 }
 
 export interface DoctorReport {
@@ -80,6 +91,7 @@ export async function runDoctor(dir: string, opts: DoctorOptions = {}): Promise<
 	checks.push(await checkTargetConsistency(manifest, isGlobal));
 	checks.push(await checkRegistryReachability(probe, opts.registryConfigPath));
 	checks.push(checkFrontmatter(summary, lintError, manifest));
+	checks.push(await checkBundledSkill(opts.homeDir));
 
 	return { checks, summary: tallyStatuses(checks) };
 }
@@ -292,6 +304,117 @@ async function checkRegistryReachability(
 	}
 }
 
+/**
+ * Bundled-skill freshness check (Fluorine).
+ *
+ * For every coding agent detected on the user's system, verify that the
+ * bundled skilltree skill (`<agent home>/skills/skilltree/SKILL.md`) exists
+ * and that its frontmatter `version` is not behind the CLI binary's version.
+ *
+ * Warn-only — never fails. A missing skill or a stale skill is a degraded
+ * but recoverable state: the CLI still works, just the agent guidance is
+ * absent or out of date. `skilltree teach` is the fix in either case.
+ *
+ * Skipped (not warn) when no agents are detected, since there's nothing to
+ * install into.
+ */
+type AgentSkillState =
+	| { agent: string; kind: "current"; version: string }
+	| { agent: string; kind: "stale"; version: string }
+	| { agent: string; kind: "missing" }
+	| { agent: string; kind: "no-version" }
+	| { agent: string; kind: "error"; message: string };
+
+async function checkBundledSkill(homeDir: string | undefined): Promise<CheckResult> {
+	const cliVersion = pkg.version;
+	try {
+		const agents = await detectInstalledAgents(homeDir);
+		if (agents.length === 0) {
+			return {
+				name: "bundled-skill",
+				status: "skip",
+				detail: "no coding agents detected",
+			};
+		}
+		const states = await Promise.all(agents.map((a) => inspectAgentSkill(a, homeDir)));
+		const bad = states.filter((s) => s.kind !== "current");
+		if (bad.length === 0) {
+			return {
+				name: "bundled-skill",
+				status: "pass",
+				detail: `${agents.length} agent${agents.length === 1 ? "" : "s"} up to date (v${cliVersion})`,
+			};
+		}
+		const parts = bad.map((s) => formatAgentState(s, cliVersion));
+		return {
+			name: "bundled-skill",
+			status: "warn",
+			detail: parts.join("; "),
+			fix: "Run `skilltree teach` to install/update the skilltree skill",
+		};
+	} catch (err) {
+		return {
+			name: "bundled-skill",
+			status: "warn",
+			detail: err instanceof Error ? err.message : String(err),
+		};
+	}
+}
+
+async function inspectAgentSkill(
+	agent: string,
+	homeDir: string | undefined,
+): Promise<AgentSkillState> {
+	const agentHome = resolveAgentHome(agent, homeDir);
+	if (agentHome === null) {
+		// Unknown agent — detectInstalledAgents wouldn't return it, but stay
+		// defensive in case the registry changes asymmetrically.
+		return { agent, kind: "error", message: "unknown agent" };
+	}
+	const skillPath = join(agentHome, "skills", "skilltree", "SKILL.md");
+	let text: string;
+	try {
+		text = await readFile(skillPath, "utf-8");
+	} catch (err) {
+		const code = (err as NodeJS.ErrnoException).code;
+		if (code === "ENOENT" || code === "ENOTDIR") return { agent, kind: "missing" };
+		return { agent, kind: "error", message: err instanceof Error ? err.message : String(err) };
+	}
+	let fm: ReturnType<typeof parseFrontmatter>;
+	try {
+		fm = parseFrontmatter(text);
+	} catch (err) {
+		return { agent, kind: "error", message: err instanceof Error ? err.message : String(err) };
+	}
+	// Presence check on the parsed string (CLAUDE.md §"Presence check ≠ value
+	// check"): `version` may legitimately be undefined, or it may be present
+	// but un-parseable (legacy install, hand-edited file). Treat both as
+	// "predates version tracking" so the user gets the same remediation.
+	const installed = fm?.version;
+	if (installed === undefined) return { agent, kind: "no-version" };
+	if (!semver.valid(installed)) return { agent, kind: "no-version" };
+	if (semver.lt(installed, pkg.version)) {
+		return { agent, kind: "stale", version: installed };
+	}
+	return { agent, kind: "current", version: installed };
+}
+
+function formatAgentState(s: AgentSkillState, cliVersion: string): string {
+	const label = getAgentLabel(s.agent) ?? s.agent;
+	switch (s.kind) {
+		case "missing":
+			return `${label}: not installed`;
+		case "no-version":
+			return `${label}: predates version tracking`;
+		case "stale":
+			return `${label}: v${s.version} behind CLI v${cliVersion}`;
+		case "error":
+			return `${label}: ${s.message}`;
+		case "current":
+			return `${label}: v${s.version}`;
+	}
+}
+
 function checkFrontmatter(
 	summary: CheckSummary | undefined,
 	lintError: string | undefined,
@@ -371,7 +494,7 @@ export function renderDoctor(report: DoctorReport): void {
 			? `  ${check.status === "fail" ? pc.red(check.detail) : check.status === "warn" ? pc.yellow(check.detail) : dim(check.detail)}`
 			: "";
 		console.log(`${check.name.padEnd(CHECK_NAME_WIDTH)}${glyph}${detail}`);
-		if (check.status === "fail" && check.fix) {
+		if ((check.status === "fail" || check.status === "warn") && check.fix) {
 			// Indent below the glyph column for readability.
 			console.log(`${" ".repeat(CHECK_NAME_WIDTH + 2)}${dim(`→ ${check.fix}`)}`);
 		}
