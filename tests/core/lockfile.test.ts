@@ -94,6 +94,51 @@ describe("buildLockfile", () => {
 		const lockfile = buildLockfile(entities);
 		expect(lockfile.packages["workflow-builder-agent"]?.name).toBe("workflow-builder");
 	});
+
+	// #153: a pack-injected member must carry its origin pack's yaml key into
+	// the lockfile so `list` can surface the "via pack" attribution on the
+	// consumer side. The resolver already records `viaPack` on the resolved
+	// entity; the lockfile is just the persistence boundary.
+	test("persists viaPack from pack-expanded members as via_pack (#153)", () => {
+		const entities = new Map<string, ResolvedEntity>([
+			[
+				"skill:elastic-architect",
+				{
+					key: "elastic-architect",
+					name: "elastic-architect",
+					type: "skill",
+					group: "prod",
+					repo: "github.com/marios-oss/elastic-skills",
+					path: "skills/elastic-architect",
+					version: "0.1.5",
+					commit: "abc123",
+					local: false,
+					dependencies: [],
+					viaPack: "elastic-stack",
+				},
+			],
+			[
+				"skill:standalone",
+				{
+					key: "standalone",
+					name: "standalone",
+					type: "skill",
+					group: "prod",
+					repo: "github.com/user/skills",
+					path: "skills/standalone",
+					version: "1.0.0",
+					commit: "def456",
+					local: false,
+					dependencies: [],
+				},
+			],
+		]);
+
+		const lockfile = buildLockfile(entities);
+		expect(lockfile.packages["elastic-architect"]?.via_pack).toBe("elastic-stack");
+		// Direct (non-pack-injected) entries omit the field entirely.
+		expect(lockfile.packages.standalone?.via_pack).toBeUndefined();
+	});
 });
 
 describe("serializeLockfile + parseLockfile roundtrip", () => {

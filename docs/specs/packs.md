@@ -202,4 +202,8 @@ None blocking v1 — all resolved during planning (see "Confirmed design decisio
 - **Consumer-side overrides** (`exclude:` member list, per-member version pin) — defer until real demand surfaces.
 - **`skilltree why <pack>`** — a follow-up. v1 only supports `why <member>` which reports `_viaPack` provenance.
 - **Glob mode for `skilltree add 'X-pack-*'`** — defer.
-- **Lockfile `pack_resolutions:` section** — only if reproducibility of *which pack version was used* becomes a need.
+- **Lockfile `pack_resolutions:` section** — a richer structured block recording the pin and member set per pack reference. Not needed yet; the lighter-weight per-entry `via_pack:` field added for #153 already covers consumer-side attribution.
+
+## Consumer-side attribution (#153)
+
+Each lockfile entry injected by expanding a `pack:` reference carries a `via_pack:` field naming the consumer's yaml key for that pack reference. Direct entries omit the field. `skilltree list` reads this to render a "Via Pack" column (text mode) and a `viaPack` field on each row (`--json`); the column is hidden when no entry carries the field, so non-pack projects see no visual change. The install path does not read `via_pack:` — it is provenance only.

@@ -72,8 +72,9 @@ export interface ResolvedEntity {
 	exclude?: string[];
 	/**
 	 * If this entity was injected by a pack expansion, the consumer's yaml key
-	 * for that pack reference. Internal; never serialized to lockfile. Drives
-	 * future `why <entity>` provenance ("via pack X"). Oxygen Phase 2.
+	 * for that pack reference. Set during pack expansion (Oxygen Phase 2);
+	 * persisted to the lockfile as `via_pack` so `list` can render consumer-side
+	 * pack attribution (#153). Not consumed by the install path.
 	 */
 	viaPack?: string;
 }

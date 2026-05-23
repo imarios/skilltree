@@ -209,6 +209,7 @@ packages:
 | `integrity` | SHA-256 content hash (remote deps only) |
 | `name` | Actual entity name (only present when aliased) |
 | `dependencies` | List of dependency names |
+| `via_pack` | Consumer's yaml key for the pack reference that injected this entry. Only present on pack-expanded members. Read by `list` for the "Via Pack" column; never used in the install path. (#153) |
 
 **Integrity hash algorithm:** List all files recursively, sort by relative path (alphabetical), concatenate `"{relative_path}\0{file_content}"` for each, SHA-256 the result. Deterministic across platforms.
 
