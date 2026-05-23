@@ -1,3 +1,9 @@
+## v0.38.1 (2026-05-23)
+
+### Fix
+
+- adaptive prompt hint + clearer bundled-skill wording + demo/README refresh (#155)
+
 ## v0.38.0 (2026-05-23)
 
 ### Feat
