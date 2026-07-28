@@ -91,7 +91,9 @@ describe("addCommand", () => {
 		await addCommand("my-skill", { repo: "github.com/user/repo", path: "skills/my-skill" }, dir);
 
 		const manifest = await readManifest(dir);
-		expect((manifest.dependencies?.["my-skill"] as { version: string }).version).toBe("*");
+		expect((manifest.dependencies?.["my-skill"] as { version: string } | undefined)?.version).toBe(
+			"*",
+		);
 	});
 
 	test("adds remote dependency with --type command (Issue #11)", async () => {
@@ -485,7 +487,9 @@ describe("addCommand", () => {
 		expect(warnings.some((w) => w.includes("overwriting"))).toBe(true);
 
 		const manifest = await readManifest(dir);
-		expect((manifest.dependencies?.["my-skill"] as { version: string }).version).toBe("^2.0.0");
+		expect((manifest.dependencies?.["my-skill"] as { version: string } | undefined)?.version).toBe(
+			"^2.0.0",
+		);
 	});
 
 	test("prints hint to run `skilltree install` after adding a project dep", async () => {

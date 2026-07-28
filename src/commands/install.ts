@@ -435,13 +435,24 @@ async function resolveWithLockfile(
 	if (existingLockfile) {
 		const diff = diffManifestLockfile(manifest, existingLockfile);
 		const hasChanges = diff.added.length > 0 || diff.changed.length > 0 || diff.removed.length > 0;
+		// A pack ref's membership lives in the pack host's manifest, which the
+		// lockfile doesn't record — so "the members we locked are still here"
+		// does NOT prove the ref still expands to them (#161). Re-resolve, the
+		// same as for local deps, rather than skip work we can't prove is
+		// unnecessary. Without this, retargeting a `pack:` ref to a different
+		// repo would be silently ignored on the next install.
+		const provable = diff.packs.length === 0;
 
-		if (!hasChanges && !hasLocalDeps(manifest)) {
+		if (!hasChanges && provable && !hasLocalDeps(manifest)) {
 			console.log(dim(`${label}Lockfile is current. Installing from lockfile...`));
 			return resolveFromLockfile(existingLockfile);
 		}
 		if (!hasChanges) {
-			console.log(dim("Re-reading local dependencies..."));
+			// Manifest matches the lockfile, but something here can't be read
+			// from the lockfile alone — local dep frontmatter, or pack membership.
+			console.log(
+				dim(provable ? "Re-reading local dependencies..." : "Re-resolving pack members..."),
+			);
 		} else {
 			console.log(`${label}Manifest changed. Resolving dependencies...`);
 		}

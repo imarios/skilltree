@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
-import { isSingleFileEntity } from "../core/entity-type.js";
+import { isSingleFileEntity, mdFileType } from "../core/entity-type.js";
 import { MANIFEST_NEW } from "../core/filenames.js";
 import { validateFrontmatter } from "../core/frontmatter.js";
 import type { ResolvedEntity } from "../core/graph.js";
@@ -222,7 +222,7 @@ async function lintOneLocalEntry(
 		return;
 	}
 
-	const issues = validateFrontmatter(content, { entityName });
+	const issues = validateFrontmatter(content, { entityName, entityType: resolved.entityType });
 	const prefix = displayPath(resolved.path, projectDir);
 	for (const issue of issues) {
 		const line = `${prefix}: ${issue.message}`;
@@ -233,42 +233,44 @@ async function lintOneLocalEntry(
 }
 
 /**
- * Resolve a `local:` path to the actual `.md` file we should lint.
+ * Resolve a `local:` path to the actual `.md` file we should lint, along with
+ * the entity type that scopes its frontmatter schema (#159, #160).
+ *
  * Skills are directories with `SKILL.md`; agents and commands are single
- * `.md` files. When `type` is omitted, probe the filesystem.
+ * `.md` files. When `type` is omitted, probe the filesystem — the same probe
+ * the install path uses, via `mdFileType`, so `check` and `install` never
+ * disagree about what a given file is.
  */
 async function resolveEntityMdPath(
 	localPath: string,
 	declaredType: EntityType | undefined,
-): Promise<{ kind: "found" | "missing"; path: string }> {
+): Promise<{ kind: "found" | "missing"; path: string; entityType?: EntityType }> {
 	// Explicit `!== undefined` (not `!declaredType`): a future EntityType
 	// value of `""` shouldn't silently fall through to filesystem probing.
 	// See "Presence check ≠ value check" in CLAUDE.md.
 	if (declaredType !== undefined) {
 		const target = isSingleFileEntity(declaredType) ? localPath : join(localPath, "SKILL.md");
-		try {
-			await stat(target);
-			return { kind: "found", path: target };
-		} catch {
-			return { kind: "missing", path: target };
-		}
+		return {
+			kind: (await exists(target)) ? "found" : "missing",
+			path: target,
+			entityType: declaredType,
+		};
 	}
 
 	// No declared type — probe. Directory ⇒ skill (look for SKILL.md);
-	// `.md` file ⇒ single-file entity (agent or command, both lint identically).
+	// `.md` file ⇒ single-file entity, classified by path like everywhere else.
 	try {
 		const stats = await stat(localPath);
 		if (stats.isDirectory()) {
 			const skillMd = join(localPath, "SKILL.md");
-			try {
-				await stat(skillMd);
-				return { kind: "found", path: skillMd };
-			} catch {
-				return { kind: "missing", path: skillMd };
-			}
+			return {
+				kind: (await exists(skillMd)) ? "found" : "missing",
+				path: skillMd,
+				entityType: "skill",
+			};
 		}
 		if (stats.isFile() && localPath.endsWith(".md")) {
-			return { kind: "found", path: localPath };
+			return { kind: "found", path: localPath, entityType: mdFileType(localPath) };
 		}
 		// File of unknown shape — surface as missing so the author sees the
 		// path that confused the linter.
@@ -276,6 +278,14 @@ async function resolveEntityMdPath(
 	} catch {
 		return { kind: "missing", path: localPath };
 	}
+}
+
+/** `stat` as a boolean, so callers read as one expression instead of try/catch. */
+async function exists(path: string): Promise<boolean> {
+	return stat(path).then(
+		() => true,
+		() => false,
+	);
 }
 
 /** Render `localPath` relative to the project root when possible. */

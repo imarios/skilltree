@@ -29,6 +29,8 @@ export interface LocalEntryOpts {
 	path?: string;
 	/** YAML-key aliasing for collision tests. */
 	name?: string;
+	/** Consumer-side pack attribution (#153) — the manifest key of the `pack:` ref that produced this entry. */
+	viaPack?: string;
 }
 
 export function localEntry(name: string, opts: LocalEntryOpts = {}): LockfileEntry {
@@ -40,8 +42,7 @@ export function localEntry(name: string, opts: LocalEntryOpts = {}): LockfileEnt
 		commit: "HEAD",
 		dependencies: opts.deps ?? [],
 	};
-	if (opts.name) entry.name = opts.name;
-	return entry;
+	return applyOptionalFields(entry, opts);
 }
 
 export interface RemoteEntryOpts {
@@ -53,6 +54,8 @@ export interface RemoteEntryOpts {
 	version?: string;
 	commit?: string;
 	name?: string;
+	/** Consumer-side pack attribution (#153) — the manifest key of the `pack:` ref that produced this entry. */
+	viaPack?: string;
 }
 
 export function remoteEntry(name: string, opts: RemoteEntryOpts = {}): LockfileEntry {
@@ -68,6 +71,22 @@ export function remoteEntry(name: string, opts: RemoteEntryOpts = {}): LockfileE
 		commit: opts.commit ?? "abc123",
 		dependencies: opts.deps ?? [],
 	};
-	if (opts.name) entry.name = opts.name;
+	return applyOptionalFields(entry, opts);
+}
+
+/**
+ * Fields both builders treat the same way: set only when the caller asked for
+ * them, so a fixture's serialized shape matches what the installer writes.
+ *
+ * `viaPack` uses an explicit `!== undefined` (not a truthy check) so a test can
+ * build the blank-string edge case `via_pack: ""` — a hand-edited value, not an
+ * absence. See "Presence check ≠ value check" in CLAUDE.md.
+ */
+function applyOptionalFields(
+	entry: LockfileEntry,
+	opts: { name?: string; viaPack?: string },
+): LockfileEntry {
+	if (opts.name !== undefined) entry.name = opts.name;
+	if (opts.viaPack !== undefined) entry.via_pack = opts.viaPack;
 	return entry;
 }

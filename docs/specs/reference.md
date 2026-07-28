@@ -227,6 +227,30 @@ dependencies:
 
 Name-only list. Resolution details (repo, version) come from the consumer's `skilltree.yml`. Keeps skills portable.
 
+### Frontmatter Keys Recognized by `check`
+
+`skilltree check` errors on unrecognized frontmatter keys. The accepted set is
+scoped per entity type, because most of these keys belong to the host runtime
+(Claude Code), not to skilltree — skilltree doesn't read them, but must not
+reject an entity that uses them (issues #159, #160).
+
+| Entity | Keys |
+|--------|------|
+| all | `name`, `description`, `version`, `dependencies`, `skills`, `metadata` |
+| skill | + `license`, `allowed-tools` |
+| agent | + `tools`, `model`, `color` |
+| command | + `allowed-tools`, `argument-hint`, `model`, `disable-model-invocation` |
+
+Of these, skilltree itself only reads `name`, `description`, `dependencies`,
+`skills`, and `version`. `metadata` is the conventional bag for author-defined
+fields (author, changelog) that no tool interprets.
+
+The entity type comes from `type:` in the manifest entry. When omitted it is
+inferred from the path using the same rule the install path uses (`mdFileType`):
+a directory is a skill, a `.md` file under a `commands/` segment is a command,
+and any other `.md` file is an agent. Declare `type:` explicitly when the
+layout doesn't follow that convention.
+
 ## Resolution Algorithm
 
 ### Phase 1: Graph Construction

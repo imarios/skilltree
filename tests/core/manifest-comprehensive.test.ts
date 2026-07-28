@@ -79,7 +79,7 @@ dependencies:
 		const expanded = expandSources(manifest);
 		const dep = expanded.dependencies?.single as unknown as Record<string, unknown>;
 		expect(dep?.local).toContain("/Projects/single-skill");
-		expect((dep?.local as string).endsWith("/.")).toBe(false);
+		expect((dep?.local as string | undefined)?.endsWith("/.")).toBe(false);
 	});
 
 	test("handles manifest with no sources section", () => {

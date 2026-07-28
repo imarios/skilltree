@@ -37,7 +37,7 @@ packs:
 `;
 		const m = parseManifest(yaml);
 		expect(m.packs?.["python-pack"]).toHaveLength(2);
-		expect((m.packs?.["python-pack"]?.[1] as { repo: string }).repo).toBe(
+		expect((m.packs?.["python-pack"]?.[1] as { repo: string } | undefined)?.repo).toBe(
 			"github.com/other/skills",
 		);
 	});
@@ -74,7 +74,7 @@ packs:
       name: renamed
 `;
 		const m = parseManifest(yaml);
-		expect((m.packs?.["python-pack"]?.[0] as { name: string }).name).toBe("renamed");
+		expect((m.packs?.["python-pack"]?.[0] as { name: string } | undefined)?.name).toBe("renamed");
 	});
 
 	test("A1.f — member with force_path", () => {
@@ -86,7 +86,9 @@ packs:
       force_path: true
 `;
 		const m = parseManifest(yaml);
-		expect((m.packs?.["python-pack"]?.[0] as { force_path: boolean }).force_path).toBe(true);
+		expect((m.packs?.["python-pack"]?.[0] as { force_path: boolean } | undefined)?.force_path).toBe(
+			true,
+		);
 	});
 
 	test("A1.g — member with type: agent", () => {
@@ -98,7 +100,7 @@ packs:
       type: agent
 `;
 		const m = parseManifest(yaml);
-		expect((m.packs?.["python-pack"]?.[0] as { type: string }).type).toBe("agent");
+		expect((m.packs?.["python-pack"]?.[0] as { type: string } | undefined)?.type).toBe("agent");
 	});
 
 	test("A1.h — multiple packs in one manifest", () => {

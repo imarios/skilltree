@@ -4,7 +4,7 @@ import semver from "semver";
 import YAML from "yaml";
 import pkg from "../../package.json";
 import type { Dependency, Lockfile, LockfileEntry, Manifest } from "../types.js";
-import { isLocalDependency, isRemoteDependency } from "../types.js";
+import { isLocalDependency, isPackDependency, isRemoteDependency } from "../types.js";
 import { resolveGlobalLockfilePath, resolveLockfilePath } from "./filenames.js";
 import type { ResolvedEntity } from "./graph.js";
 import { expandSources } from "./manifest.js";
@@ -246,15 +246,42 @@ export async function writeGlobalLockfile(lockfile: Lockfile, globalDir?: string
 }
 
 export interface LockfileDiff {
-	unchanged: string[]; // keys present in both, compatible
+	unchanged: string[]; // manifest keys present in both, compatible
 	added: string[]; // in manifest but not lockfile
 	changed: string[]; // in both but repo/version changed
 	removed: string[]; // in lockfile but not manifest
+	/**
+	 * Manifest keys of `pack:` refs whose members are present in the lockfile
+	 * (#161). Reported in their own bucket rather than folded into
+	 * `unchanged` for two reasons:
+	 *
+	 *  - Namespace. Every other bucket holds manifest keys; a pack ref's
+	 *    members are lockfile keys. Mixing them would make `unchanged` mean
+	 *    two different things depending on the entry.
+	 *  - Freshness is not provable here. A pack's membership lives in the
+	 *    pack host's manifest, which the lockfile does not record, so this
+	 *    function cannot tell whether a pack ref still expands to the members
+	 *    it expanded to last time. Callers that use the diff to *skip* work
+	 *    must treat a non-empty `packs` as "cannot prove current" and
+	 *    re-resolve; callers asking "is the lockfile in sync" (doctor,
+	 *    `--frozen`) can ignore it.
+	 */
+	packs: string[];
 }
 
 /**
  * Diff a manifest against an existing lockfile.
- * Returns which entries are unchanged, added, changed, or removed.
+ * Returns which entries are unchanged, added, changed, removed, or pack refs.
+ *
+ * Most manifest keys map 1:1 onto a lockfile package of the same name. A
+ * `pack:` reference does not: it lives in the manifest under a single key but
+ * expands to N packages, each stamped with `via_pack: <that key>` (#153). A
+ * name-to-name diff would therefore report the pack key as `added` and every
+ * expanded package as `removed` forever — see issue #161, where `doctor`'s
+ * lockfile-sync check could never be satisfied on a pack-only project, its
+ * "run install to sync" remediation looped, and `install --frozen` / `vendor
+ * --frozen` were impossible on any project that used packs. Pack refs are
+ * matched through that `via_pack` attribution instead.
  */
 export function diffManifestLockfile(manifest: Manifest, lockfile: Lockfile): LockfileDiff {
 	const expanded = expandSources(manifest);
@@ -263,38 +290,81 @@ export function diffManifestLockfile(manifest: Manifest, lockfile: Lockfile): Lo
 		...expanded["dev-dependencies"],
 	};
 
-	const manifestKeys = new Set(Object.keys(allManifestDeps));
-	const lockfileKeys = new Set(Object.keys(lockfile.packages));
+	const membersByPack = indexLockfileByPack(lockfile);
 
 	const unchanged: string[] = [];
 	const added: string[] = [];
 	const changed: string[] = [];
 	const removed: string[] = [];
+	const packs: string[] = [];
 
-	for (const key of manifestKeys) {
-		const dep = allManifestDeps[key];
+	// Lockfile entries the manifest accounts for: direct deps by name, plus
+	// every member a `pack:` ref expanded to. These are the roots for the
+	// orphan sweep below — a pack member's transitive deps are as legitimately
+	// present as a direct dep's.
+	const accounted = new Set<string>();
+
+	for (const [key, dep] of Object.entries(allManifestDeps)) {
+		if (isPackDependency(dep)) {
+			const members = membersByPack.get(key) ?? [];
+			// A pack ref with no expanded members in the lock has never been
+			// installed (or its members were dropped) — that IS a real "added".
+			//
+			// Presence of *any* member is all this can check: the expected
+			// member set lives in the pack host's manifest, which the lockfile
+			// doesn't record and this (pure, sync) function can't fetch. So a
+			// hand-edited lockfile that dropped some-but-not-all members reads
+			// as in sync here. `install` never trusts a pack ref (see `packs`
+			// above), so the next install re-resolves and repairs it.
+			if (members.length === 0) {
+				added.push(key);
+				continue;
+			}
+			packs.push(key);
+			for (const member of members) accounted.add(member);
+			continue;
+		}
+
+		accounted.add(key);
 		const locked = lockfile.packages[key];
-
-		if (!locked || !dep) {
+		if (!locked) {
 			added.push(key);
 		} else {
 			classifyDep(dep, locked, key, unchanged, changed);
 		}
 	}
 
-	// Check for removed entries (in lockfile but not manifest)
-	// Only check direct deps, not transitive
-	for (const key of lockfileKeys) {
-		if (!manifestKeys.has(key)) {
-			// Could be a transitive dep — check if it's reachable from any manifest key
-			const isTransitive = isReachableFromManifest(key, lockfile, manifestKeys);
-			if (!isTransitive) {
-				removed.push(key);
-			}
-		}
+	// Lockfile entries that are neither declared nor reachable from something
+	// declared are orphans. One traversal from all accounted roots, rather
+	// than a fresh walk (and a fresh name index) per candidate.
+	const reachable = collectReachable(lockfile, accounted);
+	for (const key of Object.keys(lockfile.packages)) {
+		if (!reachable.has(key)) removed.push(key);
 	}
 
-	return { unchanged, added, changed, removed };
+	return { unchanged, added, changed, removed, packs };
+}
+
+/**
+ * Group lockfile package keys by the `via_pack` attribution the installer
+ * stamped on them (#153). The value is the consumer's YAML key for the pack
+ * ref, not the pack's own name, so it is compared against manifest keys.
+ *
+ * Entries without attribution — and entries whose attribution is a blank
+ * string, which is a hand-edited value rather than an absence (see "Presence
+ * check ≠ value check" in CLAUDE.md) — are omitted, so they can never satisfy
+ * a pack reference.
+ */
+function indexLockfileByPack(lockfile: Lockfile): Map<string, string[]> {
+	const byPack = new Map<string, string[]>();
+	for (const [key, entry] of Object.entries(lockfile.packages)) {
+		const pack = entry.via_pack;
+		if (pack === undefined || pack === "") continue;
+		const members = byPack.get(pack) ?? [];
+		members.push(key);
+		byPack.set(pack, members);
+	}
+	return byPack;
 }
 
 /**
@@ -356,30 +426,28 @@ function classifyDep(
 	unchanged.push(key);
 }
 
-function isReachableFromManifest(
-	target: string,
-	lockfile: Lockfile,
-	manifestKeys: Set<string>,
-): boolean {
+/**
+ * Every lockfile key reachable from `roots`, following each entry's
+ * `dependencies`. Roots that aren't themselves lockfile keys are harmless —
+ * only keys that exist in `lockfile.packages` are ever queried.
+ */
+function collectReachable(lockfile: Lockfile, roots: Set<string>): Set<string> {
 	// `entry.dependencies` references children by name; resolve to YAML keys
 	// via the name index. See `buildNameIndex`.
 	const nameIndex = buildNameIndex(lockfile);
-	const visited = new Set<string>();
+	const reachable = new Set<string>();
+	const stack = [...roots];
 
-	function walk(key: string): boolean {
-		if (visited.has(key)) return false;
-		visited.add(key);
-		if (key === target) return true;
+	while (stack.length > 0) {
+		const key = stack.pop();
+		if (key === undefined || reachable.has(key)) continue;
+		reachable.add(key);
 		const entry = lockfile.packages[key];
-		if (!entry) return false;
-		return entry.dependencies.some((dep) => {
+		if (!entry) continue;
+		for (const dep of entry.dependencies) {
 			const depKey = nameIndex.get(dep);
-			return depKey !== undefined && walk(depKey);
-		});
+			if (depKey !== undefined && !reachable.has(depKey)) stack.push(depKey);
+		}
 	}
-
-	for (const mk of manifestKeys) {
-		if (walk(mk)) return true;
-	}
-	return false;
+	return reachable;
 }

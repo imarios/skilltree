@@ -30,7 +30,7 @@ describe("registry scanner — packs", () => {
 
 		const entries = await manifestScanRepo(repo);
 		expect(entries).not.toBeNull();
-		const packs = entries!.filter((e) => e.kind === "pack");
+		const packs = (entries ?? []).filter((e) => e.kind === "pack");
 		expect(packs).toHaveLength(2);
 		expect(packs.map((p) => p.name).sort()).toEqual(["js-pack", "python-pack"]);
 		for (const p of packs) {
@@ -60,8 +60,8 @@ describe("registry scanner — packs", () => {
 
 		const entries = await manifestScanRepo(repo);
 		expect(entries).not.toBeNull();
-		const entityEntries = entries!.filter((e) => e.kind !== "pack");
-		const packEntries = entries!.filter((e) => e.kind === "pack");
+		const entityEntries = (entries ?? []).filter((e) => e.kind !== "pack");
+		const packEntries = (entries ?? []).filter((e) => e.kind === "pack");
 		expect(entityEntries.some((e) => e.name === "my-skill")).toBe(true);
 		expect(packEntries.some((e) => e.name === "my-stack")).toBe(true);
 	});
