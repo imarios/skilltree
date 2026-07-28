@@ -41,18 +41,18 @@ async function makeProject(spec: ProjectSpec): Promise<string> {
 	return tempDir;
 }
 
+// init writes .gitignore on a fresh project; mirror that so the gitignore
+// check (D25) doesn't warn on fixtures that are meant to be clean.
+const GITIGNORE_FILE = {
+	path: ".gitignore",
+	content: ".claude/skills/\n.claude/agents/\n.claude/commands/\n",
+};
+
 function cleanProject(): ProjectSpec {
 	return {
 		manifest: ["name: clean", "install_targets:", "  - claude", "dependencies: {}", ""].join("\n"),
 		lockfile: emptyLockfile(),
-		// init writes .gitignore on a fresh project; mirror that so the
-		// gitignore check (D25) doesn't warn on the canonical clean fixture.
-		files: [
-			{
-				path: ".gitignore",
-				content: ".claude/skills/\n.claude/agents/\n.claude/commands/\n",
-			},
-		],
+		files: [GITIGNORE_FILE],
 	};
 }
 
@@ -79,6 +79,44 @@ function projectWithLocalSkill(
 			packages: { [name]: localEntry(name, { name }) },
 		},
 		files: [{ path: `skills/${name}/SKILL.md`, content: frontmatter }],
+	};
+}
+
+/**
+ * A project whose only dependency is a `pack:` reference — the intended
+ * consumer pattern for published packs, and the shape that made
+ * lockfile-sync permanently unsatisfiable in issue #161. Members are local
+ * so the fixture stays hermetic; the pack expansion is what's under test,
+ * not the fetch.
+ */
+function packOnlyProject(): ProjectSpec {
+	const members = ["elastic-architect", "elasticsearch-audit"];
+	return {
+		manifest: [
+			"name: pack-consumer",
+			"install_targets:",
+			"  - claude",
+			"packs:",
+			"  elastic-stack:",
+			...members.flatMap((m) => [`    - local: ./skills/${m}`, "      type: skill"]),
+			"dependencies:",
+			"  elastic-stack:",
+			"    pack: elastic-stack",
+			"",
+		].join("\n"),
+		lockfile: {
+			...emptyLockfile(),
+			packages: Object.fromEntries(
+				members.map((m) => [m, localEntry(m, { name: m, viaPack: "elastic-stack" })]),
+			),
+		},
+		files: [
+			GITIGNORE_FILE,
+			...members.map((m) => ({
+				path: `skills/${m}/SKILL.md`,
+				content: `---\nname: ${m}\ndescription: A skill\n---\n\n# ${m}\n`,
+			})),
+		],
 	};
 }
 
@@ -232,6 +270,26 @@ describe("runDoctor — lockfile sync", () => {
 		const lock = report.checks.find((c) => c.name === "lockfile-sync");
 		expect(lock?.status).toBe("fail");
 		expect((lock?.detail ?? "") + (lock?.fix ?? "")).toMatch(/skilltree install/);
+	});
+
+	// Issue #161: a pack-only project is the intended consumer pattern for
+	// published packs, and it made lockfile-sync permanently unsatisfiable —
+	// the pack key counted as "added" and every expanded member as "removed",
+	// so the "run `skilltree install` to sync" remediation looped forever.
+	test("pack-only project passes lockfile-sync after install (#161)", async () => {
+		const dir = await makeProject(packOnlyProject());
+		const report = await runDoctorIsolated(dir);
+		const lock = report.checks.find((c) => c.name === "lockfile-sync");
+		expect(lock?.status).toBe("pass");
+		expect(lock?.detail ?? "").not.toMatch(/added|removed/);
+	});
+
+	test("pack ref with no installed members still fails lockfile-sync (#161)", async () => {
+		const dir = await makeProject({ ...packOnlyProject(), lockfile: emptyLockfile() });
+		const report = await runDoctorIsolated(dir);
+		const lock = report.checks.find((c) => c.name === "lockfile-sync");
+		expect(lock?.status).toBe("fail");
+		expect(lock?.detail ?? "").toMatch(/elastic-stack/);
 	});
 });
 

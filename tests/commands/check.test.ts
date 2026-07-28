@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { checkCommand } from "../../src/commands/check.js";
 import { validateFrontmatter } from "../../src/core/frontmatter.js";
+import type { EntityType } from "../../src/types.js";
 
 // ---------------------------------------------------------------------------
 // Filesystem fixtures
@@ -230,6 +231,88 @@ describe("validateFrontmatter", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Per-entity-type known keys (#159, #160)
+//
+// The known-key set used to be one flat list of the five fields skilltree
+// itself reads, applied identically to skills, agents, and commands. Every
+// other valid Claude Code frontmatter key was therefore a hard error: authors
+// had to choose between least-privilege `tools:` / model pinning on an agent
+// and a clean `check`. Keys are now scoped to the entity type.
+// ---------------------------------------------------------------------------
+
+describe("validateFrontmatter — per-entity-type keys", () => {
+	const fm = (body: string) => `---\nname: foo\ndescription: x\n${body}\n---\n`;
+	const unknownKeys = (content: string, entityType?: EntityType) =>
+		validateFrontmatter(content, { entityName: "foo", entityType })
+			.filter((i) => i.message.includes("unknown frontmatter key"))
+			.map((i) => i.field);
+
+	// Each row: entity type (undefined = caller couldn't classify the file),
+	// frontmatter body, and the keys that must be reported unknown.
+	// Adding a supported key means adding a row, not a test.
+	const cases: Array<[string, EntityType | undefined, string, string[]]> = [
+		// #160 — the documented skill anatomy calls for `metadata`.
+		["skill accepts metadata", "skill", "metadata:\n  author: a@example.com\n  version: 0.1.0", []],
+		[
+			"skill accepts license + allowed-tools",
+			"skill",
+			"license: MIT\nallowed-tools: Read, Grep",
+			[],
+		],
+		// #159 — least-privilege tool access and per-agent model pinning.
+		["agent accepts tools + model", "agent", "tools: Write, ToolSearch\nmodel: sonnet", []],
+		["agent accepts color", "agent", "color: blue", []],
+		[
+			"command accepts argument-hint + allowed-tools",
+			"command",
+			"argument-hint: <issue-id>\nallowed-tools: Bash(git:*)",
+			[],
+		],
+		["command accepts disable-model-invocation", "command", "disable-model-invocation: true", []],
+
+		// Keys skilltree itself reads are valid everywhere.
+		...(["skill", "agent", "command"] as const).map(
+			(type): [string, EntityType, string, string[]] => [
+				`${type} accepts skilltree's own keys`,
+				type,
+				"version: 1.0.0\ndependencies:\n  - a\nskills: b, c\nmetadata:\n  x: y",
+				[],
+			],
+		),
+
+		// Typos and misplaced keys still error — that's the point of the lint.
+		...(["skill", "agent", "command"] as const).map(
+			(type): [string, EntityType, string, string[]] => [
+				`${type} rejects an unrecognized key`,
+				type,
+				"bogus: nope",
+				["bogus"],
+			],
+		),
+		["skill rejects agent-only keys", "skill", "tools: Read", ["tools"]],
+		["agent rejects command-only keys", "agent", "argument-hint: <id>", ["argument-hint"]],
+		["command rejects agent-only keys", "command", "tools: Read", ["tools"]],
+
+		// No type resolved — the file isn't a recognized entity shape, so the
+		// union is accepted rather than picking a side and erroring on valid input.
+		["untyped accepts any type's keys", undefined, "tools: Read\nargument-hint: <id>", []],
+		["untyped still rejects unrecognized keys", undefined, "bogus: nope", ["bogus"]],
+	];
+
+	test.each(cases)("%s", (_label, entityType, body, expected) => {
+		expect(unknownKeys(fm(body), entityType)).toEqual(expected);
+	});
+
+	test("unrecognized keys are hard errors, not warnings or notes", () => {
+		const issues = validateFrontmatter(fm("bogus: nope"), {
+			entityName: "foo",
+			entityType: "skill",
+		});
+		expect(issues.filter((i) => i.field === "bogus").map((i) => i.kind)).toEqual(["error"]);
+	});
+});
+
+// ---------------------------------------------------------------------------
 // checkCommand end-to-end — frontmatter lint behaviour
 // ---------------------------------------------------------------------------
 
@@ -360,6 +443,61 @@ describe("checkCommand frontmatter lint", () => {
 		const { warns, exitCode } = await runCheck(tempDir, { strict: true });
 		expect(warns.join("\n")).toMatch(/missing required field 'description'/);
 		expect(exitCode).toBe(1);
+	});
+
+	// #159 (`tools`/`model` on an agent — least-privilege tool access and
+	// per-agent model pinning) and #160 (`metadata` on a skill, which the
+	// documented skill anatomy calls for). Each of these was a hard error, so
+	// authors had to choose between a functionally correct entity and a
+	// `check` that exits 0.
+	const validFrontmatterCases: Array<[EntityType, string, string]> = [
+		["skill", "skills/foo/SKILL.md", "metadata:\n  author: a@example.com\n  version: 0.1.0"],
+		["agent", "agents/foo.md", "tools: Write, ToolSearch\nmodel: sonnet\nskills:\n  - a-contract"],
+		["command", "commands/foo.md", "argument-hint: <issue-id>\nallowed-tools: Bash(git:*)"],
+	];
+
+	test.each(validFrontmatterCases)(
+		"%s with host-runtime frontmatter keys passes check (#159, #160)",
+		async (type, path, extraKeys) => {
+			const localPath = type === "skill" ? "./skills/foo" : `./${path}`;
+			const dir = await makeProject({
+				manifest: [
+					"name: test",
+					"dependencies:",
+					"  foo:",
+					`    local: ${localPath}`,
+					`    type: ${type}`,
+					"",
+				].join("\n"),
+				files: [{ path, content: `---\nname: foo\ndescription: x\n${extraKeys}\n---\n\n# foo\n` }],
+			});
+
+			const { logs, warns, errors, exitCode } = await runCheck(dir);
+			expect([...logs, ...warns, ...errors].join("\n")).not.toMatch(/unknown frontmatter key/);
+			expect(logs.join("\n")).toContain("No issues");
+			expect(exitCode).toBeUndefined();
+		},
+	);
+
+	// The type is inferred from the path when the manifest doesn't declare it,
+	// using the same `mdFileType` probe the install path uses — so `check` and
+	// `install` can never disagree about what a given file is.
+	test("undeclared type is inferred from the path", async () => {
+		const dir = await makeProject({
+			manifest: ["name: test", "dependencies:", "  foo:", "    local: ./commands/foo.md", ""].join(
+				"\n",
+			),
+			files: [
+				{
+					path: "commands/foo.md",
+					content: `---\nname: foo\ndescription: x\nargument-hint: <id>\n---\n\n# /foo\n`,
+				},
+			],
+		});
+
+		const { logs, errors, exitCode } = await runCheck(dir);
+		expect([...logs, ...errors].join("\n")).not.toMatch(/unknown frontmatter key/);
+		expect(exitCode).toBeUndefined();
 	});
 
 	test("dev-dependencies are linted too", async () => {

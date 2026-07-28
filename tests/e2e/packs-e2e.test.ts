@@ -149,4 +149,65 @@ describe("e2e packs", () => {
 		expect(lock.packages.foo?.via_pack).toBe("python-pack");
 		expect(lock.packages.bar?.via_pack).toBe("python-pack");
 	});
+
+	// Guards the fail-open risk in the #161 fix: once `diffManifestLockfile`
+	// stopped reporting pack members as added/removed on every run, the
+	// lockfile-first fast path in `install` would have happily reported
+	// "Lockfile is current" and ignored an edited `pack:` ref. A pack's
+	// membership lives in the pack host's manifest, which the lockfile does
+	// not record, so a pack ref can never be proven current from the lockfile.
+	test("editing a pack ref re-resolves instead of trusting the lockfile (#161)", async () => {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-e2e-packs-retarget-"));
+
+		const repoDir = await createTestRepo(
+			tempDir,
+			"skills-repo",
+			[
+				{ path: "skills/foo", name: "foo" },
+				{ path: "skills/bar", name: "bar" },
+			],
+			"v1.0.0",
+		);
+		const bareDir = await makeBareClone(repoDir, tempDir, "skills-bare");
+
+		const packManifest = (members: string[]) =>
+			[
+				"packs:",
+				"  my-pack:",
+				...members.flatMap((m) => [
+					`    - repo: file://${bareDir}`,
+					`      path: skills/${m}`,
+					"      version: ^1.0.0",
+				]),
+				"dependencies:",
+				"  my-pack:",
+				"    pack: my-pack",
+				"",
+			].join("\n");
+
+		await writeManifest(tempDir, packManifest(["foo"]));
+		await installCommand(tempDir, {});
+		expect(
+			parseLockfile(await readFile(join(tempDir, "skilltree.lock"), "utf-8")).packages.bar,
+		).toBeUndefined();
+
+		// Widen the pack to a second member. The already-locked member still
+		// carries a matching `via_pack`, so a presence-only check would call
+		// this in sync and skip the re-resolve.
+		await writeManifest(tempDir, packManifest(["foo", "bar"]));
+
+		const originalLog = console.log;
+		const logs: string[] = [];
+		console.log = (...args: unknown[]) => logs.push(args.join(" "));
+		try {
+			await installCommand(tempDir, {});
+		} finally {
+			console.log = originalLog;
+		}
+
+		expect(logs.some((l) => l.includes("Lockfile is current"))).toBe(false);
+		const lock = parseLockfile(await readFile(join(tempDir, "skilltree.lock"), "utf-8"));
+		expect(lock.packages.bar).toBeDefined();
+		expect(lock.packages.bar?.via_pack).toBe("my-pack");
+	});
 });

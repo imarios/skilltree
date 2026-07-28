@@ -391,7 +391,7 @@ dependencies:
 		const dep = expanded.dependencies?.single as unknown as Record<string, unknown> | undefined;
 		expect(dep?.local).toContain("/Projects/single-skill");
 		// Should NOT end with /. — just the source root
-		expect((dep?.local as string).endsWith("/.")).toBe(false);
+		expect((dep?.local as string | undefined)?.endsWith("/.")).toBe(false);
 	});
 
 	test("remote source still works after local source support", () => {

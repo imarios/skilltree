@@ -1,6 +1,6 @@
 import semver from "semver";
 import YAML from "yaml";
-import type { SkillFrontmatter } from "../types.js";
+import type { EntityType, SkillFrontmatter } from "../types.js";
 
 /**
  * Parse YAML frontmatter from a markdown file's content.
@@ -124,18 +124,59 @@ export interface FrontmatterIssue {
 }
 
 /**
- * Fields recognized in SKILL.md / agent .md / command .md frontmatter.
- * Anything else becomes a "unknown frontmatter key" note. The keys mirror
- * what `parseFrontmatter` actually reads (above) plus `version`, which the
- * linter validates but the runtime does not consume today.
+ * Fields skilltree itself reads or validates, valid on every entity type.
+ * These mirror what `parseFrontmatter` consumes (above) plus `version`, which
+ * the linter validates but the runtime does not read today, and `metadata`,
+ * the conventional bag for author-defined fields (author, changelog, …) that
+ * no tool interprets.
  */
-const KNOWN_FRONTMATTER_KEYS = new Set([
+const COMMON_FRONTMATTER_KEYS = [
 	"name",
 	"description",
 	"version",
 	"dependencies",
 	"skills",
-]);
+	"metadata",
+];
+
+/**
+ * Frontmatter keys accepted per entity type (#159, #160).
+ *
+ * These are NOT all skilltree's own fields — the agent and command sets are
+ * the host runtime's (Claude Code's) schema, which skilltree does not consume
+ * but must not reject. A single flat set used to gate all three types, so
+ * `metadata:` on a skill and `tools:`/`model:` on an agent were hard errors
+ * even though all three are valid where they appear. Authors were forced to
+ * choose between a functionally correct entity and a `check` that exits 0.
+ *
+ * Adding a key here is deliberately cheap; the linter's job is to catch typos
+ * and misplaced fields, not to be the authority on the host's schema.
+ */
+const KNOWN_FRONTMATTER_KEYS: Record<EntityType, ReadonlySet<string>> = {
+	// Claude Code skills: `license` and `allowed-tools` scope the skill itself.
+	skill: new Set([...COMMON_FRONTMATTER_KEYS, "license", "allowed-tools"]),
+	// Claude Code agents: `tools` restricts tool access (least privilege),
+	// `model` pins the per-agent model, `color` is display-only.
+	agent: new Set([...COMMON_FRONTMATTER_KEYS, "tools", "model", "color"]),
+	// Claude Code slash commands.
+	command: new Set([
+		...COMMON_FRONTMATTER_KEYS,
+		"allowed-tools",
+		"argument-hint",
+		"model",
+		"disable-model-invocation",
+	]),
+};
+
+/**
+ * Keys valid for at least one entity type. Used only when the caller has no
+ * type to give — the file isn't a recognized entity shape at all. Callers that
+ * can classify the file should always pass `entityType`; `check` does, using
+ * the same `mdFileType` probe the install path uses.
+ */
+const ANY_TYPE_FRONTMATTER_KEYS: ReadonlySet<string> = new Set(
+	Object.values(KNOWN_FRONTMATTER_KEYS).flatMap((keys) => [...keys]),
+);
 
 /**
  * Validate the YAML frontmatter of a SKILL.md / agent .md / command .md.
@@ -151,11 +192,15 @@ const KNOWN_FRONTMATTER_KEYS = new Set([
  * output channel. Keeping the validator path-agnostic also makes it
  * straightforward to unit-test.
  *
+ * `entityType` scopes which frontmatter keys are recognized (#159, #160).
+ * Omit it when the type can't be resolved — the union of every type's keys is
+ * accepted rather than guessing one and erroring on valid input.
+ *
  * Issue #83 / Authoring UX v1 (#78).
  */
 export function validateFrontmatter(
 	content: string,
-	context: { entityName: string },
+	context: { entityName: string; entityType?: EntityType },
 ): FrontmatterIssue[] {
 	const shell = extractFrontmatterYaml(content);
 	if ("issue" in shell) return [shell.issue];
@@ -170,7 +215,7 @@ export function validateFrontmatter(
 		...checkVersion(fm),
 		...checkDependencies(fm),
 		...checkSkills(fm),
-		...collectUnknownKeyNotes(fm),
+		...collectUnknownKeyNotes(fm, context.entityType),
 	];
 }
 
@@ -307,10 +352,18 @@ function checkSkills(fm: Record<string, unknown>): FrontmatterIssue[] {
  * "false ✔ No issues" output line then contradicted the per-file detail
  * lines printed right above it.
  */
-function collectUnknownKeyNotes(fm: Record<string, unknown>): FrontmatterIssue[] {
+function collectUnknownKeyNotes(
+	fm: Record<string, unknown>,
+	entityType: EntityType | undefined,
+): FrontmatterIssue[] {
+	// Explicit `=== undefined`: an unresolved type falls back to the union,
+	// while a declared type gets its own set. See "Presence check ≠ value
+	// check" in CLAUDE.md.
+	const known =
+		entityType === undefined ? ANY_TYPE_FRONTMATTER_KEYS : KNOWN_FRONTMATTER_KEYS[entityType];
 	const errors: FrontmatterIssue[] = [];
 	for (const key of Object.keys(fm)) {
-		if (!KNOWN_FRONTMATTER_KEYS.has(key)) {
+		if (!known.has(key)) {
 			errors.push({ kind: "error", field: key, message: `unknown frontmatter key '${key}'` });
 		}
 	}

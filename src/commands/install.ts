@@ -261,7 +261,7 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 
 	warnStaleTargets(existingLockfile, getInstallTargets(manifest));
 
-	const lockfile = buildLockfile(result.entities);
+	const lockfile = buildLockfile(result.entities, { manifest });
 	// Only record install_targets in the lockfile when the user actually set
 	// them — mirrors the global path. Otherwise a legacy `dev_install_path`
 	// manifest gets a synthetic `install_targets: [".claude"]` written to disk.
@@ -407,7 +407,7 @@ async function installGlobal(options: InstallCommandOptions): Promise<void> {
 
 	if (options.dryRun) return;
 
-	const lockfile = buildLockfile(result.entities, { global: true });
+	const lockfile = buildLockfile(result.entities, { global: true, manifest });
 	if (manifest.install_targets) {
 		lockfile.install_targets = getInstallTargets(manifest, { global: true });
 	}
@@ -435,13 +435,24 @@ async function resolveWithLockfile(
 	if (existingLockfile) {
 		const diff = diffManifestLockfile(manifest, existingLockfile);
 		const hasChanges = diff.added.length > 0 || diff.changed.length > 0 || diff.removed.length > 0;
+		// A pack ref's membership lives in the pack host's manifest, which the
+		// lockfile doesn't record — so "the members we locked are still here"
+		// does NOT prove the ref still expands to them (#161). Re-resolve, the
+		// same as for local deps, rather than skip work we can't prove is
+		// unnecessary. Without this, retargeting a `pack:` ref to a different
+		// repo would be silently ignored on the next install.
+		const provable = diff.packs.length === 0;
 
-		if (!hasChanges && !hasLocalDeps(manifest)) {
+		if (!hasChanges && provable && !hasLocalDeps(manifest)) {
 			console.log(dim(`${label}Lockfile is current. Installing from lockfile...`));
 			return resolveFromLockfile(existingLockfile);
 		}
 		if (!hasChanges) {
-			console.log(dim("Re-reading local dependencies..."));
+			// Manifest matches the lockfile, but something here can't be read
+			// from the lockfile alone — local dep frontmatter, or pack membership.
+			console.log(
+				dim(provable ? "Re-reading local dependencies..." : "Re-resolving pack members..."),
+			);
 		} else {
 			console.log(`${label}Manifest changed. Resolving dependencies...`);
 		}
@@ -545,6 +556,15 @@ function verifyFrozenSync(manifest: Manifest, lockfile: Lockfile): void {
 	if (diff.removed.length > 0) {
 		throw new Error(
 			`--frozen: lockfile has entries not in manifest: ${diff.removed.join(", ")}\nRun \`skilltree install\` to update the lockfile.`,
+		);
+	}
+	// `changed` was ignored here until #164. A dep whose locked version no
+	// longer satisfies the manifest constraint, a repo retargeted under a
+	// stable key, or a pack whose recorded member set drifted would all
+	// install silently — precisely the drift `--frozen` exists to refuse.
+	if (diff.changed.length > 0) {
+		throw new Error(
+			`--frozen: entries no longer match the lockfile: ${diff.changed.join(", ")}\nRun \`skilltree install\` to update the lockfile.`,
 		);
 	}
 }

@@ -224,6 +224,24 @@ skilltree check
 skilltree check --strict
 ```
 
+### Accepted frontmatter keys
+
+Which keys are recognized depends on the entity's type — most are the host
+runtime's (Claude Code's) schema, which skilltree doesn't read but won't
+reject. The type comes from `type:` in `skilltree.yml`, or is inferred from
+the path when omitted (directory ⇒ skill, `.md` under `commands/` ⇒ command,
+other `.md` ⇒ agent).
+
+| Entity | Keys |
+|--------|------|
+| all | `name`, `description`, `version`, `dependencies`, `skills`, `metadata` |
+| skill | + `license`, `allowed-tools` |
+| agent | + `tools`, `model`, `color` |
+| command | + `allowed-tools`, `argument-hint`, `model`, `disable-model-invocation` |
+
+Anything else is an error. If you're using a valid host key that isn't listed,
+that's a bug — please file an issue.
+
 **Flags:**
 - `--strict` — Exit 1 if any *warnings* are found (errors always exit 1).
 

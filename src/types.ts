@@ -129,10 +129,41 @@ export interface LockfileEntry {
 	via_pack?: string;
 }
 
+/**
+ * What one `pack:` reference expanded to at install time (#164).
+ *
+ * A pack is never an entity, so it has no `packages` entry of its own — only
+ * its expanded members appear there, tagged with `via_pack`. Without this
+ * record the manifest↔lockfile diff can only ask "is at least one member
+ * still present?", which misses a lockfile that lost some-but-not-all members
+ * (and `install --frozen` then installs a partial set). Recording the pack's
+ * identity alongside the member set also catches a pack renamed or retargeted
+ * under a stable manifest key.
+ */
+export interface PackResolution {
+	/** The pack's own name — `pack:` in the manifest entry, which need not equal the yaml key. */
+	pack: string;
+	/** Repo hosting the pack definition. Absent for a pack defined in the consumer's own manifest. */
+	repo?: string;
+	/** Lockfile keys of every member this reference expanded to, sorted. */
+	members: string[];
+}
+
 export interface Lockfile {
 	lockfile_version: number;
 	install_targets?: string[];
 	packages: Record<string, LockfileEntry>;
+	/**
+	 * Per-`pack:`-reference expansion records, keyed by the consumer's yaml
+	 * key — the same key `LockfileEntry.via_pack` carries (#164).
+	 *
+	 * Optional and additive at `lockfile_version: 1`: lockfiles written before
+	 * this existed simply lack the key, and readers fall back to presence-only
+	 * pack matching. Do NOT bump `lockfile_version` for this — `parseLockfile`
+	 * hard-rejects any version but 1, so a bump would break every lockfile in
+	 * the wild to add an optional field.
+	 */
+	pack_resolutions?: Record<string, PackResolution>;
 }
 
 export interface SkillFrontmatter {
