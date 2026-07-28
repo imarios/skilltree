@@ -3,7 +3,14 @@ import { dirname } from "node:path";
 import semver from "semver";
 import YAML from "yaml";
 import pkg from "../../package.json";
-import type { Dependency, Lockfile, LockfileEntry, Manifest } from "../types.js";
+import type {
+	Dependency,
+	Lockfile,
+	LockfileEntry,
+	Manifest,
+	PackDependency,
+	PackResolution,
+} from "../types.js";
 import { isLocalDependency, isPackDependency, isRemoteDependency } from "../types.js";
 import { resolveGlobalLockfilePath, resolveLockfilePath } from "./filenames.js";
 import type { ResolvedEntity } from "./graph.js";
@@ -13,10 +20,15 @@ import { collapseTilde, expandTilde } from "./paths.js";
 /**
  * Build a lockfile from resolved entities.
  * When `global: true`, collapses absolute paths to tilde format for portability.
+ *
+ * Pass `manifest` to record `pack_resolutions` (#164) — the member set each
+ * `pack:` reference expanded to. Omitting it produces a lockfile without that
+ * section, which readers handle (they fall back to presence-only pack
+ * matching), so existing callers keep working; new callers should pass it.
  */
 export function buildLockfile(
 	entities: Map<string, ResolvedEntity>,
-	options?: { global?: boolean },
+	options?: { global?: boolean; manifest?: Manifest },
 ): Lockfile {
 	const packages: Record<string, LockfileEntry> = {};
 	const isGlobal = options?.global ?? false;
@@ -66,10 +78,70 @@ export function buildLockfile(
 		packages[entity.key] = entry;
 	}
 
-	return {
+	const lockfile: Lockfile = {
 		lockfile_version: 1,
 		packages,
 	};
+
+	// Presence check, not truthiness: an empty resolutions map means "this
+	// manifest declares no packs", which should leave the key off entirely
+	// rather than serialize `pack_resolutions: {}`.
+	const packResolutions =
+		options?.manifest === undefined ? undefined : buildPackResolutions(options.manifest, entities);
+	if (packResolutions !== undefined) {
+		lockfile.pack_resolutions = packResolutions;
+	}
+
+	return lockfile;
+}
+
+/**
+ * Record what each `pack:` reference in the manifest expanded to (#164).
+ *
+ * The member set is recovered from the entities themselves — every member
+ * carries `viaPack` set during pack expansion — so this stays in step with
+ * whatever the resolver actually produced rather than re-deriving it from the
+ * manifest. The pack's own name and repo come from the manifest entry, which
+ * is what makes a rename or retarget under a stable yaml key detectable.
+ *
+ * Returns `undefined` when the manifest declares no pack references, so the
+ * lockfile omits the section rather than carrying an empty map.
+ */
+function buildPackResolutions(
+	manifest: Manifest,
+	entities: Map<string, ResolvedEntity>,
+): Record<string, PackResolution> | undefined {
+	const expanded = expandSources(manifest);
+	const packRefs: Record<string, Dependency> = {};
+	for (const [key, dep] of Object.entries({
+		...expanded.dependencies,
+		...expanded["dev-dependencies"],
+	})) {
+		if (isPackDependency(dep)) packRefs[key] = dep;
+	}
+	if (Object.keys(packRefs).length === 0) return undefined;
+
+	const membersByPack = new Map<string, string[]>();
+	for (const entity of entities.values()) {
+		if (entity.viaPack === undefined) continue;
+		const members = membersByPack.get(entity.viaPack) ?? [];
+		members.push(entity.key);
+		membersByPack.set(entity.viaPack, members);
+	}
+
+	const resolutions: Record<string, PackResolution> = {};
+	for (const [key, dep] of Object.entries(packRefs)) {
+		if (!isPackDependency(dep)) continue;
+		const resolution: PackResolution = {
+			pack: dep.pack,
+			// Sorted so the lockfile is byte-stable across runs — resolution
+			// order is an implementation detail and must not churn the file.
+			members: (membersByPack.get(key) ?? []).sort(),
+		};
+		if (dep.repo !== undefined) resolution.repo = dep.repo;
+		resolutions[key] = resolution;
+	}
+	return resolutions;
 }
 
 /**
@@ -309,19 +381,21 @@ export function diffManifestLockfile(manifest: Manifest, lockfile: Lockfile): Lo
 			const members = membersByPack.get(key) ?? [];
 			// A pack ref with no expanded members in the lock has never been
 			// installed (or its members were dropped) — that IS a real "added".
-			//
-			// Presence of *any* member is all this can check: the expected
-			// member set lives in the pack host's manifest, which the lockfile
-			// doesn't record and this (pure, sync) function can't fetch. So a
-			// hand-edited lockfile that dropped some-but-not-all members reads
-			// as in sync here. `install` never trusts a pack ref (see `packs`
-			// above), so the next install re-resolves and repairs it.
 			if (members.length === 0) {
 				added.push(key);
 				continue;
 			}
-			packs.push(key);
+			// Every member stays accounted for either way: whether or not the
+			// pack matches, its members are explained by this manifest entry
+			// and must not be swept up as orphans below.
 			for (const member of members) accounted.add(member);
+
+			const recorded = lockfile.pack_resolutions?.[key];
+			if (recorded !== undefined && !packResolutionMatches(dep, recorded, members)) {
+				changed.push(key);
+				continue;
+			}
+			packs.push(key);
 			continue;
 		}
 
@@ -343,6 +417,39 @@ export function diffManifestLockfile(manifest: Manifest, lockfile: Lockfile): Lo
 	}
 
 	return { unchanged, added, changed, removed, packs };
+}
+
+/**
+ * Does a recorded `pack_resolutions` entry still describe what the manifest
+ * asks for, and is what it recorded still actually in the lockfile? (#164)
+ *
+ * Three ways to disagree, all of which used to read as "in sync" because the
+ * old check only asked whether *some* member survived:
+ *
+ *  - the pack was renamed under a stable yaml key (`pack:` changed),
+ *  - the pack was retargeted to a different repo,
+ *  - the recorded member set and the lockfile's actual members diverged
+ *    (a dropped entry, or a stray one claiming this pack's attribution).
+ *
+ * What it deliberately does NOT prove: that the *upstream* pack definition
+ * still expands to this member set. That lives in the pack host's manifest,
+ * which is not in the lockfile — hence `install` still re-resolves packs
+ * rather than trusting a match here. See `LockfileDiff.packs`.
+ */
+function packResolutionMatches(
+	dep: PackDependency,
+	recorded: PackResolution,
+	actualMembers: string[],
+): boolean {
+	if (recorded.pack !== dep.pack) return false;
+	// Recorded-vs-declared, both possibly absent — a local pack has neither.
+	if (recorded.repo !== dep.repo) return false;
+
+	// Set comparison, not array: member order in the lockfile is not
+	// meaningful, and `actualMembers` comes from object iteration order.
+	if (recorded.members.length !== actualMembers.length) return false;
+	const expected = new Set(recorded.members);
+	return actualMembers.every((member) => expected.has(member));
 }
 
 /**

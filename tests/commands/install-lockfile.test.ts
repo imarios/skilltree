@@ -71,6 +71,75 @@ describe("frozen mode", () => {
 		);
 	});
 
+	// `--frozen` is the CI mode: it must refuse anything the lockfile can't
+	// account for. It checked `added` and `removed` but never `changed`, so a
+	// lockfile pinned outside the manifest's constraint installed silently —
+	// exactly the drift `--frozen` exists to catch. Surfaced by #164, where a
+	// pack whose recorded member set no longer matched landed in `changed`.
+	test("errors if locked version no longer satisfies the manifest constraint", async () => {
+		const dir = await makeTempDir();
+		await writeManifest(
+			dir,
+			"dependencies:\n  my-skill:\n    repo: github.com/u/r\n    path: s\n    version: '^2.0.0'\n",
+		);
+		await writeLockfile(
+			dir,
+			"lockfile_version: 1\npackages:\n  my-skill:\n    type: skill\n    group: prod\n    repo: github.com/u/r\n    path: s\n    version: 1.5.0\n    commit: abc\n    dependencies: []\n",
+		);
+
+		await expect(installCommand(dir, { frozen: true })).rejects.toThrow(
+			"no longer match the lockfile",
+		);
+	});
+
+	test("errors if a pack's recorded member set no longer matches (#164)", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "alpha");
+		await createLocalSkill(join(dir, "skills"), "beta");
+		await writeManifest(
+			dir,
+			[
+				"packs:",
+				"  my-stack:",
+				"    - local: ./skills/alpha",
+				"      type: skill",
+				"    - local: ./skills/beta",
+				"      type: skill",
+				"dependencies:",
+				"  my-stack:",
+				"    pack: my-stack",
+				"",
+			].join("\n"),
+		);
+		// Lockfile records both members but only `alpha` survives in packages.
+		await writeLockfile(
+			dir,
+			[
+				"lockfile_version: 1",
+				"packages:",
+				"  alpha:",
+				"    type: skill",
+				"    group: prod",
+				"    source: local",
+				"    path: ./skills/alpha",
+				"    commit: HEAD",
+				"    dependencies: []",
+				"    via_pack: my-stack",
+				"pack_resolutions:",
+				"  my-stack:",
+				"    pack: my-stack",
+				"    members:",
+				"      - alpha",
+				"      - beta",
+				"",
+			].join("\n"),
+		);
+
+		await expect(installCommand(dir, { frozen: true })).rejects.toThrow(
+			"no longer match the lockfile",
+		);
+	});
+
 	test("errors if local dep adds new transitive dep not in lockfile", async () => {
 		const dir = await makeTempDir();
 		// Create local skill that declares a dependency

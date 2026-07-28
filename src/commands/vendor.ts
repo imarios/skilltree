@@ -173,7 +173,10 @@ export async function vendorCommand(dir: string, options: VendorOptions): Promis
 			throw new Error("--frozen requires a lockfile. Run `skilltree install` first.");
 		}
 		const diff = diffManifestLockfile(manifest, existingLockfile);
-		if (diff.added.length > 0 || diff.removed.length > 0) {
+		// `changed` included since #164 — same reasoning as `verifyFrozenSync`
+		// in install.ts: a stale pin or a drifted pack member set is exactly
+		// the state `--frozen` should refuse, not vendor into a shipped tree.
+		if (diff.added.length > 0 || diff.removed.length > 0 || diff.changed.length > 0) {
 			throw new Error(
 				"--frozen: manifest and lockfile are out of sync. Run `skilltree install` first.",
 			);
@@ -223,7 +226,7 @@ export async function vendorCommand(dir: string, options: VendorOptions): Promis
 	});
 
 	// Build and write lockfile with integrity hashes
-	const lockfile = buildLockfile(result.entities);
+	const lockfile = buildLockfile(result.entities, { manifest });
 	for (const [key, integrity] of integrityMap) {
 		if (lockfile.packages[key]) {
 			lockfile.packages[key].integrity = integrity;

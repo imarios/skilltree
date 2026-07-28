@@ -345,6 +345,93 @@ describe("diffManifestLockfile — pack references (#161)", () => {
 		expect(diff.unchanged).toContain("solo-skill");
 	});
 
+	// #164. Without a recorded member set the diff can only ask "is at least
+	// one member present?", so a lockfile that lost some-but-not-all members
+	// of a pack read as in sync — and `install --frozen` happily installed a
+	// partial set. `pack_resolutions` records what the pack expanded to, so
+	// the diff can verify it exactly.
+	describe("pack_resolutions", () => {
+		const withResolution = (
+			packages: Lockfile["packages"],
+			resolution: { pack: string; repo?: string; members: string[] },
+		): Lockfile => ({
+			lockfile_version: 1,
+			packages,
+			pack_resolutions: { "elastic-stack": resolution },
+		});
+
+		const bothMembers = (): Lockfile["packages"] => ({
+			"elastic-architect": remoteEntry("elastic-architect", { viaPack: "elastic-stack" }),
+			"elasticsearch-audit": remoteEntry("elasticsearch-audit", { viaPack: "elastic-stack" }),
+		});
+
+		const resolution = {
+			pack: "elastic-stack",
+			repo: "github.com/example/elastic-skills",
+			members: ["elastic-architect", "elasticsearch-audit"],
+		};
+
+		test("complete member set is in sync", () => {
+			const diff = diffManifestLockfile(packManifest(), withResolution(bothMembers(), resolution));
+			expect(diff.added).toEqual([]);
+			expect(diff.changed).toEqual([]);
+			expect(diff.removed).toEqual([]);
+			expect(diff.packs).toEqual(["elastic-stack"]);
+		});
+
+		test("missing member is reported as changed", () => {
+			const packages = bothMembers();
+			delete packages["elasticsearch-audit"];
+			const diff = diffManifestLockfile(packManifest(), withResolution(packages, resolution));
+			expect(diff.changed).toEqual(["elastic-stack"]);
+			expect(diff.packs).toEqual([]);
+		});
+
+		test("pack renamed under a stable manifest key is reported as changed", () => {
+			const diff = diffManifestLockfile(
+				packManifest(),
+				withResolution(bothMembers(), { ...resolution, pack: "some-other-pack" }),
+			);
+			expect(diff.changed).toEqual(["elastic-stack"]);
+		});
+
+		test("pack retargeted to a different repo is reported as changed", () => {
+			const diff = diffManifestLockfile(
+				packManifest(),
+				withResolution(bothMembers(), { ...resolution, repo: "github.com/example/other" }),
+			);
+			expect(diff.changed).toEqual(["elastic-stack"]);
+		});
+
+		test("extra member beyond the recorded set is reported as changed", () => {
+			const packages = bothMembers();
+			packages.surprise = remoteEntry("surprise", { viaPack: "elastic-stack" });
+			const diff = diffManifestLockfile(packManifest(), withResolution(packages, resolution));
+			expect(diff.changed).toEqual(["elastic-stack"]);
+		});
+
+		test("a lockfile written before #164 still falls back to presence-only", () => {
+			// Backward compatibility: no `pack_resolutions` at all. The diff
+			// must not treat the absent record as "zero expected members".
+			const diff = diffManifestLockfile(packManifest(), {
+				lockfile_version: 1,
+				packages: bothMembers(),
+			});
+			expect(diff.added).toEqual([]);
+			expect(diff.changed).toEqual([]);
+			expect(diff.packs).toEqual(["elastic-stack"]);
+		});
+
+		test("a resolution for a pack the manifest dropped does not leak into the diff", () => {
+			const diff = diffManifestLockfile(
+				{ dependencies: {} },
+				withResolution(bothMembers(), resolution),
+			);
+			expect(diff.changed).toEqual([]);
+			expect(diff.removed.sort()).toEqual(["elastic-architect", "elasticsearch-audit"]);
+		});
+	});
+
 	test("transitive deps of a pack member are not marked as removed", () => {
 		const lockfile: Lockfile = {
 			lockfile_version: 1,

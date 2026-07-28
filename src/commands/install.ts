@@ -261,7 +261,7 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 
 	warnStaleTargets(existingLockfile, getInstallTargets(manifest));
 
-	const lockfile = buildLockfile(result.entities);
+	const lockfile = buildLockfile(result.entities, { manifest });
 	// Only record install_targets in the lockfile when the user actually set
 	// them — mirrors the global path. Otherwise a legacy `dev_install_path`
 	// manifest gets a synthetic `install_targets: [".claude"]` written to disk.
@@ -407,7 +407,7 @@ async function installGlobal(options: InstallCommandOptions): Promise<void> {
 
 	if (options.dryRun) return;
 
-	const lockfile = buildLockfile(result.entities, { global: true });
+	const lockfile = buildLockfile(result.entities, { global: true, manifest });
 	if (manifest.install_targets) {
 		lockfile.install_targets = getInstallTargets(manifest, { global: true });
 	}
@@ -556,6 +556,15 @@ function verifyFrozenSync(manifest: Manifest, lockfile: Lockfile): void {
 	if (diff.removed.length > 0) {
 		throw new Error(
 			`--frozen: lockfile has entries not in manifest: ${diff.removed.join(", ")}\nRun \`skilltree install\` to update the lockfile.`,
+		);
+	}
+	// `changed` was ignored here until #164. A dep whose locked version no
+	// longer satisfies the manifest constraint, a repo retargeted under a
+	// stable key, or a pack whose recorded member set drifted would all
+	// install silently — precisely the drift `--frozen` exists to refuse.
+	if (diff.changed.length > 0) {
+		throw new Error(
+			`--frozen: entries no longer match the lockfile: ${diff.changed.join(", ")}\nRun \`skilltree install\` to update the lockfile.`,
 		);
 	}
 }

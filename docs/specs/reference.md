@@ -209,7 +209,25 @@ packages:
 | `integrity` | SHA-256 content hash (remote deps only) |
 | `name` | Actual entity name (only present when aliased) |
 | `dependencies` | List of dependency names |
-| `via_pack` | Consumer's yaml key for the pack reference that injected this entry. Only present on pack-expanded members. Read by `list` for the "Via Pack" column; never used in the install path. (#153) |
+| `via_pack` | Consumer's yaml key for the pack reference that injected this entry. Only present on pack-expanded members. Read by `list` for the "Via Pack" column, and by `diffManifestLockfile` to match a `pack:` reference against its members. (#153, #161) |
+
+**Top-level sections besides `packages`:**
+
+| Section | Description |
+|---------|-------------|
+| `lockfile_version` | Always `1`. `parseLockfile` rejects any other value, so new fields are added as optional keys rather than by bumping this. |
+| `install_targets` | Recorded only when the manifest sets it. |
+| `pack_resolutions` | What each `pack:` reference expanded to, keyed by the consumer's yaml key (#164). Optional — absent in lockfiles written before it existed, and in projects that declare no packs. |
+
+```yaml
+pack_resolutions:
+  my-stack:
+    pack: my-stack                  # the pack's own name; may differ from the yaml key
+    repo: github.com/acme/skills    # omitted for a pack defined in the consumer's own manifest
+    members: [alpha, beta]          # sorted; the lockfile keys this ref expanded to
+```
+
+Without this record the diff could only ask "did at least one member survive?", so a lockfile that lost some-but-not-all members of a pack read as in sync and `install --frozen` installed a partial set. With it, the pack reference is reported as `changed` when the pack was renamed, retargeted, or its member set drifted. See `docs/specs/packs.md` for the full rationale and the freshness limitation that remains.
 
 **Integrity hash algorithm:** List all files recursively, sort by relative path (alphabetical), concatenate `"{relative_path}\0{file_content}"` for each, SHA-256 the result. Deterministic across platforms.
 

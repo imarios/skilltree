@@ -316,3 +316,113 @@ describe("buildNameIndex (issue #102)", () => {
 		expect(index.get("foo-agent")).toBe("foo-agent");
 	});
 });
+
+// ---------------------------------------------------------------------------
+// pack_resolutions (#164)
+//
+// Recording what a `pack:` ref actually expanded to is what lets
+// `diffManifestLockfile` verify the member set exactly instead of probing for
+// a single survivor. Additive and optional: written at lockfile_version 1, and
+// lockfiles predating it simply lack the key.
+// ---------------------------------------------------------------------------
+
+describe("buildLockfile — pack_resolutions", () => {
+	const packMember = (key: string, viaPack: string): ResolvedEntity => ({
+		key,
+		name: key,
+		type: "skill",
+		group: "prod",
+		repo: "github.com/example/elastic-skills",
+		path: `skills/${key}`,
+		version: "1.0.0",
+		tag: "v1.0.0",
+		commit: "abc123",
+		local: false,
+		dependencies: [],
+		viaPack,
+	});
+
+	const packManifest = () => ({
+		dependencies: {
+			"elastic-stack": { pack: "elastic-stack", repo: "github.com/example/elastic-skills" },
+		},
+	});
+
+	test("records the pack ref's identity and full member set", () => {
+		const entities = new Map<string, ResolvedEntity>([
+			["skill:architect", packMember("architect", "elastic-stack")],
+			["skill:audit", packMember("audit", "elastic-stack")],
+		]);
+
+		const lockfile = buildLockfile(entities, { manifest: packManifest() });
+		expect(lockfile.pack_resolutions).toEqual({
+			"elastic-stack": {
+				pack: "elastic-stack",
+				repo: "github.com/example/elastic-skills",
+				members: ["architect", "audit"],
+			},
+		});
+	});
+
+	test("members are sorted so the lockfile is stable across runs", () => {
+		const entities = new Map<string, ResolvedEntity>([
+			["skill:zulu", packMember("zulu", "elastic-stack")],
+			["skill:alpha", packMember("alpha", "elastic-stack")],
+		]);
+		const lockfile = buildLockfile(entities, { manifest: packManifest() });
+		expect(lockfile.pack_resolutions?.["elastic-stack"]?.members).toEqual(["alpha", "zulu"]);
+	});
+
+	test("omits the section entirely when no pack refs are declared", () => {
+		const entities = new Map<string, ResolvedEntity>([
+			[
+				"skill:solo",
+				{
+					key: "solo",
+					name: "solo",
+					type: "skill",
+					group: "prod",
+					repo: "github.com/example/solo",
+					path: "skills/solo",
+					version: "1.0.0",
+					tag: "v1.0.0",
+					commit: "abc",
+					local: false,
+					dependencies: [],
+				},
+			],
+		]);
+		const lockfile = buildLockfile(entities, { manifest: { dependencies: {} } });
+		expect(lockfile.pack_resolutions).toBeUndefined();
+	});
+
+	test("a local pack (no repo) records pack + members without a repo", () => {
+		const member: ResolvedEntity = {
+			key: "local-member",
+			name: "local-member",
+			type: "skill",
+			group: "prod",
+			path: "./skills/local-member",
+			commit: "HEAD",
+			local: true,
+			dependencies: [],
+			viaPack: "my-local-pack",
+		};
+		const lockfile = buildLockfile(new Map([["skill:local-member", member]]), {
+			manifest: { dependencies: { "my-local-pack": { pack: "my-local-pack" } } },
+		});
+		expect(lockfile.pack_resolutions?.["my-local-pack"]).toEqual({
+			pack: "my-local-pack",
+			members: ["local-member"],
+		});
+	});
+
+	test("survives a serialize → parse round trip", () => {
+		const entities = new Map<string, ResolvedEntity>([
+			["skill:architect", packMember("architect", "elastic-stack")],
+		]);
+		const built = buildLockfile(entities, { manifest: packManifest() });
+		const reparsed = parseLockfile(serializeLockfile(built));
+		expect(reparsed.pack_resolutions).toEqual(built.pack_resolutions);
+	});
+});

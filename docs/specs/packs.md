@@ -206,7 +206,7 @@ None blocking v1 — all resolved during planning (see "Confirmed design decisio
 - **Consumer-side overrides** (`exclude:` member list, per-member version pin) — defer until real demand surfaces.
 - **`skilltree why <pack>`** — a follow-up. v1 only supports `why <member>` which reports `_viaPack` provenance.
 - **Glob mode for `skilltree add 'X-pack-*'`** — defer.
-- **Lockfile `pack_resolutions:` section** — a richer structured block recording the pin and member set per pack reference. Would let the diff verify a pack's *full* member set rather than just "at least one member is present" (see the known gap under "Diffing a pack reference"), and let `install` skip re-resolving an unchanged pack. Not needed yet.
+- **Recover `install`'s lockfile fast path for packs** — `pack_resolutions:` (below) records what a pack expanded to, but not what the *upstream* pack definition currently contains, so `install` still re-resolves. Recording the pack host's resolved commit alongside the member set would let an unchanged, version-pinned remote pack skip resolution entirely.
 
 ## Consumer-side attribution (#153)
 
@@ -216,7 +216,27 @@ Each lockfile entry injected by expanding a `pack:` reference carries a `via_pac
 
 `diffManifestLockfile` matches most manifest keys 1:1 against lockfile package names. A pack ref has no same-named lock entry, so a name-only diff reported it as `added` and all its members as `removed` on every run — `doctor`'s lockfile-sync could never pass, and `install --frozen` / `vendor --frozen` were impossible on any pack project. The diff now resolves a pack ref through the `via_pack:` attribution above and reports it in a dedicated `packs` bucket on `LockfileDiff`.
 
-Two consequences worth knowing:
+**Freshness is still not provable from the lockfile.** A pack's *upstream* member set lives in the pack host's manifest, which the lockfile doesn't record. Callers that use the diff to *skip* work must treat a non-empty `packs` as "cannot prove current" — `install` does, and re-resolves rather than trusting the lockfile fast path. Callers asking "is the lockfile in sync" (doctor, `--frozen`) ignore the bucket.
 
-- **Freshness is not provable from the lockfile.** A pack's member set lives in the pack host's manifest, which the lockfile doesn't record. Callers that use the diff to *skip* work must treat a non-empty `packs` as "cannot prove current" — `install` does, and re-resolves rather than trusting the lockfile fast path. Callers asking "is the lockfile in sync" (doctor, `--frozen`) ignore it.
-- **Known gap: partial member loss reads as in sync.** The check is "at least one member carries this ref's attribution". A hand-edited lockfile that dropped some-but-not-all members is not detected. `install` never trusts a pack ref, so the next install repairs it. Closing this properly needs `pack_resolutions:` (see Future Work).
+## `pack_resolutions:` (#164)
+
+Matching on `via_pack` alone can only ask "did at least one member survive?". That left a hole: a lockfile that lost some-but-not-all members of a pack read as in sync, and `install --frozen` installed a partial set with exit 0.
+
+The lockfile therefore records what each pack reference actually expanded to, keyed by the consumer's yaml key:
+
+```yaml
+pack_resolutions:
+  my-stack:
+    pack: my-stack                       # the pack's own name; may differ from the key
+    repo: github.com/acme/skills         # omitted for a pack defined in the consumer's manifest
+    members: [alpha, beta]               # sorted, so the file is byte-stable across runs
+```
+
+`diffManifestLockfile` reports the pack ref under `changed` when the record disagrees with the manifest or with the lockfile's actual contents — a renamed pack, a retargeted repo, a dropped member, or a stray entry claiming the ref's attribution.
+
+Two properties this deliberately keeps:
+
+- **Additive at `lockfile_version: 1`.** Do NOT bump the version for it. `parseLockfile` hard-rejects any version but 1, so a bump would break every lockfile in the wild in order to add an optional field. Lockfiles written before this section simply lack the key, and the diff falls back to presence-only matching.
+- **It does not prove upstream freshness** — see above. `install` still re-resolves packs.
+
+`--frozen` (both `install` and `vendor`) refuses `changed` as of this change. It previously checked only `added`/`removed`, so a stale pin was silently accepted; that was a latent hole for ordinary deps too, not just packs.
