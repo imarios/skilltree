@@ -1,3 +1,9 @@
+## v0.38.2 (2026-07-28)
+
+### Fix
+
+- pack-aware lockfile diff, pack_resolutions, and per-entity frontmatter keys (#162)
+
 ## v0.38.1 (2026-05-23)
 
 ### Fix
