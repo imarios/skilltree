@@ -30,6 +30,10 @@ jobs:
         with:
           python-version: "3.13"
 
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
       - name: Install commitizen
         run: pip install "commitizen>=4.13,<5"
 
@@ -66,6 +70,29 @@ jobs:
               exit $EXIT_CODE
             fi
           }
+
+      # `cz bump` rewrites the self-referential optionalDependencies
+      # (@imarios/skilltree-cli-*) to the new version, which leaves the
+      # committed bun.lock stale. The refresh has to land inside the bump
+      # commit: otherwise `bun install --frozen-lockfile` fails on the bump
+      # commit itself and on every PR opened after it -- the same
+      # unrelated-red-CI tax this policy exists to remove (#163).
+      #
+      # Nothing has been pushed yet at this point, so amending the commit and
+      # re-pointing the (lightweight) tag rewrites only local history.
+      - name: Refresh lockfile for the bumped version
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          bun install --lockfile-only
+          if git diff --quiet -- bun.lock; then
+            echo "bun.lock already matches the bumped package.json — nothing to amend."
+          else
+            TAG=$(git describe --tags --abbrev=0)
+            git add bun.lock
+            git commit --amend --no-edit --no-verify
+            git tag -f "$TAG"
+            echo "Folded refreshed bun.lock into the bump commit and moved ${TAG}."
+          fi
 
       - name: Push version commit and tag
         if: steps.check.outputs.skip == 'false'
@@ -121,7 +148,7 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       - name: Build all platforms
         run: ./scripts/build-npm.sh
