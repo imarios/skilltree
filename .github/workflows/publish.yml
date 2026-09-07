@@ -34,7 +34,7 @@ jobs:
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
 
-      - run: bun install
+      - run: bun install --frozen-lockfile
 
       # Verify the git tag matches the package.json version
       - name: Verify version

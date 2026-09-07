@@ -60,6 +60,17 @@ bun run dev -- install
 bun build --compile src/cli.ts --outfile dist/skilltree
 ```
 
+### `bun.lock` is committed
+
+CI installs with `bun install --frozen-lockfile`, so the dev toolchain only
+moves when someone commits a new lockfile. Before that, `bun.lock` was
+gitignored and a new minor of `@biomejs/biome` turned `Lint` red on a PR that
+had changed nothing (#163). If you change a dependency, run `bun install` and
+commit the resulting `bun.lock` in the same PR.
+
+`release.yml` refreshes the lockfile inside the bump commit, because `cz bump`
+rewrites the self-referential `optionalDependencies` on every release.
+
 ## Key Design Decisions
 
 1. Git is the registry -- no server, no database
