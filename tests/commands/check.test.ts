@@ -125,6 +125,54 @@ describe("validateFrontmatter", () => {
 		expect(messages.some((m) => m.includes("missing required field 'name'"))).toBe(true);
 	});
 
+	// -- #165: commands are named by file, not by frontmatter --------------
+
+	test("command without 'name' is not warned about (#165)", () => {
+		const content = `---\ndescription: Deploy the app\n---\n`;
+		const issues = validateFrontmatter(content, {
+			entityName: "deploy",
+			entityType: "command",
+		});
+		const messages = issues.map((i) => i.message).join("\n");
+		expect(messages).not.toMatch(/missing required field 'name'/);
+		expect(issues).toEqual([]);
+	});
+
+	test("command with a mismatched 'name' is still warned about (#165)", () => {
+		const content = `---\nname: deploy-app\ndescription: Deploy the app\n---\n`;
+		const issues = validateFrontmatter(content, {
+			entityName: "deploy",
+			entityType: "command",
+		});
+		const msg = issues.map((i) => i.message).join("\n");
+		expect(msg).toMatch(/'name'.*"deploy-app".*"deploy"/);
+	});
+
+	test("command with a non-string 'name' is still warned about (#165)", () => {
+		const content = `---\nname: 42\ndescription: Deploy the app\n---\n`;
+		const issues = validateFrontmatter(content, {
+			entityName: "deploy",
+			entityType: "command",
+		});
+		expect(issues.map((i) => i.message).join("\n")).toMatch(/'name' must be a string/);
+	});
+
+	test("'name' stays required for skills and agents (#165)", () => {
+		const content = `---\ndescription: Something\n---\n`;
+		for (const entityType of ["skill", "agent"] as const) {
+			const issues = validateFrontmatter(content, { entityName: "foo", entityType });
+			expect(issues.map((i) => i.message).join("\n")).toMatch(/missing required field 'name'/);
+		}
+	});
+
+	test("'name' stays required when the entity type is unknown (#165)", () => {
+		// No type to scope the rule by -- keep the stricter behavior rather than
+		// silently exempting an entity that might well be a skill.
+		const content = `---\ndescription: Something\n---\n`;
+		const issues = validateFrontmatter(content, { entityName: "foo" });
+		expect(issues.map((i) => i.message).join("\n")).toMatch(/missing required field 'name'/);
+	});
+
 	test("missing required field 'description' is a warning", () => {
 		const content = `---\nname: foo\n---\n`;
 		const issues = validateFrontmatter(content, { entityName: "foo" });
@@ -327,6 +375,80 @@ describe("checkCommand frontmatter lint", () => {
 		expect(warns).toEqual([]);
 		expect(logs.join("\n")).toContain("No issues");
 		expect(exitCode).toBeUndefined();
+	});
+
+	test("command with no 'name' is clean end-to-end, even under --strict (#165)", async () => {
+		const dir = await makeProject({
+			manifest: [
+				"name: test",
+				"dependencies:",
+				"  deploy:",
+				"    local: ./commands/deploy.md",
+				"    type: command",
+				"",
+			].join("\n"),
+			files: [
+				{
+					path: "commands/deploy.md",
+					content: "---\ndescription: Deploy the app\n---\n\n# /deploy\n",
+				},
+			],
+		});
+
+		const plain = await runCheck(dir);
+		expect(plain.warns.join("\n")).not.toMatch(/missing required field 'name'/);
+		expect(plain.exitCode).toBeUndefined();
+
+		const strict = await runCheck(dir, { strict: true });
+		expect(strict.warns.join("\n")).not.toMatch(/missing required field 'name'/);
+		expect(strict.exitCode).toBeUndefined();
+	});
+
+	test("command with an inferred type (no 'type:' in the manifest) is also exempt (#165)", async () => {
+		// The realistic authoring case: nothing declares `type: command`, so the
+		// type comes from `mdFileType` probing the `commands/` path segment. The
+		// exemption has to survive that inference, not just an explicit type.
+		const dir = await makeProject({
+			manifest: [
+				"name: test",
+				"dependencies:",
+				"  deploy:",
+				"    local: ./commands/deploy.md",
+				"",
+			].join("\n"),
+			files: [
+				{
+					path: "commands/deploy.md",
+					content: "---\ndescription: Deploy the app\n---\n\n# /deploy\n",
+				},
+			],
+		});
+
+		const { warns, exitCode } = await runCheck(dir, { strict: true });
+		expect(warns.join("\n")).not.toMatch(/missing required field 'name'/);
+		expect(exitCode).toBeUndefined();
+	});
+
+	test("agent without 'name' still warns end-to-end (#165)", async () => {
+		const dir = await makeProject({
+			manifest: [
+				"name: test",
+				"dependencies:",
+				"  helper:",
+				"    local: ./agents/helper.md",
+				"",
+			].join("\n"),
+			files: [
+				{
+					path: "agents/helper.md",
+					content: "---\ndescription: A helper\n---\n\n# helper\n",
+				},
+			],
+		});
+
+		const { warns, exitCode } = await runCheck(dir, { strict: true });
+		expect(warns.join("\n")).toMatch(/missing required field 'name'/);
+		expect(exitCode).toBe(1);
 	});
 
 	test("missing 'name' warns; --strict exits 1", async () => {

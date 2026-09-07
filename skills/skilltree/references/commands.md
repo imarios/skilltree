@@ -242,6 +242,11 @@ other `.md` ⇒ agent).
 Anything else is an error. If you're using a valid host key that isn't listed,
 that's a bug — please file an issue.
 
+Recognized ≠ required. `name:` and `description:` warn when missing, except
+that **commands don't need `name:`** — Claude Code names a slash command by its
+filename, so `commands/deploy.md` with only `description:` is valid. A command
+that does declare `name:` still has it checked against the manifest key.
+
 **Flags:**
 - `--strict` — Exit 1 if any *warnings* are found (errors always exit 1).
 

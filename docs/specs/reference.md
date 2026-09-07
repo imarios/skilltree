@@ -263,6 +263,15 @@ Of these, skilltree itself only reads `name`, `description`, `dependencies`,
 `skills`, and `version`. `metadata` is the conventional bag for author-defined
 fields (author, changelog) that no tool interprets.
 
+Recognized is not the same as required. `name:` and `description:` are warned
+about when missing — except that **commands are exempt from `name:`** (issue
+#165). Claude Code names a slash command by its filename, so a
+`commands/deploy.md` carrying only `description:` is correct, and warning about
+it made `check` stricter than the runtime it lints for. A command that does
+carry `name:` is still validated: a value that disagrees with the manifest key
+is reported, since that is a genuine authoring mistake. Agents keep the
+requirement — an agent's `name` is how the host addresses it.
+
 The entity type comes from `type:` in the manifest entry. When omitted it is
 inferred from the path using the same rule the install path uses (`mdFileType`):
 a directory is a skill, a `.md` file under a `commands/` segment is a command,
