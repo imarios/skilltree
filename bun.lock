@@ -19,10 +19,10 @@
         "typescript": "^6.0.2",
       },
       "optionalDependencies": {
-        "@imarios/skilltree-cli-darwin-arm64": "0.38.2",
-        "@imarios/skilltree-cli-darwin-x64": "0.38.2",
-        "@imarios/skilltree-cli-linux-arm64": "0.38.2",
-        "@imarios/skilltree-cli-linux-x64": "0.38.2",
+        "@imarios/skilltree-cli-darwin-arm64": "0.38.3",
+        "@imarios/skilltree-cli-darwin-x64": "0.38.3",
+        "@imarios/skilltree-cli-linux-arm64": "0.38.3",
+        "@imarios/skilltree-cli-linux-x64": "0.38.3",
       },
     },
   },
@@ -51,14 +51,6 @@
     "@biomejs/cli-win32-arm64": ["@biomejs/cli-win32-arm64@2.5.12", "", { "os": "win32", "cpu": "arm64" }, "sha512-b9vtoZFsuZt1pdjNwJvXl0f+BpayRzV008uS2+JpmwIKdSE2qdu4A/l04FESwLoou5g2E/Qlec0xwJydZplH+A=="],
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.5.12", "", { "os": "win32", "cpu": "x64" }, "sha512-B1R/l+CwEpKFSuqiwePzPNRk1EiJN8kc0UhdafNz6MZN9v5OFP9HYP1irptvWzHrwVI4blVNGMbxc5zt70m3IA=="],
-
-    "@imarios/skilltree-cli-darwin-arm64": ["@imarios/skilltree-cli-darwin-arm64@0.38.2", "", { "os": "darwin", "cpu": "arm64", "bin": { "skilltree": "bin/skilltree" } }, "sha512-ADi6gDPnj9eekIa9FVfsYF3MSZFiwhojH2blFeDukbl5UkcgeBT0Fdat15snH8By3CVBSUZL0Yyi7+vThphUNg=="],
-
-    "@imarios/skilltree-cli-darwin-x64": ["@imarios/skilltree-cli-darwin-x64@0.38.2", "", { "os": "darwin", "cpu": "x64", "bin": { "skilltree": "bin/skilltree" } }, "sha512-+fjGy3jFb9tR2QBo6WUlv4Kf1okHRSG4lxJajLyxeRVYv8dqC2HYNsfsEQp46qnpC6QsFESECLqWvUSXwELjPg=="],
-
-    "@imarios/skilltree-cli-linux-arm64": ["@imarios/skilltree-cli-linux-arm64@0.38.2", "", { "os": "linux", "cpu": "arm64", "bin": { "skilltree": "bin/skilltree" } }, "sha512-ZHTqEsvWr/ATQSU5M3l8/us7ma2jOPDQOl8YJjaJG0Vr6/578hK3TPtj0NUfiroW6ibJ5nFuoCCMvz4mexGXaQ=="],
-
-    "@imarios/skilltree-cli-linux-x64": ["@imarios/skilltree-cli-linux-x64@0.38.2", "", { "os": "linux", "cpu": "x64", "bin": { "skilltree": "bin/skilltree" } }, "sha512-WO27lZnxbfw1tL8XxLO/7oLM8T1rgRujHBKtq8Tln+1hBabUCH9IOM2f0F7wwaYS10huQVFjomZwVjqRIEa4Jw=="],
 
     "@kwsites/file-exists": ["@kwsites/file-exists@1.1.1", "", { "dependencies": { "debug": "^4.1.1" } }, "sha512-m9/5YGR18lIwxSFDwfE3oA7bWuq9kdau6ugN4H2rJeyhFQZcG9AgSHkQtSD15a8WvTgfz9aikZMrKPHvbpqFiw=="],
 

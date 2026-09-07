@@ -1,3 +1,9 @@
+## v0.38.3 (2026-09-07)
+
+### Fix
+
+- **ci**: commit bun.lock and freeze CI installs (#167)
+
 ## v0.38.2 (2026-07-28)
 
 ### Fix
