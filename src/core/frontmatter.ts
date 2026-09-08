@@ -210,7 +210,7 @@ export function validateFrontmatter(
 
 	const fm = parsed.mapping;
 	return [
-		...checkName(fm, context.entityName),
+		...checkName(fm, context.entityName, context.entityType),
 		...checkDescription(fm),
 		...checkVersion(fm),
 		...checkDependencies(fm),
@@ -266,8 +266,35 @@ function warning(field: string, message: string): FrontmatterIssue {
 	return { kind: "warning", field, message };
 }
 
-function checkName(fm: Record<string, unknown>, expectedName: string): FrontmatterIssue[] {
-	if (fm.name === undefined) return [warning("name", "missing required field 'name'")];
+/**
+ * `name` is required on every entity except a command, which Claude Code names
+ * by filename -- a `commands/deploy.md` carrying only `description:` is valid,
+ * and is how most commands in the wild are written. skilltree's own
+ * `entityNameFromPath()` already agrees, falling back to the filename stem
+ * "because commands and many agents are named by file, not by frontmatter".
+ * Warning here made `check` stricter than the runtime it lints for, and
+ * `--strict` exited 1 on a correct file (#165).
+ *
+ * A command that *does* carry `name:` is still validated. A name disagreeing
+ * with the manifest key is a genuine authoring mistake, and catching it is the
+ * useful half of this check -- only the missing-field half is wrong for
+ * commands.
+ *
+ * An unresolved `entityType` keeps the stricter rule: a file skilltree could
+ * not classify is far more likely a skill with a broken layout than a command,
+ * and under-warning there would hide the layout problem.
+ *
+ * Agents keep the requirement deliberately. Unlike commands, an agent's `name`
+ * is how Claude Code addresses it, and skilltree's own scaffolder writes one.
+ */
+function checkName(
+	fm: Record<string, unknown>,
+	expectedName: string,
+	entityType: EntityType | undefined,
+): FrontmatterIssue[] {
+	if (fm.name === undefined) {
+		return entityType === "command" ? [] : [warning("name", "missing required field 'name'")];
+	}
 	if (typeof fm.name !== "string") {
 		return [warning("name", `'name' must be a string, got ${describeType(fm.name)}`)];
 	}
