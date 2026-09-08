@@ -1,3 +1,9 @@
+## v0.38.4 (2026-09-08)
+
+### Fix
+
+- **check**: don't require 'name' on slash commands (#171)
+
 ## v0.38.3 (2026-09-07)
 
 ### Fix
