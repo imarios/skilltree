@@ -373,6 +373,10 @@ With no `<paths>`, scans the project's resolved install-target directories (e.g.
 - `--check` — Exit 1 if undeclared deps found (pre-commit safe)
 - `--apply` — Auto-add regex-detected deps to frontmatter (not LLM suggestions)
 - `--llm` — Use Claude for semantic dependency detection (requires `ANTHROPIC_API_KEY`)
+
+`--llm` calls `claude-sonnet-5` by default. Set `SKILLTREE_LLM_MODEL` to a different
+model id to override — useful if that model isn't available on your account, or to
+trade cost against quality. A blank value falls back to the default.
 - `--json` — JSON output
 
 ## `skilltree registry init`

@@ -3,6 +3,34 @@ import Anthropic from "@anthropic-ai/sdk";
 const MAX_CONTENT_LENGTH = 8000;
 
 /**
+ * Model used by `scan --llm`, overridable via `SKILLTREE_LLM_MODEL`.
+ *
+ * The default tracks the current-generation Sonnet: this is a bulk
+ * classification job over truncated content, where Sonnet is the right
+ * cost/quality point (#181).
+ *
+ * It is overridable because the pin will eventually go stale and nothing here
+ * can catch that. No test exercises the SDK call — CI has no API key — so a
+ * retired model id would reach a user before it reached us. The env var makes
+ * that a `export SKILLTREE_LLM_MODEL=...` away rather than a source patch, and
+ * lets anyone trade cost against quality without forking.
+ */
+const DEFAULT_SCAN_MODEL = "claude-sonnet-5";
+
+/**
+ * Resolve the scan model. Exported for the same reason `parseEntityList` is:
+ * it is the part worth asserting on without an API key.
+ *
+ * A blank override falls back to the default. An empty `SKILLTREE_LLM_MODEL=`
+ * is an unset variable that went through a shell, not a deliberate choice of
+ * model, and sending it would only earn a 400.
+ */
+export function scanModel(): string {
+	const override = process.env.SKILLTREE_LLM_MODEL?.trim();
+	return override === undefined || override === "" ? DEFAULT_SCAN_MODEL : override;
+}
+
+/**
  * LLM-based dependency detection using Claude.
  * Two-phase approach: extract candidates, then verify.
  */
@@ -24,13 +52,40 @@ export async function llmScanContent(
 	const truncated =
 		content.length > MAX_CONTENT_LENGTH ? content.slice(0, MAX_CONTENT_LENGTH) : content;
 
-	// Phase 1: Extract candidates
-	const candidates = await extractCandidates(client, truncated, knownEntities, selfName);
-	if (candidates.length === 0) return [];
+	try {
+		// Phase 1: Extract candidates
+		const candidates = await extractCandidates(client, truncated, knownEntities, selfName);
+		if (candidates.length === 0) return [];
 
-	// Phase 2: Verify candidates
-	const verified = await verifyCandidates(client, truncated, candidates);
-	return verified;
+		// Phase 2: Verify candidates
+		return await verifyCandidates(client, truncated, candidates);
+	} catch (e) {
+		throw describeScanFailure(e);
+	}
+}
+
+/**
+ * Turn an SDK failure into something a user can act on.
+ *
+ * A retired or unavailable model surfaces as a bare `404 {"type":"error"}`,
+ * which says nothing about which model was asked for or that it can be
+ * changed. Since no test exercises this call path, this message is the only
+ * thing standing between a stale pin and a confused user (#181).
+ *
+ * Non-API failures pass through untouched — a bad key or a dropped connection
+ * shouldn't be reported as a model problem.
+ */
+export function describeScanFailure(e: unknown): Error {
+	if (e instanceof Anthropic.APIError) {
+		return new Error(
+			`Claude API error while scanning with model "${scanModel()}": ${e.message}\n` +
+				"If that model is unavailable to you, set SKILLTREE_LLM_MODEL to one that is.",
+			// Keep the SDK error reachable: the rewritten message is for the
+			// user, the cause is for whoever debugs it.
+			{ cause: e },
+		);
+	}
+	return e instanceof Error ? e : new Error(String(e));
 }
 
 async function extractCandidates(
@@ -45,7 +100,7 @@ async function extractCandidates(
 		.join("\n");
 
 	const response = await client.messages.create({
-		model: "claude-sonnet-4-6",
+		model: scanModel(),
 		max_tokens: 1024,
 		messages: [
 			{
@@ -89,7 +144,7 @@ async function verifyCandidates(
 	const candidateList = candidates.map((c) => `- ${c.name} (${c.type})`).join("\n");
 
 	const response = await client.messages.create({
-		model: "claude-sonnet-4-6",
+		model: scanModel(),
 		max_tokens: 1024,
 		messages: [
 			{
