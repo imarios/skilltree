@@ -1,3 +1,9 @@
+## v0.38.9 (2026-09-08)
+
+### Fix
+
+- add `verify --strict` so drift can gate CI (#186)
+
 ## v0.38.8 (2026-09-08)
 
 ### Fix
