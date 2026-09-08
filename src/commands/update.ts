@@ -1,5 +1,7 @@
 import { rm } from "node:fs/promises";
+import semver from "semver";
 import { GLOBAL_MANIFEST, MANIFEST_NEW, resolveGlobalLockfilePath } from "../core/filenames.js";
+import { ensureCached, listTags } from "../core/git.js";
 import {
 	readGlobalLockfile,
 	readLockfile,
@@ -8,7 +10,9 @@ import {
 } from "../core/lockfile.js";
 import { expandSources, loadManifestOrThrow } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
-import { dim } from "../core/ui.js";
+import { filterSemverTags } from "../core/resolver.js";
+import { dim, pc } from "../core/ui.js";
+import type { Dependency } from "../types.js";
 import { isRemoteDependency } from "../types.js";
 import { installCommand } from "./install.js";
 
@@ -124,4 +128,43 @@ async function selectiveUpdate(
 		force: true,
 		...(isGlobal ? { global: true, globalDir } : {}),
 	});
+
+	await reportBlockingConstraint(name, dep, isGlobal ? GLOBAL_MANIFEST : MANIFEST_NEW);
+}
+
+/**
+ * Say when the manifest constraint — not a failure — is why the version
+ * didn't move (#184).
+ *
+ * Refusing to cross a constraint the author wrote is correct, and matches
+ * npm. Doing it silently is not: `outdated` advertises the bump, `update`
+ * prints "Done", and the version is unchanged with nothing connecting the
+ * three. This is the missing sentence.
+ *
+ * Runs after `install`, so the repo cache is warm and `listTags` is a local
+ * read rather than a fetch. Any lookup failure is silence: the update itself
+ * has already succeeded by the time we get here, and a note about why a
+ * version stayed put is not worth failing a successful command over.
+ */
+async function reportBlockingConstraint(
+	name: string,
+	dep: Dependency,
+	manifestName: string,
+): Promise<void> {
+	if (!isRemoteDependency(dep)) return;
+	const constraint = dep.version;
+	// `*` can't block anything, and an absent constraint resolves the same way.
+	if (constraint === undefined || constraint === "*") return;
+
+	try {
+		const latest = filterSemverTags(await listTags(await ensureCached(dep.repo)))[0]?.version;
+		if (latest === undefined || semver.satisfies(latest, constraint)) return;
+		console.log(
+			`\n${pc.yellow(name)} is pinned at ${pc.yellow(constraint)} in ${manifestName}, so ${latest} was not taken.\n` +
+				`Change the version constraint to take it.`,
+		);
+	} catch {
+		// A cache or tag-listing failure costs the user an explanatory note,
+		// not their update.
+	}
 }
