@@ -1,0 +1,43 @@
+# Dependency upgrades arrive as reviewable PRs (#168).
+#
+# #163 committed `bun.lock` and switched CI to `bun install --frozen-lockfile`,
+# so the toolchain only moves when someone commits a new lockfile. That stopped
+# unannounced breakage (a biome minor turning `Lint` red on an unrelated PR) but
+# also stopped upgrades entirely. This is the other half: Dependabot proposes
+# them, CI checks them, a human merges them.
+version: 2
+
+updates:
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # Grouped so a toolchain bump is one reviewable PR rather than four. Dev
+    # tooling is where the churn is (biome, typescript, @types/*) and where a
+    # bad bump only costs CI; runtime deps ship to users, so they stay separate.
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+      production-dependencies:
+        dependency-type: "production"
+    ignore:
+      # Release-managed, not tracked dependencies: `.cz.toml` rewrites these
+      # self-referential platform binaries to the new version on every release
+      # (see its `version_files`). Dependabot proposing versions here would
+      # fight `cz bump` and open PRs nobody should merge. A glob, not four
+      # literals, so a fifth platform is covered on the day it is added.
+      - dependency-name: "@imarios/skilltree-cli-*"
+
+  # The workflows pin actions by major (`actions/checkout@v4`), so these move
+  # rarely — but they do move, and runners already warn that v4's Node 20 is
+  # deprecated. One grouped PR keeps that from being a surprise.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
