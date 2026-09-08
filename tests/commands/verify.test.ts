@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installCommand } from "../../src/commands/install.js";
+import { vendorCommand } from "../../src/commands/vendor.js";
 import { verifyCommand } from "../../src/commands/verify.js";
 import { createLocalSkill } from "../helpers/git-fixtures.js";
 
@@ -159,5 +160,107 @@ describe("verifyCommand", () => {
 			expect(typeof row.name).toBe("string");
 			expect(typeof row.status).toBe("string");
 		}
+	});
+});
+
+/**
+ * `verify --strict` (#183).
+ *
+ * `process.exitCode` is process-global, so every test here has to put it back
+ * — a leaked 1 would fail the whole bun test run long after this file is done.
+ *
+ * Reset to 0 rather than `undefined`: under Bun, assigning `undefined` once
+ * the code is already a number is a no-op (Node clears it), so an undefined
+ * reset silently carries the previous test's 1 into the next assertion.
+ */
+async function exitCodeOf(run: () => Promise<void>, sink?: string[]): Promise<number | undefined> {
+	const before = process.exitCode ?? 0;
+	process.exitCode = 0;
+	const { logs, restore } = captureConsole();
+	try {
+		await run();
+		return process.exitCode;
+	} finally {
+		restore();
+		sink?.push(...logs);
+		process.exitCode = before;
+	}
+}
+
+describe("verifyCommand --strict", () => {
+	async function projectWithMissingEntity(): Promise<string> {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
+		);
+		await installCommand(dir, {});
+		await rm(join(dir, ".claude", "skills", "my-skill"));
+		return dir;
+	}
+
+	test("exits 1 when an entity is missing", async () => {
+		const dir = await projectWithMissingEntity();
+		expect(await exitCodeOf(() => verifyCommand(dir, { strict: true }))).toBe(1);
+	});
+
+	test("exits 1 when an entity is modified", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
+		);
+		await installCommand(dir, {});
+		await vendorCommand(dir, {});
+
+		// Vendored copies are 444; make it writable before tampering.
+		const skillMd = join(dir, ".claude", "skills", "my-skill", "SKILL.md");
+		await chmod(skillMd, 0o644);
+		await writeFile(skillMd, "---\nname: my-skill\n---\n\n# Tampered\n");
+
+		expect(await exitCodeOf(() => verifyCommand(dir, { strict: true }))).toBe(1);
+	});
+
+	test("gates on --json too — the CI path shouldn't need a jq wrapper", async () => {
+		const dir = await projectWithMissingEntity();
+		expect(await exitCodeOf(() => verifyCommand(dir, { strict: true, json: true }))).toBe(1);
+	});
+
+	test("leaves the exit code alone when every entity is LINKED", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
+		);
+		await installCommand(dir, {});
+
+		expect(await exitCodeOf(() => verifyCommand(dir, { strict: true }))).toBe(0);
+	});
+
+	test("without --strict, drift still exits 0 and the footer names the flag", async () => {
+		const dir = await projectWithMissingEntity();
+
+		const logs: string[] = [];
+		const code = await exitCodeOf(async () => {
+			await verifyCommand(dir);
+		}, logs);
+
+		expect(code).toBe(0);
+		expect(logs.join("\n")).toContain("--strict");
+	});
+
+	test("--json stays a single parseable line under --strict", async () => {
+		const dir = await projectWithMissingEntity();
+
+		const logs: string[] = [];
+		await exitCodeOf(async () => {
+			await verifyCommand(dir, { strict: true, json: true });
+		}, logs);
+
+		expect(logs).toHaveLength(1);
+		expect(JSON.parse(logs[0] ?? "")[0].status).toBe("missing");
 	});
 });

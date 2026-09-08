@@ -6,6 +6,7 @@ exports[`runDoctor — --json output J1: JSON shape stable across clean run 1`] 
     "manifest-schema",
     "lint",
     "lockfile-sync",
+    "install-drift",
     "target-consistency",
     "gitignore",
     "registry-reachability",
@@ -13,6 +14,7 @@ exports[`runDoctor — --json output J1: JSON shape stable across clean run 1`] 
     "bundled-skill",
   ],
   "statuses": [
+    "pass",
     "pass",
     "pass",
     "pass",

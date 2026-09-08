@@ -1,6 +1,6 @@
 {
   "name": "skilltree-pm",
-  "version": "0.38.7",
+  "version": "0.38.12",
   "description": "Dependency manager for AI agent skills",
   "type": "module",
   "license": "MIT",
@@ -35,10 +35,10 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "@imarios/skilltree-cli-darwin-arm64": "0.38.7",
-    "@imarios/skilltree-cli-darwin-x64": "0.38.7",
-    "@imarios/skilltree-cli-linux-arm64": "0.38.7",
-    "@imarios/skilltree-cli-linux-x64": "0.38.7"
+    "@imarios/skilltree-cli-darwin-arm64": "0.38.12",
+    "@imarios/skilltree-cli-darwin-x64": "0.38.12",
+    "@imarios/skilltree-cli-linux-arm64": "0.38.12",
+    "@imarios/skilltree-cli-linux-x64": "0.38.12"
   },
   "scripts": {
     "dev": "bun run src/cli.ts",
@@ -54,8 +54,8 @@
     "prepublishOnly": "test -f bin/skilltree || (echo 'Error: Run bun run build:npm first' && exit 1)"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.92.0",
-    "commander": "^14.0.3",
+    "@anthropic-ai/sdk": "^0.124.0",
+    "commander": "^15.0.0",
     "picocolors": "^1.1.1",
     "semver": "^7.7.4",
     "simple-git": "^3.33.0",
@@ -65,7 +65,7 @@
     "@biomejs/biome": "^2.4.10",
     "@types/bun": "latest",
     "@types/semver": "^7.7.1",
-    "typescript": "^6.0.2"
+    "typescript": "^7.0.2"
   },
   "trustedDependencies": [
     "@biomejs/biome"

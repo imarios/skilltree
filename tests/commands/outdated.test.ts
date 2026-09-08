@@ -572,4 +572,89 @@ packages:
 			expect(out).toContain("capped by tut@^0.5.0");
 		});
 	});
+
+	/**
+	 * Issue #184: a dep whose own constraint excludes the latest tag was
+	 * reported as a plain available bump, with nothing saying `update` would
+	 * refuse to apply it. `cappedBy` deliberately skips the self-imposed case
+	 * ("not interesting to annotate"); this is the annotation for it.
+	 */
+	describe("pinnedAt annotation (#184)", () => {
+		async function pinnedProject(constraint: string): Promise<string> {
+			const dir = await makeTempDir();
+			const repoDir = await createTestRepo(
+				dir,
+				"repo",
+				[{ path: "skills/py", name: "py" }],
+				"v1.0.0",
+			);
+			const bareDir = await makeBareClone(repoDir, dir, "bare");
+			// Tag the newer version before install, for the reason given in the
+			// sibling-cap tests above.
+			await addTagToRepo(repoDir, bareDir, "v1.1.0", [{ path: "skills/py", name: "py" }]);
+
+			await writeManifest(
+				dir,
+				`dependencies:
+  py:
+    repo: "file://${bareDir}"
+    path: skills/py
+    version: "${constraint}"
+`,
+			);
+			await installCommand(dir, {});
+			return dir;
+		}
+
+		async function rowFor(dir: string): Promise<Record<string, unknown> | undefined> {
+			const { logs, restore } = captureConsole();
+			try {
+				await outdatedCommand(dir, undefined, { json: true });
+			} finally {
+				restore();
+			}
+			const rows = JSON.parse(logs.join("")) as Array<Record<string, unknown>>;
+			return rows.find((r) => r.name === "py");
+		}
+
+		test("an exact pin that excludes the latest tag is annotated", async () => {
+			const row = await rowFor(await pinnedProject("1.0.0"));
+
+			expect(row?.current).toBe("1.0.0");
+			expect(row?.latest).toBe("1.1.0");
+			expect(row?.bump).toBe("minor");
+			// The bump is real, but `update` won't apply it — say so.
+			expect(row?.pinnedAt).toBe("1.0.0");
+		});
+
+		test("a range that excludes the latest tag is annotated too", async () => {
+			// `update` refuses to cross ~1.0.0 for exactly the same reason it
+			// refuses to cross 1.0.0. The annotation is about the constraint
+			// blocking the bump, not about the constraint's syntax.
+			const row = await rowFor(await pinnedProject("~1.0.0"));
+
+			expect(row?.latest).toBe("1.1.0");
+			expect(row?.pinnedAt).toBe("~1.0.0");
+		});
+
+		test("a range that accepts the latest tag is not annotated", async () => {
+			// ^1.0.0 admits 1.1.0, so nothing is blocking — `update` will move it.
+			const row = await rowFor(await pinnedProject("^1.0.0"));
+
+			expect(row?.pinnedAt).toBeNull();
+		});
+
+		test("table output renders the 'pinned at' note", async () => {
+			const dir = await pinnedProject("1.0.0");
+
+			const { logs, restore } = captureConsole();
+			try {
+				await outdatedCommand(dir, undefined, {});
+			} finally {
+				restore();
+			}
+
+			expect(logs.join("\n")).toContain("pinned at 1.0.0");
+		});
+	});
 });

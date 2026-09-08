@@ -143,6 +143,16 @@ skilltree update --global         # Update global deps
 - `-n, --dry-run` — Preview version bumps without applying
 - `-g, --global` — Update global dependencies
 
+`update` never crosses a version constraint you wrote — an exact `1.0.0`, or a
+range like `~1.0.0` that excludes the newer tag. When a constraint is what kept
+the version from moving, `update` says so rather than reporting a no-op as a
+successful bump:
+
+```
+py is pinned at 1.0.0 in skilltree.yml, so 1.1.0 was not taken.
+Change the version constraint to take it.
+```
+
 ## `skilltree outdated [name]`
 
 Read-only preview of dependency drift. Reports which deps have newer semver tags available upstream without modifying the lockfile or manifest. Counterpart to `skilltree update`.
@@ -161,6 +171,18 @@ skilltree outdated --global        # Inspect global deps
 - `-g, --global` — Show global deps
 
 **Output columns:** `Name`, `Current` (semver pin / `@<short-sha>` / `local`), `Latest` (latest semver tag on the resolved repo), `Bump` (`major` / `minor` / `patch` / `—`). Local deps and unresolved deps show `—`; a network/cache failure for a remote shows `error` in the Bump column.
+
+A `Notes` column appears when a row has something to explain about why the bump
+isn't simply available:
+
+- `pinned at <constraint>` — the dep's own constraint excludes `Latest`, so
+  `update` will not apply the bump until you change the manifest.
+- `capped by <name>@<constraint>` — a sibling dep in the same repo carries a
+  tighter constraint that holds this one back.
+
+Both appear in `--json` as `pinnedAt` (string or null) and `cappedBy` (array or
+null). They are mutually exclusive: a self-imposed cap is reported as
+`pinnedAt`.
 
 ## `skilltree projects`
 
@@ -205,12 +227,21 @@ Check installed files against lockfile integrity hashes.
 ```bash
 skilltree verify
 skilltree verify --global
+skilltree verify --strict          # exit 1 on drift — the CI gate
+skilltree verify --json --strict   # same gate, machine-readable rows
 ```
 
 **Flags:**
 - `-g, --global` — Verify global dependencies
+- `--json` — Emit `[{name, status}]` instead of the table
+- `--strict` — Exit 1 if any entity has drifted from the lockfile
 
 Reports: `OK` (matches), `MODIFIED` (changed), `LINKED` (symlink), `MISSING`, `STALE` (vendored local dep with newer source), `BROKEN` (dead symlink).
+
+`OK` and `LINKED` are both healthy — `LINKED` is the steady state for a local
+dependency. Everything else counts as drift, and drift is what `--strict`
+gates on. Without `--strict` the command still exits 0, so existing scripts
+that assume 0 keep working.
 
 ## `skilltree check`
 
@@ -264,16 +295,19 @@ skilltree doctor --global
 
 **Flags:**
 - `--json` — Emit the report as JSON instead of the text table. Exit codes unchanged.
-- `--global` — Run against `~/.skilltree/global.yml`. Project-scoped checks (lockfile, target-consistency) become `skip` rows; registry-reachability still runs (registries are global config).
+- `--global` — Run against `~/.skilltree/global.yml`. Project-scoped checks (lockfile, install-drift, target-consistency) become `skip` rows; registry-reachability still runs (registries are global config).
 
 Checks performed (in order):
 
 1. **manifest-schema** — `skilltree.yml` parses and validates. Reports YAML parse errors with the file name (e.g. `Failed to load skilltree.yml: …`) instead of conflating "missing" with "malformed" (issue #123).
 2. **lint** — wraps `skilltree check` (asymmetric publish + frontmatter validity).
 3. **lockfile-sync** — `skilltree.lock` has no `added` / `removed` / `changed` entries vs the manifest. Vacuously passes when the manifest declares zero deps (no lockfile required for an empty project — issue #121). Distinguishes "missing `lockfile_version` key" from "wrong version value" in the error (issue #123).
-4. **target-consistency** — every `install_targets` entry resolves through the agent registry or is a literal path that exists.
-5. **registry-reachability** — each configured registry reachable via `git ls-remote` (5s timeout). The probe forces `LC_ALL=C`/`LANG=C`/`GIT_TERMINAL_PROMPT=0` on the spawn so auth/unreachable classification stays correct in non-English locales and so private-repo URLs don't block on a credential prompt (issue #114). Auth-required and timeout are reported as warnings, not failures.
-6. **frontmatter** — same as lint #2; reported separately for output readability.
+4. **install-drift** — the files recorded in the lockfile are actually installed and unmodified. Fails on `missing` / `modified` / `broken`, warns on `stale` (a vendored copy behind its local source is an authoring state, not a broken checkout). Skipped when there is no lockfile, since #3 already reports that; vacuously passes on zero declared deps. Reads the lockfile rather than re-resolving, so it makes no network calls (issue #187). `skilltree verify` reports the same statuses per entity.
+5. **target-consistency** — every `install_targets` entry resolves through the agent registry or is a literal path that exists.
+6. **gitignore** — every `.gitignore` entry that `init` would write for the configured targets is present. Missing entries warn, never fail; extra user-authored lines are ignored.
+7. **registry-reachability** — each configured registry reachable via `git ls-remote` (5s timeout). The probe forces `LC_ALL=C`/`LANG=C`/`GIT_TERMINAL_PROMPT=0` on the spawn so auth/unreachable classification stays correct in non-English locales and so private-repo URLs don't block on a credential prompt (issue #114). Auth-required and timeout are reported as warnings, not failures.
+8. **frontmatter** — same as lint #2; reported separately for output readability.
+9. **bundled-skill** — the skilltree skill installed for each detected agent is at or ahead of the running CLI version. Warns, never fails; `skilltree teach` refreshes it.
 
 Exit codes:
 
@@ -374,6 +408,15 @@ With no `<paths>`, scans the project's resolved install-target directories (e.g.
 - `--apply` — Auto-add regex-detected deps to frontmatter (not LLM suggestions)
 - `--llm` — Use Claude for semantic dependency detection (requires `ANTHROPIC_API_KEY`)
 - `--json` — JSON output
+
+`--llm` calls `claude-sonnet-5` by default. Set `SKILLTREE_LLM_MODEL` to a different
+model id to override — useful if that model isn't available on your account, or to
+trade cost against quality. A blank value falls back to the default.
+
+When the API call fails, the reported cause matches the HTTP status rather than
+always blaming the model: a rejected key points at `ANTHROPIC_API_KEY`, a 404 (or
+a 400 naming the model) points at `SKILLTREE_LLM_MODEL`, and a 429 or 5xx is
+reported as rate limiting or a transient upstream failure.
 
 ## `skilltree registry init`
 

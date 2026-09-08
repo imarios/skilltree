@@ -44,6 +44,14 @@ export interface OutdatedRow {
 	 * excludes `latest`.
 	 */
 	cappedBy: string[] | null;
+	/**
+	 * This dep's own constraint, when that constraint excludes `latest` (#184).
+	 * Null when the constraint admits `latest`, or when the manifest doesn't
+	 * list the dep. The row still reports the bump — it exists upstream — but
+	 * `update` will refuse to apply it until the constraint changes, and the
+	 * table said nothing about that before.
+	 */
+	pinnedAt: string | null;
 }
 
 /**
@@ -134,6 +142,7 @@ async function buildRow(
 			bump: null,
 			repo: null,
 			cappedBy: null,
+			pinnedAt: null,
 		};
 	}
 
@@ -156,6 +165,7 @@ async function buildRow(
 			bump: null,
 			repo: null,
 			cappedBy: null,
+			pinnedAt: null,
 		};
 	}
 
@@ -173,6 +183,7 @@ async function buildRow(
 			bump: "error",
 			repo,
 			cappedBy: null,
+			pinnedAt: null,
 		};
 	}
 
@@ -181,7 +192,17 @@ async function buildRow(
 	// Empty array → no tags at all → no upstream signal.
 	const latest = semverTags[0]?.version;
 	if (!latest) {
-		return { name, type, current, currentCommit, latest: null, bump: null, repo, cappedBy: null };
+		return {
+			name,
+			type,
+			current,
+			currentCommit,
+			latest: null,
+			bump: null,
+			repo,
+			cappedBy: null,
+			pinnedAt: null,
+		};
 	}
 
 	const currentSemver = entry.version;
@@ -190,16 +211,37 @@ async function buildRow(
 		// but can't compute a bump kind without a semver anchor on the
 		// current side. Matches the example in the issue body where
 		// `task-builder @a56045e | 2.0.0 | —` shows "—".
-		return { name, type, current, currentCommit, latest, bump: null, repo, cappedBy: null };
+		return {
+			name,
+			type,
+			current,
+			currentCommit,
+			latest,
+			bump: null,
+			repo,
+			cappedBy: null,
+			pinnedAt: null,
+		};
 	}
 
 	if (semver.eq(currentSemver, latest)) {
-		return { name, type, current, currentCommit, latest, bump: null, repo, cappedBy: null };
+		return {
+			name,
+			type,
+			current,
+			currentCommit,
+			latest,
+			bump: null,
+			repo,
+			cappedBy: null,
+			pinnedAt: null,
+		};
 	}
 
 	const bump = classifyBump(currentSemver, latest);
+	const pinnedAt = computePinnedAt(repo, name, latest, constraintsByRepo);
 	const cappedBy = computeCappedBy(repo, name, latest, constraintsByRepo);
-	return { name, type, current, currentCommit, latest, bump, repo, cappedBy };
+	return { name, type, current, currentCommit, latest, bump, repo, cappedBy, pinnedAt };
 }
 
 type ConstraintsByRepo = Map<string, Array<{ name: string; constraint: string }>>;
@@ -267,13 +309,36 @@ function computeCappedBy(
 	const siblings = constraintsByRepo.get(repo);
 	if (siblings === undefined) return null;
 
-	const self = siblings.find((s) => s.name === name);
-	if (self !== undefined && self.constraint !== "*" && !semver.satisfies(latest, self.constraint)) {
-		return null;
-	}
+	// A self-imposed cap is reported as `pinnedAt` instead — the two are
+	// mutually exclusive, and reading them from one predicate keeps them so.
+	if (computePinnedAt(repo, name, latest, constraintsByRepo) !== null) return null;
 
 	const capped = findCappingSiblings(siblings, latest, name);
 	return capped.length > 0 ? capped : null;
+}
+
+/**
+ * The dep's own constraint, when that constraint excludes `latest` (#184).
+ *
+ * This is the case `update` silently refuses: the tag exists upstream, the
+ * table advertises the bump, and the manifest forbids it. Ranges count as
+ * well as exact versions — `update` won't cross `~1.0.0` any more than it
+ * will cross `1.0.0`, so the annotation is about the constraint blocking the
+ * bump, not about its syntax.
+ *
+ * `*` is excluded explicitly rather than left to `satisfies`: a prerelease
+ * `latest` does not satisfy `*`, but a `*` dep is the opposite of pinned.
+ * `findCappingSiblings` skips `*` for the same reason.
+ */
+function computePinnedAt(
+	repo: string,
+	name: string,
+	latest: string,
+	constraintsByRepo: ConstraintsByRepo,
+): string | null {
+	const self = constraintsByRepo.get(repo)?.find((s) => s.name === name);
+	if (self === undefined || self.constraint === "*") return null;
+	return semver.satisfies(latest, self.constraint) ? null : self.constraint;
 }
 
 /**
@@ -312,13 +377,24 @@ const OUTDATED_COLUMNS: ColumnDef<DisplayRow>[] = [
 	{ header: "Notes", value: (r) => r.notes, color: dim },
 ];
 
+/**
+ * The one note a row gets. `pinnedAt` and `cappedBy` are mutually exclusive
+ * by construction (see `computeCappedBy`), so the order here is a formality
+ * rather than a precedence rule.
+ */
+function noteFor(r: OutdatedRow): string {
+	if (r.pinnedAt !== null) return `pinned at ${r.pinnedAt}`;
+	if (r.cappedBy !== null) return `capped by ${r.cappedBy.join(", ")}`;
+	return "";
+}
+
 function printOutdatedTable(rows: OutdatedRow[]): void {
 	const display: DisplayRow[] = rows.map((r) => ({
 		name: r.name,
 		current: r.current,
 		latest: r.latest ?? EMDASH,
 		bump: r.bump ?? EMDASH,
-		notes: r.cappedBy ? `capped by ${r.cappedBy.join(", ")}` : "",
+		notes: noteFor(r),
 	}));
 	// Drop the Notes column entirely when no row has anything to say — keeps
 	// the simple `outdated` table from growing a useless trailing column.

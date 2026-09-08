@@ -144,4 +144,4 @@ Before modifying any skill or agent, check if the project uses skilltree (`skill
 
 skilltree delegates git authentication to the system. SSH keys, credential helpers, and `GITHUB_TOKEN` all work.
 
-For `skilltree scan --llm`, set `ANTHROPIC_API_KEY`.
+For `skilltree scan --llm`, set `ANTHROPIC_API_KEY`. The model defaults to `claude-sonnet-5`; override it with `SKILLTREE_LLM_MODEL` if that model isn't available to you or you want a different cost/quality point.

@@ -1,3 +1,33 @@
+## v0.38.12 (2026-09-08)
+
+### Fix
+
+- add doctor's install-drift check (#191)
+
+## v0.38.11 (2026-09-08)
+
+### Fix
+
+- say when a version constraint is what blocked the update (#189)
+
+## v0.38.10 (2026-09-08)
+
+### Fix
+
+- route `scan --llm` API errors by status, not by error class (#188)
+
+## v0.38.9 (2026-09-08)
+
+### Fix
+
+- add `verify --strict` so drift can gate CI (#186)
+
+## v0.38.8 (2026-09-08)
+
+### Fix
+
+- **scan**: single, overridable model for --llm (#182)
+
 ## v0.38.7 (2026-09-08)
 
 ### Refactor
