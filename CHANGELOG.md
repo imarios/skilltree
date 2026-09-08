@@ -1,3 +1,9 @@
+## v0.38.5 (2026-09-08)
+
+### Fix
+
+- **check**: don't advise --strict when --strict is already set (#173)
+
 ## v0.38.4 (2026-09-08)
 
 ### Fix
