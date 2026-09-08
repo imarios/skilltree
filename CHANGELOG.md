@@ -1,3 +1,9 @@
+## v0.38.11 (2026-09-08)
+
+### Fix
+
+- say when a version constraint is what blocked the update (#189)
+
 ## v0.38.10 (2026-09-08)
 
 ### Fix
