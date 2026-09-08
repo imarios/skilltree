@@ -247,6 +247,86 @@ describe("why command", () => {
 		expect(out.paths.some((p) => p[0]?.name === "task-builder")).toBe(true);
 	});
 
+	// -- #174: don't suggest --type when --type cannot disambiguate ----------
+
+	// The lockfile is hand-written rather than produced by `installCommand`:
+	// two same-type entities that both answer to "foo" would collide on the
+	// same install path, so the installer can't build this state. The message
+	// logic under test only reads the lockfile.
+	async function writeSameTypeAmbiguity(dir: string): Promise<void> {
+		await writeManifest(
+			dir,
+			[
+				"dependencies:",
+				"  foo:",
+				"    repo: github.com/example/pkg",
+				"    version: 1.0.0",
+				"  bar:",
+				"    repo: github.com/example/pkg2",
+				"    version: 1.0.0",
+				"    name: foo",
+				"",
+			].join("\n"),
+		);
+		await writeFile(
+			join(dir, "skilltree.lock"),
+			[
+				"lockfile_version: 1",
+				"packages:",
+				"  foo:",
+				"    type: skill",
+				"    group: prod",
+				"    path: skills/foo",
+				"    commit: abc123",
+				"    dependencies: []",
+				"    repo: github.com/example/pkg",
+				"    version: 1.0.0",
+				"  bar:",
+				"    type: skill",
+				"    name: foo",
+				"    group: prod",
+				"    path: skills/bar",
+				"    commit: def456",
+				"    dependencies: []",
+				"    repo: github.com/example/pkg2",
+				"    version: 1.0.0",
+				"",
+			].join("\n"),
+			"utf-8",
+		);
+	}
+
+	test("same-type ambiguity with --type already set doesn't re-suggest --type (#174)", async () => {
+		const dir = await makeTempDir();
+		await writeSameTypeAmbiguity(dir);
+
+		const err = await whyCommand("foo", { dir, type: "skill" }).catch((e: Error) => e);
+		const message = (err as Error).message;
+
+		expect(message).not.toMatch(/Re-run with --type/);
+		// The keys are what actually disambiguate, so name them.
+		expect(message).toMatch(/foo/);
+		expect(message).toMatch(/bar/);
+	});
+
+	test("same-type ambiguity without --type doesn't suggest --type either (#174)", async () => {
+		const dir = await makeTempDir();
+		await writeSameTypeAmbiguity(dir);
+
+		// --type is useless here even unset: filtering to `skill` leaves both.
+		const err = await whyCommand("foo", { dir }).catch((e: Error) => e);
+		expect((err as Error).message).not.toMatch(/Re-run with --type/);
+	});
+
+	test("the suggested key actually resolves the ambiguity (#174)", async () => {
+		const dir = await makeTempDir();
+		await writeSameTypeAmbiguity(dir);
+
+		// The whole point of pointing at keys: using one has to work.
+		const lines = await captureConsole(() => whyCommand("bar", { dir }));
+		expect(lines.join("\n")).toContain("bar");
+	});
+
 	test("--json shape: target IS a top-level dep", async () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "solo");

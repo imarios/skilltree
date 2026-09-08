@@ -66,7 +66,7 @@ export async function whyCommand(target: string, opts?: WhyOptions): Promise<voi
 	if (matches.length > 1) {
 		const qualified = matches.map((m) => `${m.key} (${m.entry.type})`).join(", ");
 		throw new Error(
-			`"${target}" matches multiple entries: ${qualified}.\nRe-run with --type <skill|agent|command> to disambiguate.`,
+			`"${target}" matches multiple entries: ${qualified}.\n${disambiguationHint(matches, opts?.type)}`,
 		);
 	}
 
@@ -112,6 +112,30 @@ export async function whyCommand(target: string, opts?: WhyOptions): Promise<voi
 	}
 
 	renderText(target, targetEntry, targetKey, paths, groupOf);
+}
+
+/**
+ * Advise the discriminator that will actually narrow the result.
+ *
+ * `--type` only helps when it leaves exactly one entry. It cannot help when
+ * the caller already passed it -- the filter has run and these matches
+ * survived it -- nor when two matches share a type. Suggesting it regardless
+ * told the user to re-run a command that would fail identically (#174).
+ *
+ * YAML keys are unique by construction, so they always disambiguate, and
+ * `why` already accepts a key in place of a name.
+ */
+function disambiguationHint(
+	matches: Array<{ key: string; entry: LockfileEntry }>,
+	typeFilter: EntityType | undefined,
+): string {
+	// Distinct types for every match ⇒ filtering by type yields exactly one.
+	const distinctTypes = new Set(matches.map((m) => m.entry.type)).size;
+	if (typeFilter === undefined && distinctTypes === matches.length) {
+		return "Re-run with --type <skill|agent|command> to disambiguate.";
+	}
+	const keys = matches.map((m) => m.key).join(", ");
+	return `Re-run with one of these keys instead: ${keys}.`;
 }
 
 function findMatches(
