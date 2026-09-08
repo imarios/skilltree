@@ -15,13 +15,20 @@ import { detectInstalledAgents, getAgentLabel, resolveAgentHome } from "../core/
 import { parseFrontmatter } from "../core/frontmatter.js";
 import { type LsRemoteOutcome, lsRemote } from "../core/git.js";
 import { getSkillAgentIgnoreEntriesForTarget } from "../core/gitignore.js";
-import { diffManifestLockfile, readLockfile } from "../core/lockfile.js";
-import { loadManifestOrThrow, validateGlobalManifest, validateManifest } from "../core/manifest.js";
+import { type VerifyStatus, verifyInstalled } from "../core/installer.js";
+import { diffManifestLockfile, entitiesFromLockfile, readLockfile } from "../core/lockfile.js";
+import {
+	getDevInstallPath,
+	loadManifestOrThrow,
+	validateGlobalManifest,
+	validateManifest,
+} from "../core/manifest.js";
 import { listRegistries } from "../core/registry-config.js";
 import { dim, pc } from "../core/ui.js";
 import type { CheckResult, CheckStatus, CheckSummary, Manifest } from "../types.js";
 import { collectCheckIssues } from "./check.js";
 import { resolveTargets } from "./targets.js";
+import { DRIFT_STATUSES } from "./verify.js";
 
 /**
  * Probe used by the registry-reachability check. Tests inject a synchronous
@@ -89,6 +96,7 @@ export async function runDoctor(dir: string, opts: DoctorOptions = {}): Promise<
 
 	checks.push(checkLint(summary, lintError, manifest));
 	checks.push(await checkLockfileSync(manifest, dir, isGlobal));
+	checks.push(await checkInstallDrift(manifest, dir, isGlobal));
 	checks.push(await checkTargetConsistency(manifest, isGlobal));
 	checks.push(await checkGitignore(manifest, dir, isGlobal));
 	checks.push(await checkRegistryReachability(probe, opts.registryConfigPath));
@@ -221,6 +229,119 @@ async function checkLockfileSync(
 			detail: err instanceof Error ? err.message : String(err),
 		};
 	}
+}
+
+/**
+ * Statuses that mean the install drifted but the install itself isn't broken.
+ *
+ * A `stale` vendored copy is behind its local source — an authoring state
+ * that `vendor` refreshes, not a checkout someone can't trust. Everything
+ * else in `DRIFT_STATUSES` fails, including any status added later: a new
+ * kind of drift is a failure until someone decides otherwise, which is the
+ * safe direction for a preflight check to default in.
+ */
+const WARN_ONLY_DRIFT: ReadonlySet<VerifyStatus> = new Set<VerifyStatus>(["stale"]);
+
+/** Per-status remedy, phrased the way `verify`'s diagnostics phrase it. */
+const DRIFT_FIXES: Partial<Record<VerifyStatus, string>> = {
+	missing: "Run `skilltree install` to restore",
+	modified: "Run `skilltree install --force` to overwrite",
+	broken: "Check the source paths in skilltree.yml",
+	stale: "Run `skilltree vendor` to refresh the vendored copies",
+};
+
+/**
+ * Compare the installed files against the lockfile — the question `verify`
+ * answers, asked here so `doctor` stops reporting a clean bill of health for
+ * a checkout whose `.claude/` was deleted or edited (#187).
+ *
+ * `lockfile-sync` only diffs manifest against lockfile, so every other check
+ * could pass while nothing was installed at all. Skipped rather than failed
+ * when the lockfile is absent: `lockfile-sync` already reports that, and one
+ * cause should produce one failure.
+ *
+ * The entity list comes from `entitiesFromLockfile`, not from `resolveAll` as
+ * in `verify`: spec D24 forbids doctor from touching the install path, and
+ * `resolveAll` calls `ensureCached`, which clones. Reading the lockfile is
+ * also the more faithful question here — "is what we recorded actually on
+ * disk?" — and it needs no network to answer.
+ */
+async function checkInstallDrift(
+	manifest: Manifest | null,
+	dir: string,
+	isGlobal: boolean,
+): Promise<CheckResult> {
+	// Global mode has no project install base to compare against here, the
+	// same reason lockfile-sync skips it. `skilltree verify --global` covers it.
+	if (isGlobal) {
+		return { name: "install-drift", status: "skip", detail: "global mode" };
+	}
+	if (!manifest) {
+		return { name: "install-drift", status: "skip", detail: "no manifest" };
+	}
+	// Same vacuous pass as lockfile-sync (#121): nothing declared, nothing to
+	// install, nothing to drift.
+	if (countDeclaredDeps(manifest) === 0) {
+		return { name: "install-drift", status: "pass", detail: "no dependencies declared" };
+	}
+
+	try {
+		const lockfile = await readLockfile(dir);
+		if (!lockfile) {
+			return { name: "install-drift", status: "skip", detail: "no skilltree.lock" };
+		}
+
+		const integrity: Record<string, string> = {};
+		for (const [key, entry] of Object.entries(lockfile.packages)) {
+			if (entry.integrity) integrity[key] = entry.integrity;
+		}
+
+		const { entities } = entitiesFromLockfile(lockfile);
+		const statuses = await verifyInstalled(
+			entities,
+			join(dir, getDevInstallPath(manifest)),
+			integrity,
+			dir,
+		);
+
+		const drifted = statuses.filter((s) => DRIFT_STATUSES.has(s.status));
+		if (drifted.length === 0) {
+			return { name: "install-drift", status: "pass" };
+		}
+
+		// The fix hint names one remedy, so it follows the status that decided
+		// the verdict: the first failing entity, or the first warning when
+		// nothing failed.
+		const failing = drifted.filter((s) => !WARN_ONLY_DRIFT.has(s.status));
+		const primary = (failing.length > 0 ? failing : drifted)[0]?.status;
+		return {
+			name: "install-drift",
+			status: failing.length > 0 ? "fail" : "warn",
+			detail: describeDrift(drifted),
+			fix:
+				(primary === undefined ? undefined : DRIFT_FIXES[primary]) ??
+				"Run `skilltree verify` for details",
+		};
+	} catch (err) {
+		return {
+			name: "install-drift",
+			status: "fail",
+			detail: err instanceof Error ? err.message : String(err),
+		};
+	}
+}
+
+/** `2 missing (foo, bar); 1 modified (baz)` — grouped by status, names capped. */
+function describeDrift(drifted: Array<{ name: string; status: VerifyStatus }>): string {
+	const byStatus = new Map<VerifyStatus, string[]>();
+	for (const s of drifted) {
+		const names = byStatus.get(s.status) ?? [];
+		names.push(s.name);
+		byStatus.set(s.status, names);
+	}
+	return [...byStatus]
+		.map(([status, names]) => `${names.length} ${status} (${names.slice(0, 3).join(", ")})`)
+		.join("; ");
 }
 
 async function checkTargetConsistency(

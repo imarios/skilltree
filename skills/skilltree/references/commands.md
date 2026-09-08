@@ -295,16 +295,19 @@ skilltree doctor --global
 
 **Flags:**
 - `--json` — Emit the report as JSON instead of the text table. Exit codes unchanged.
-- `--global` — Run against `~/.skilltree/global.yml`. Project-scoped checks (lockfile, target-consistency) become `skip` rows; registry-reachability still runs (registries are global config).
+- `--global` — Run against `~/.skilltree/global.yml`. Project-scoped checks (lockfile, install-drift, target-consistency) become `skip` rows; registry-reachability still runs (registries are global config).
 
 Checks performed (in order):
 
 1. **manifest-schema** — `skilltree.yml` parses and validates. Reports YAML parse errors with the file name (e.g. `Failed to load skilltree.yml: …`) instead of conflating "missing" with "malformed" (issue #123).
 2. **lint** — wraps `skilltree check` (asymmetric publish + frontmatter validity).
 3. **lockfile-sync** — `skilltree.lock` has no `added` / `removed` / `changed` entries vs the manifest. Vacuously passes when the manifest declares zero deps (no lockfile required for an empty project — issue #121). Distinguishes "missing `lockfile_version` key" from "wrong version value" in the error (issue #123).
-4. **target-consistency** — every `install_targets` entry resolves through the agent registry or is a literal path that exists.
-5. **registry-reachability** — each configured registry reachable via `git ls-remote` (5s timeout). The probe forces `LC_ALL=C`/`LANG=C`/`GIT_TERMINAL_PROMPT=0` on the spawn so auth/unreachable classification stays correct in non-English locales and so private-repo URLs don't block on a credential prompt (issue #114). Auth-required and timeout are reported as warnings, not failures.
-6. **frontmatter** — same as lint #2; reported separately for output readability.
+4. **install-drift** — the files recorded in the lockfile are actually installed and unmodified. Fails on `missing` / `modified` / `broken`, warns on `stale` (a vendored copy behind its local source is an authoring state, not a broken checkout). Skipped when there is no lockfile, since #3 already reports that; vacuously passes on zero declared deps. Reads the lockfile rather than re-resolving, so it makes no network calls (issue #187). `skilltree verify` reports the same statuses per entity.
+5. **target-consistency** — every `install_targets` entry resolves through the agent registry or is a literal path that exists.
+6. **gitignore** — every `.gitignore` entry that `init` would write for the configured targets is present. Missing entries warn, never fail; extra user-authored lines are ignored.
+7. **registry-reachability** — each configured registry reachable via `git ls-remote` (5s timeout). The probe forces `LC_ALL=C`/`LANG=C`/`GIT_TERMINAL_PROMPT=0` on the spawn so auth/unreachable classification stays correct in non-English locales and so private-repo URLs don't block on a credential prompt (issue #114). Auth-required and timeout are reported as warnings, not failures.
+8. **frontmatter** — same as lint #2; reported separately for output readability.
+9. **bundled-skill** — the skilltree skill installed for each detected agent is at or ahead of the running CLI version. Warns, never fails; `skilltree teach` refreshes it.
 
 Exit codes:
 

@@ -23,8 +23,11 @@ export interface VerifyOptions {
  * that develops a skill in-tree. This is the single definition of drift:
  * both the `--strict` gate and the diagnostics footer read from it, so a
  * future status can't be added to one and forgotten in the other.
+ *
+ * Exported for `doctor`'s `install-drift` check (#187), which asks the same
+ * question and must not answer it with a second copy of this list.
  */
-const DRIFT_STATUSES: ReadonlySet<VerifyStatus> = new Set<VerifyStatus>([
+export const DRIFT_STATUSES: ReadonlySet<VerifyStatus> = new Set<VerifyStatus>([
 	"modified",
 	"missing",
 	"broken",

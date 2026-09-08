@@ -35,8 +35,8 @@ Commands:
   check [options]                    Lint the project's skilltree.yml for
                                      design-time issues
   doctor [options]                   Preflight health check across schema, lint,
-                                     lockfile, targets, registries, and
-                                     frontmatter
+                                     lockfile, install drift, targets,
+                                     registries, and frontmatter
 
                                      Lifecycle: new → check → doctor → git tag
   list [options]                     List installed dependencies
@@ -234,8 +234,8 @@ Options:
 exports[`CLI help snapshots \`doctor --help\` is stable 1`] = `
 "Usage: skilltree doctor [options]
 
-Preflight health check across schema, lint, lockfile, targets, registries, and
-frontmatter
+Preflight health check across schema, lint, lockfile, install drift, targets,
+registries, and frontmatter
 
 Lifecycle: new → check → doctor → git tag
 
