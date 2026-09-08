@@ -82,12 +82,15 @@ export async function checkCommand(dir: string, opts: CheckOptions = {}): Promis
 		process.exit(1);
 	}
 
-	console.log(
-		pc.dim(
-			`\n${warnCount} issue${warnCount === 1 ? "" : "s"} found. ` +
-				`Re-run with --strict to fail the command on warnings.`,
-		),
-	);
+	// The re-run hint is only actionable when --strict is off. Under --strict
+	// these warnings have already failed the command, so repeating the flag the
+	// caller just passed described the run as advisory when it was about to
+	// exit 1 (#172). "unset" and "false" branch together here, so a plain
+	// truthy check is the right shape (see CLAUDE.md).
+	const verdict = opts.strict
+		? "Failing because --strict is set."
+		: "Re-run with --strict to fail the command on warnings.";
+	console.log(pc.dim(`\n${warnCount} issue${warnCount === 1 ? "" : "s"} found. ${verdict}`));
 
 	if (opts.strict) {
 		process.exit(1);

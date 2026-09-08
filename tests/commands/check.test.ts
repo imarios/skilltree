@@ -451,6 +451,35 @@ describe("checkCommand frontmatter lint", () => {
 		expect(exitCode).toBe(1);
 	});
 
+	// -- #172: the warning summary must not advise a flag already in use -----
+
+	test("--strict summary does not tell you to re-run with --strict (#172)", async () => {
+		const dir = await makeProject({
+			manifest: skillManifest(),
+			files: [skillFm("description: ok")],
+		});
+
+		const { logs, exitCode } = await runCheck(dir, { strict: true });
+		const summary = logs.join("\n");
+
+		expect(summary).not.toMatch(/Re-run with --strict/);
+		// The run failed *because* --strict was set -- say so, rather than
+		// describing the run as advisory when it just exited 1.
+		expect(summary).toMatch(/--strict/);
+		expect(exitCode).toBe(1);
+	});
+
+	test("without --strict the re-run hint is still shown (#172)", async () => {
+		const dir = await makeProject({
+			manifest: skillManifest(),
+			files: [skillFm("description: ok")],
+		});
+
+		const { logs, exitCode } = await runCheck(dir);
+		expect(logs.join("\n")).toMatch(/Re-run with --strict/);
+		expect(exitCode).toBeUndefined();
+	});
+
 	test("missing 'name' warns; --strict exits 1", async () => {
 		const dir = await makeProject({
 			manifest: skillManifest(),
