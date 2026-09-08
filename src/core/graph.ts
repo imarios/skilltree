@@ -12,7 +12,13 @@ import type {
 	PackMember,
 } from "../types.js";
 import { isLocalDependency, isPackDependency, isRemoteDependency } from "../types.js";
-import { conventionalCandidates, isSingleFileEntity, mdFileType } from "./entity-type.js";
+import {
+	conventionalCandidates,
+	frontmatterPath,
+	inferEntityType,
+	isSingleFileEntity,
+	mdFileType,
+} from "./entity-type.js";
 import { MANIFEST_NEW, MANIFEST_NEW_ALT } from "./filenames.js";
 import { getDeclaredDeps, parseFrontmatter } from "./frontmatter.js";
 import {
@@ -610,7 +616,7 @@ async function readLocalFrontmatter(
 	entityName: string,
 ): Promise<string[]> {
 	try {
-		const fmPath = isSingleFileEntity(type) ? localPath : `${localPath}/SKILL.md`;
+		const fmPath = frontmatterPath(localPath, type);
 		const content = await readFile(fmPath, "utf-8");
 		const fm = parseFrontmatter(content);
 		return (fm ? getDeclaredDeps(fm) : []).filter((d) => d !== entityName);
@@ -627,6 +633,8 @@ async function readRemoteFrontmatter(
 	entityName: string,
 ): Promise<string[]> {
 	try {
+		// Not `frontmatterPath`: this is a git tree path, which is always
+		// forward-slash and must not go through `path.join` (#166).
 		const fmFile = isSingleFileEntity(type) ? entityPath : `${entityPath}/SKILL.md`;
 		const content = await readFileAtRef(cachePath, ref, stripDotSlash(fmFile));
 		const fm = parseFrontmatter(content);
@@ -656,7 +664,10 @@ async function resolveLocalEntity(
 	const localPath = expandedLocal.startsWith("/")
 		? expandedLocal
 		: `${state.projectDir}/${expandedLocal}`;
-	const type = dep.type ?? (await inferType(localPath));
+	// An unclassifiable path falls back to `skill`: resolution continues and the
+	// missing artifact is reported downstream as a path error, which is a better
+	// diagnostic than "unknown type" (#166).
+	const type = dep.type ?? (await inferEntityType(localPath)) ?? "skill";
 	const compositeKey = `${type}:${entityName}`;
 
 	if (checkDuplicate(compositeKey, yamlKey, group, state, declaredIn)) return;
@@ -1440,24 +1451,6 @@ function detectCycles(
 	errors.push(
 		`Error: Circular dependency detected\n\n  ${cycleNames.join(" -> ")} -> ${cycleNames[0]}\n\nFix: Remove one of these dependency edges in the skill frontmatter.`,
 	);
-}
-
-async function inferType(localPath: string): Promise<EntityType> {
-	try {
-		const stats = await stat(localPath);
-		if (stats.isFile() && localPath.endsWith(".md")) return mdFileType(localPath);
-		if (stats.isDirectory()) {
-			try {
-				await stat(`${localPath}/SKILL.md`);
-			} catch {
-				// Directory without SKILL.md — assume skill
-			}
-			return "skill";
-		}
-		return "skill";
-	} catch {
-		return "skill";
-	}
 }
 
 export async function inferTypeFromGit(
