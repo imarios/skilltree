@@ -339,9 +339,15 @@ Reverse-lookup which top-level dependency pulled in `<name>`. Reads the lockfile
 ```bash
 skilltree why python-coding
 skilltree why foo --type agent      # disambiguate a name shared by skill+agent
+skilltree why foo-agent             # or target the manifest key directly
 skilltree why something --json      # machine-readable
 skilltree why bar --global          # inspect global lockfile
 ```
+
+`<name>` may be an entity name **or** the manifest key it is declared under.
+Keys are unique, so they disambiguate in cases `--type` can't — two entries of
+the *same* type that share a name (one matching by key, one by `name:`). When
+that happens `why` names the keys to retry with.
 
 **Flags:**
 - `-t, --type <type>` — Disambiguate when `<name>` matches multiple entity types (`skill`, `agent`, `command`)
