@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
-import { isSingleFileEntity, mdFileType } from "../core/entity-type.js";
+import { frontmatterPath, inferEntityType } from "../core/entity-type.js";
 import { MANIFEST_NEW } from "../core/filenames.js";
 import { validateFrontmatter } from "../core/frontmatter.js";
 import type { ResolvedEntity } from "../core/graph.js";
@@ -248,39 +248,17 @@ async function resolveEntityMdPath(
 	localPath: string,
 	declaredType: EntityType | undefined,
 ): Promise<{ kind: "found" | "missing"; path: string; entityType?: EntityType }> {
-	// Explicit `!== undefined` (not `!declaredType`): a future EntityType
-	// value of `""` shouldn't silently fall through to filesystem probing.
-	// See "Presence check ≠ value check" in CLAUDE.md.
-	if (declaredType !== undefined) {
-		const target = isSingleFileEntity(declaredType) ? localPath : join(localPath, "SKILL.md");
-		return {
-			kind: (await exists(target)) ? "found" : "missing",
-			path: target,
-			entityType: declaredType,
-		};
-	}
+	// `??` rather than `||`: a future EntityType value of `""` is a declared
+	// type and shouldn't silently fall through to filesystem probing. Only an
+	// absent one probes. See "Presence check ≠ value check" in CLAUDE.md.
+	const entityType = declaredType ?? (await inferEntityType(localPath));
 
-	// No declared type — probe. Directory ⇒ skill (look for SKILL.md);
-	// `.md` file ⇒ single-file entity, classified by path like everywhere else.
-	try {
-		const stats = await stat(localPath);
-		if (stats.isDirectory()) {
-			const skillMd = join(localPath, "SKILL.md");
-			return {
-				kind: (await exists(skillMd)) ? "found" : "missing",
-				path: skillMd,
-				entityType: "skill",
-			};
-		}
-		if (stats.isFile() && localPath.endsWith(".md")) {
-			return { kind: "found", path: localPath, entityType: mdFileType(localPath) };
-		}
-		// File of unknown shape — surface as missing so the author sees the
-		// path that confused the linter.
-		return { kind: "missing", path: localPath };
-	} catch {
-		return { kind: "missing", path: localPath };
-	}
+	// Neither a directory nor a `.md` file — surface as missing so the author
+	// sees the path that confused the linter, rather than guessing a type.
+	if (entityType === undefined) return { kind: "missing", path: localPath };
+
+	const target = frontmatterPath(localPath, entityType);
+	return { kind: (await exists(target)) ? "found" : "missing", path: target, entityType };
 }
 
 /** `stat` as a boolean, so callers read as one expression instead of try/catch. */
