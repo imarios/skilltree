@@ -1,3 +1,9 @@
+## v0.38.6 (2026-09-08)
+
+### Fix
+
+- **why**: suggest keys when --type can't disambiguate (#175)
+
 ## v0.38.5 (2026-09-08)
 
 ### Fix
