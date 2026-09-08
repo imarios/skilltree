@@ -1,3 +1,9 @@
+## v0.38.8 (2026-09-08)
+
+### Fix
+
+- **scan**: single, overridable model for --llm (#182)
+
 ## v0.38.7 (2026-09-08)
 
 ### Refactor
