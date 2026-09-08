@@ -382,11 +382,16 @@ With no `<paths>`, scans the project's resolved install-target directories (e.g.
 - `--check` — Exit 1 if undeclared deps found (pre-commit safe)
 - `--apply` — Auto-add regex-detected deps to frontmatter (not LLM suggestions)
 - `--llm` — Use Claude for semantic dependency detection (requires `ANTHROPIC_API_KEY`)
+- `--json` — JSON output
 
 `--llm` calls `claude-sonnet-5` by default. Set `SKILLTREE_LLM_MODEL` to a different
 model id to override — useful if that model isn't available on your account, or to
 trade cost against quality. A blank value falls back to the default.
-- `--json` — JSON output
+
+When the API call fails, the reported cause matches the HTTP status rather than
+always blaming the model: a rejected key points at `ANTHROPIC_API_KEY`, a 404 (or
+a 400 naming the model) points at `SKILLTREE_LLM_MODEL`, and a 429 or 5xx is
+reported as rate limiting or a transient upstream failure.
 
 ## `skilltree registry init`
 

@@ -65,27 +65,56 @@ export async function llmScanContent(
 }
 
 /**
+ * The one line of advice worth giving for an API failure, chosen by HTTP
+ * status. `undefined` means "nothing useful to add" — the raw SDK message
+ * already says everything we know.
+ *
+ * Status is the axis that matters, not the error class (#185). #182 branched
+ * on `APIError` vs `Error` and handed the model-override advice to everything
+ * in the first bucket, which meant a rejected key — a 401, very much an
+ * `APIError` — was reported as a model problem. Advice that points at the
+ * wrong knob is worse than no advice: it costs the user a detour before they
+ * get to read the actual error.
+ */
+function scanFailureAdvice(status: number | undefined, message: string): string | undefined {
+	// A retired or unavailable model surfaces as a bare `404 {"type":"error"}`
+	// (or a 400 naming the `model` field), which says nothing about which model
+	// was asked for or that it can be changed. Since no test exercises this call
+	// path, this message is the only thing standing between a stale pin and a
+	// confused user (#181).
+	if (status === 404 || (status === 400 && /\bmodel\b/i.test(message))) {
+		return `If the model "${scanModel()}" is unavailable to you, set SKILLTREE_LLM_MODEL to one that is.`;
+	}
+	if (status === 401 || status === 403) {
+		return "The API key was rejected. Check ANTHROPIC_API_KEY.";
+	}
+	if (status === 429) {
+		return "Rate limited. Wait and re-run — scanning fewer paths at a time also helps.";
+	}
+	if (status !== undefined && status >= 500) {
+		return "The API is failing upstream. Try again in a moment.";
+	}
+	return undefined;
+}
+
+/**
  * Turn an SDK failure into something a user can act on.
  *
- * A retired or unavailable model surfaces as a bare `404 {"type":"error"}`,
- * which says nothing about which model was asked for or that it can be
- * changed. Since no test exercises this call path, this message is the only
- * thing standing between a stale pin and a confused user (#181).
- *
- * Non-API failures pass through untouched — a bad key or a dropped connection
- * shouldn't be reported as a model problem.
+ * Non-API failures pass through untouched — a dropped connection shouldn't be
+ * rewritten at all, since we have nothing to add to it.
  */
 export function describeScanFailure(e: unknown): Error {
-	if (e instanceof Anthropic.APIError) {
-		return new Error(
-			`Claude API error while scanning with model "${scanModel()}": ${e.message}\n` +
-				"If that model is unavailable to you, set SKILLTREE_LLM_MODEL to one that is.",
-			// Keep the SDK error reachable: the rewritten message is for the
-			// user, the cause is for whoever debugs it.
-			{ cause: e },
-		);
+	if (!(e instanceof Anthropic.APIError)) {
+		return e instanceof Error ? e : new Error(String(e));
 	}
-	return e instanceof Error ? e : new Error(String(e));
+
+	const advice = scanFailureAdvice(e.status, e.message);
+	return new Error(
+		`Claude API error while scanning: ${e.message}${advice === undefined ? "" : `\n${advice}`}`,
+		// Keep the SDK error reachable: the rewritten message is for the
+		// user, the cause is for whoever debugs it.
+		{ cause: e },
+	);
 }
 
 async function extractCandidates(
