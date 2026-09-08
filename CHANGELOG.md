@@ -1,3 +1,9 @@
+## v0.38.12 (2026-09-08)
+
+### Fix
+
+- add doctor's install-drift check (#191)
+
 ## v0.38.11 (2026-09-08)
 
 ### Fix
