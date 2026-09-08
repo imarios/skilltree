@@ -1,3 +1,9 @@
+## v0.38.7 (2026-09-08)
+
+### Refactor
+
+- **entity-type**: centralize local path type inference (#176)
+
 ## v0.38.6 (2026-09-08)
 
 ### Fix
