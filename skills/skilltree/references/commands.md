@@ -143,6 +143,16 @@ skilltree update --global         # Update global deps
 - `-n, --dry-run` — Preview version bumps without applying
 - `-g, --global` — Update global dependencies
 
+`update` never crosses a version constraint you wrote — an exact `1.0.0`, or a
+range like `~1.0.0` that excludes the newer tag. When a constraint is what kept
+the version from moving, `update` says so rather than reporting a no-op as a
+successful bump:
+
+```
+py is pinned at 1.0.0 in skilltree.yml, so 1.1.0 was not taken.
+Change the version constraint to take it.
+```
+
 ## `skilltree outdated [name]`
 
 Read-only preview of dependency drift. Reports which deps have newer semver tags available upstream without modifying the lockfile or manifest. Counterpart to `skilltree update`.
@@ -161,6 +171,18 @@ skilltree outdated --global        # Inspect global deps
 - `-g, --global` — Show global deps
 
 **Output columns:** `Name`, `Current` (semver pin / `@<short-sha>` / `local`), `Latest` (latest semver tag on the resolved repo), `Bump` (`major` / `minor` / `patch` / `—`). Local deps and unresolved deps show `—`; a network/cache failure for a remote shows `error` in the Bump column.
+
+A `Notes` column appears when a row has something to explain about why the bump
+isn't simply available:
+
+- `pinned at <constraint>` — the dep's own constraint excludes `Latest`, so
+  `update` will not apply the bump until you change the manifest.
+- `capped by <name>@<constraint>` — a sibling dep in the same repo carries a
+  tighter constraint that holds this one back.
+
+Both appear in `--json` as `pinnedAt` (string or null) and `cappedBy` (array or
+null). They are mutually exclusive: a self-imposed cap is reported as
+`pinnedAt`.
 
 ## `skilltree projects`
 
