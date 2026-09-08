@@ -163,8 +163,8 @@ describe("describeScanFailure (#181)", () => {
 	});
 
 	test("a non-API error passes through untouched", () => {
-		// Don't bury an unrelated failure (a bad key, a network drop) under a
-		// message about model ids.
+		// Don't bury an unrelated failure (a dropped connection, a parse error)
+		// under a message about model ids.
 		const original = new Error("something else broke");
 		expect(describeScanFailure(original)).toBe(original);
 	});
@@ -173,5 +173,92 @@ describe("describeScanFailure (#181)", () => {
 		const described = describeScanFailure("just a string");
 		expect(described).toBeInstanceOf(Error);
 		expect(described.message).toContain("just a string");
+	});
+});
+
+/**
+ * Advice is chosen by HTTP status, not by error class (#185).
+ *
+ * #182 guarded on `APIError` vs `Error` and appended model-override advice to
+ * everything in the first bucket. A rejected API key is an `APIError` (401), so
+ * a bad key was reported as a model problem — the one failure the advice is
+ * guaranteed not to fix. Every status a user can realistically hit gets a row
+ * here so that axis stays covered.
+ */
+describe("describeScanFailure routes advice by status (#185)", () => {
+	function apiError(status: number, body: object) {
+		return new Anthropic.APIError(status, body, undefined, undefined);
+	}
+
+	const authBody = {
+		type: "error",
+		error: { type: "authentication_error", message: "API key is invalid." },
+	};
+
+	test("401 points at the key, not the model", () => {
+		const described = describeScanFailure(apiError(401, authBody));
+
+		expect(described.message).toContain("ANTHROPIC_API_KEY");
+		expect(described.message).not.toContain("SKILLTREE_LLM_MODEL");
+	});
+
+	test("403 is treated as an auth problem too", () => {
+		const described = describeScanFailure(
+			apiError(403, { type: "error", error: { type: "permission_error", message: "no" } }),
+		);
+
+		expect(described.message).toContain("ANTHROPIC_API_KEY");
+		expect(described.message).not.toContain("SKILLTREE_LLM_MODEL");
+	});
+
+	test("429 reads as rate limiting, not as a bad model", () => {
+		const described = describeScanFailure(
+			apiError(429, { type: "error", error: { type: "rate_limit_error", message: "slow down" } }),
+		);
+
+		expect(described.message).toMatch(/rate limit/i);
+		expect(described.message).not.toContain("SKILLTREE_LLM_MODEL");
+	});
+
+	test("a 5xx reads as transient", () => {
+		const described = describeScanFailure(
+			apiError(529, { type: "error", error: { type: "overloaded_error", message: "overloaded" } }),
+		);
+
+		expect(described.message).toMatch(/again|moment|retry/i);
+		expect(described.message).not.toContain("SKILLTREE_LLM_MODEL");
+	});
+
+	test("a 400 that names the model still gets the override advice", () => {
+		// An unknown model id can come back as a 400 rather than a 404, so both
+		// paths have to reach the override advice — this is how a stale pin
+		// surfaces when the API validates the field instead of routing on it.
+		const described = describeScanFailure(
+			apiError(400, {
+				type: "error",
+				error: { type: "invalid_request_error", message: "model: not-a-real-model" },
+			}),
+		);
+
+		expect(described.message).toContain("SKILLTREE_LLM_MODEL");
+	});
+
+	test("a 400 about something else does not", () => {
+		const described = describeScanFailure(
+			apiError(400, {
+				type: "error",
+				error: { type: "invalid_request_error", message: "max_tokens: must be >= 1" },
+			}),
+		);
+
+		expect(described.message).not.toContain("SKILLTREE_LLM_MODEL");
+		expect(described.message).toContain("max_tokens");
+	});
+
+	test("every branch keeps the SDK error as the cause", () => {
+		for (const status of [400, 401, 403, 404, 429, 500]) {
+			const original = apiError(status, { type: "error", error: { message: "boom" } });
+			expect(describeScanFailure(original).cause).toBe(original);
+		}
 	});
 });
