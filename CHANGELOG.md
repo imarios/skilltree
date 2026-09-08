@@ -1,3 +1,9 @@
+## v0.38.10 (2026-09-08)
+
+### Fix
+
+- route `scan --llm` API errors by status, not by error class (#188)
+
 ## v0.38.9 (2026-09-08)
 
 ### Fix
