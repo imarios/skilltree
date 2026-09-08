@@ -55,7 +55,7 @@ Numbered for spec-to-phase traceability.
   - `--json` — emit machine-readable JSON instead of human text. Exit codes unchanged.
   - `--global` — run against the global manifest (`~/.skilltree/global.yaml`) instead of the project manifest. When set, project-scoped checks (lockfile, targets) are skipped with `status: "skip"`.
   - No `--strict` flag is exposed in v1; strict-on-failure is the only mode. (Listed in the issue as already-default; we keep it implicit to leave room for a future `--lenient` if it ever makes sense.)
-- **D3**: Help text (`skilltree doctor --help`) lists the six checks performed.
+- **D3**: Help text (`skilltree doctor --help`) summarizes the checks performed.
 - **D4**: Help text mentions the lifecycle position: `new → check → doctor → git tag`.
 
 ### Checks performed (in this order)
@@ -67,6 +67,7 @@ Numbered for spec-to-phase traceability.
 - **D9 — Registry reachability**: For each registry in `~/.skilltree/config.yaml`, run `git ls-remote <url>` with a 5s timeout. Pass: all reachable. **Warn** (do not fail) when a registry requires auth and is skipped. Fail: surface the unreachable URL and the underlying error. When `--global` is set, this check still runs (registries are global config).
 - **D10 — Frontmatter validity**: Covered by D6 (the lint check already includes frontmatter validation). The doctor output lists it as a separate row for readability; internally it is the same check.
 - **D23 — Bundled-skill freshness** (Fluorine, 2026-05-23): For each agent detected on the user's machine (`detectInstalledAgents`), look up `<agent globalHome>/skills/skilltree/SKILL.md` and read its frontmatter `version`. Pass: all detected agents carry a `version` greater than or equal to the running CLI version. **Warn** (never fail) when any of: the file is missing, the file lacks a `version` field (legacy install predating Fluorine), or `semver.lt(installed, cliVersion)`. Skip when no agents are detected. Suggested fix string: `Run \`skilltree teach\` to install/update the skilltree skill`. The version is stamped into the materialized SKILL.md frontmatter at `materializeBundledSkill` time using the CLI's `package.json` version — the checked-in `skills/skilltree/SKILL.md` source carries no version. Runs in both project and `--global` mode (skill installation is global by nature).
+- **D26 — Install drift** (2026-09-08, issue #187): Read the lockfile, build the entity map with `entitiesFromLockfile`, and compare against the installed tree with `verifyInstalled` — the same statuses `skilltree verify` reports. **Fail** on any of `missing` / `modified` / `broken`; **warn** on `stale` (a vendored copy behind its local source is an authoring state, not a broken checkout). Any drift status added later fails unless it is added to `WARN_ONLY_DRIFT`, so the default direction for a preflight check is "unrecognized drift is a problem". Skip when the lockfile is absent — D7 already fails on that, and one cause should produce one failure. Vacuous pass on zero declared deps, mirroring D7's #121 guard. Skipped under `--global`. Suggested fix strings are per status (`Run \`skilltree install\` to restore`, `--force` for modified, `skilltree vendor` for stale). Deriving entities from the lockfile rather than `resolveAll` is what keeps this check inside D24: `resolveAll` calls `ensureCached`, which clones.
 - **D25 — Gitignore drift** (2026-05-23, issue #138): For each entry in `install_targets`, compute the expected `.gitignore` entries via `getSkillAgentIgnoreEntriesForTarget` (the same helper `init`/`targets add` writes through) and diff against the on-disk `.gitignore`. Pass: every expected entry is present. **Warn** (never fail) when any entry is missing, listing each missing entry in the detail. Suggested fix: `Run \`skilltree init\` to refresh .gitignore`. Extra user-authored lines are ignored; only missing entries are flagged. Skipped under `--global` (the global home has no `.gitignore` story) and on `install_targets: []` (vacuous pass).
 
 ### Output — text mode (default)
@@ -134,6 +135,7 @@ Lifted from the issue's acceptance criteria plus the read-only invariant:
 
 - [ ] A clean fresh project (`init` + `install`) passes all checks; exit 0.
 - [ ] A project with a deliberately broken lockfile (`rm skilltree.lock`) fails on `lockfile-sync`; exit 1.
+- [ ] A project whose installed entity is deleted (`rm .claude/skills/foo`) fails on `install-drift`; exit 1.
 - [ ] A project with a malformed SKILL.md (per the `check` frontmatter lint) fails on `lint`; exit 1.
 - [ ] `--json` output matches the documented schema (snapshot test).
 - [ ] `--json` and text modes produce identical exit codes for the same project state.

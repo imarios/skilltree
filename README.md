@@ -148,7 +148,7 @@ dependencies:
 
 Run `skilltree check` to catch the asymmetric-publish footgun: a published entity that transitively depends on a `publish: false` same-repo entity will install fine for you but fail for consumers. The check reports the chain so the fix is obvious. `check` also lints the frontmatter of every local `SKILL.md` / agent / command — missing `name:`, missing `description:`, invalid semver in `version:`, or a malformed `skills:` block become warnings (and exit 1 under `--strict`). Commands are exempt from the `name:` requirement, since Claude Code names a slash command by its filename; a `name:` that's present but disagrees with the manifest key is still reported. Unrecognized keys are errors, and the recognized set is scoped to the entity type, so host-runtime keys like `metadata:` on a skill or `tools:` / `model:` on an agent pass cleanly — see [reference.md](docs/specs/reference.md#frontmatter-keys-recognized-by-check) for the full table.
 
-For an "am I ready to publish?" preflight, run **`skilltree doctor`** — it bundles `check` with manifest-schema validation, lockfile-sync verification, target consistency, `.gitignore` drift, registry reachability, frontmatter lint, and a bundled-skill freshness check (warns when the skilltree skill on disk is missing or behind the installed CLI; run `skilltree teach` to refresh) into one verb. Exit 0 means every check passed; exit 1 means at least one failed. The natural lifecycle is `new → check → doctor → git tag`.
+For an "am I ready to publish?" preflight, run **`skilltree doctor`** — it bundles `check` with manifest-schema validation, lockfile-sync verification, an install-drift check (the same MISSING / MODIFIED statuses `verify` reports), target consistency, `.gitignore` drift, registry reachability, frontmatter lint, and a bundled-skill freshness check (warns when the skilltree skill on disk is missing or behind the installed CLI; run `skilltree teach` to refresh) into one verb. Exit 0 means every check passed; exit 1 means at least one failed. The natural lifecycle is `new → check → doctor → git tag`.
 
 This is **authoring intent, not access control** — anyone with git access to your repo can read every file regardless of these flags. They're about what your repo *offers*, not what it *protects*.
 
@@ -369,7 +369,7 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `skilltree remove <name>` | Remove a dependency |
 | `skilltree verify` | Check installed files against lockfile (`--strict` exits 1 on drift, for CI) |
 | `skilltree check` | Lint `skilltree.yml` for design-time issues (asymmetric publish, frontmatter) |
-| `skilltree doctor` | Preflight: schema + lint + lockfile sync + targets + gitignore + registries + frontmatter + bundled-skill freshness |
+| `skilltree doctor` | Preflight: schema + lint + lockfile sync + install drift + targets + gitignore + registries + frontmatter + bundled-skill freshness |
 | `skilltree list` | List installed dependencies; appends a "Defined packs" footer for publisher repos with a non-empty `packs:` section |
 | `skilltree projects` | List skilltree-managed projects discoverable on this machine (read-only) |
 | `skilltree deps tree` | Show dependency tree |

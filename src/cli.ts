@@ -264,7 +264,7 @@ export function buildProgram(): Command {
 	program
 		.command("doctor")
 		.description(
-			"Preflight health check across schema, lint, lockfile, targets, registries, and frontmatter\n\nLifecycle: new → check → doctor → git tag",
+			"Preflight health check across schema, lint, lockfile, install drift, targets, registries, and frontmatter\n\nLifecycle: new → check → doctor → git tag",
 		)
 		.option("--json", "Output results as JSON")
 		.option("-g, --global", "Run against the global manifest")
