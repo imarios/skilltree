@@ -71,6 +71,11 @@ commit the resulting `bun.lock` in the same PR.
 `release.yml` refreshes the lockfile inside the bump commit, because `cz bump`
 rewrites the self-referential `optionalDependencies` on every release.
 
+Upgrades come back in via Dependabot (`.github/dependabot.yml`), weekly and
+grouped, so pinning doesn't mean rotting (#168). It ignores
+`@imarios/skilltree-cli-*` — those are release-managed by `cz bump`, not
+dependencies to track.
+
 ## Key Design Decisions
 
 1. Git is the registry -- no server, no database
