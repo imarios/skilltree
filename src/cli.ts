@@ -244,8 +244,13 @@ export function buildProgram(): Command {
 		.description("Verify installed dependencies against lockfile")
 		.option("--json", "Output results as JSON")
 		.option("-g, --global", "Verify global dependencies")
+		.option("--strict", "Exit 1 if any entity has drifted from the lockfile")
 		.action(async (opts) => {
-			await verifyCommand(process.cwd(), { global: opts.global, json: opts.json });
+			await verifyCommand(process.cwd(), {
+				global: opts.global,
+				json: opts.json,
+				strict: opts.strict,
+			});
 		});
 
 	program
