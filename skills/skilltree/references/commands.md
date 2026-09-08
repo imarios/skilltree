@@ -205,12 +205,21 @@ Check installed files against lockfile integrity hashes.
 ```bash
 skilltree verify
 skilltree verify --global
+skilltree verify --strict          # exit 1 on drift — the CI gate
+skilltree verify --json --strict   # same gate, machine-readable rows
 ```
 
 **Flags:**
 - `-g, --global` — Verify global dependencies
+- `--json` — Emit `[{name, status}]` instead of the table
+- `--strict` — Exit 1 if any entity has drifted from the lockfile
 
 Reports: `OK` (matches), `MODIFIED` (changed), `LINKED` (symlink), `MISSING`, `STALE` (vendored local dep with newer source), `BROKEN` (dead symlink).
+
+`OK` and `LINKED` are both healthy — `LINKED` is the steady state for a local
+dependency. Everything else counts as drift, and drift is what `--strict`
+gates on. Without `--strict` the command still exits 0, so existing scripts
+that assume 0 keep working.
 
 ## `skilltree check`
 
