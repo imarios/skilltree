@@ -1,3 +1,9 @@
+## v0.38.15 (2026-09-09)
+
+### Fix
+
+- widen and share the npm publish visibility check (#199)
+
 ## v0.38.14 (2026-09-09)
 
 ### Fix
