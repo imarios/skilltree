@@ -366,6 +366,21 @@ skilltree deps tree --json
 
 **Aliased entries:** when a manifest key uses an alias (`pc: { local: ..., name: python-coding }`), both the root and any transitive reference render under the canonical entity name (`python-coding`) — never under the YAML key (issue #107). One label per entity per tree.
 
+**Pack references:** a `pack:` entry is a manifest key with no lockfile entry of
+its own, so it renders as its own root with the entries it injected beneath it:
+
+```
+pack:elastic-stack (pack)
+└── detection-rules-repo@0.1.14 (skill)
+    └── kibana-agent-builder@0.1.14 (skill)
+```
+
+The `pack:` prefix matches how `why` names the same hop — a bare key would read
+as an entity that doesn't exist. In `--json` a pack node carries `"pack": true`
+and, unlike every entity node, **no `type` field**: a pack is not an entity, and
+claiming a type would be a value a consumer could act on. Membership comes from
+`via_pack` in the lockfile (issue #194).
+
 ## `skilltree why <name>`
 
 Reverse-lookup which top-level dependency pulled in `<name>`. Reads the lockfile only and walks the resolved graph backwards from the target to every reachable top-level dep. Mirrors the `npm why` / `cargo why` mental model — useful when you spot something installed and want to know who's responsible for it.

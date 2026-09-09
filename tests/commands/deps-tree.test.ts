@@ -86,6 +86,7 @@ function captureConsole(fn: () => Promise<void>): Promise<string[]> {
 						/\(skill[,)]/.test(l) ||
 						/\(agent[,)]/.test(l) ||
 						/\(command[,)]/.test(l) ||
+						/\(pack[,)]/.test(l) ||
 						l.includes("deduped)") ||
 						l.includes("(*)"),
 				);
@@ -733,5 +734,168 @@ describe("deps tree rendering", () => {
 		// python-coding must surface as a child even though it's stored under
 		// the YAML key `pc`.
 		expect(taskBuilder?.dependencies.map((d) => d.name)).toContain("python-coding");
+	});
+});
+
+/**
+ * Issue #194: `deps tree` rendered nothing for a pack-only project.
+ *
+ * Roots come from manifest keys, and a `pack:` reference has no lockfile
+ * entry — a pack is never an entity — so `lockfile.packages[root]` was
+ * undefined and the root was skipped. The members are in the lockfile but
+ * aren't manifest keys, so they never became roots either, and the whole
+ * tree came out empty while `list` showed both skills installed.
+ *
+ * Same attribution as #192/#195: `via_pack` records the consumer's manifest
+ * key for the pack that injected each member.
+ */
+describe("deps tree: pack references (#194)", () => {
+	const PACK_MANIFEST = [
+		"dependencies:",
+		"  elastic-stack:",
+		"    pack: elastic-stack",
+		"    repo: github.com/org/elastic-skills",
+		'    version: "*"',
+		"",
+	].join("\n");
+
+	/** Two members, one depending on the other, both attributed to the pack. */
+	const PACK_LOCKFILE = [
+		"lockfile_version: 1",
+		"packages:",
+		"  detection-rules-repo:",
+		"    type: skill",
+		"    group: prod",
+		"    repo: github.com/org/elastic-skills",
+		"    path: skills/detection-rules-repo",
+		"    version: 0.1.14",
+		"    commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"    dependencies:",
+		"      - kibana-agent-builder",
+		"    via_pack: elastic-stack",
+		"  kibana-agent-builder:",
+		"    type: skill",
+		"    group: prod",
+		"    repo: github.com/org/elastic-skills",
+		"    path: skills/kibana-agent-builder",
+		"    version: 0.6.0",
+		"    commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"    dependencies: []",
+		"    via_pack: elastic-stack",
+		"",
+	].join("\n");
+
+	async function packProject(manifest = PACK_MANIFEST, lockfile = PACK_LOCKFILE): Promise<string> {
+		const dir = await makeTempDir();
+		await writeManifest(dir, manifest);
+		await writeFile(join(dir, "skilltree.lock"), lockfile, "utf-8");
+		return dir;
+	}
+
+	test("a pack-only project renders its members instead of nothing", async () => {
+		const dir = await packProject();
+
+		const lines = await captureConsole(() => depsTreeCommand(dir, {}));
+
+		// The bug: this was an empty array.
+		expect(lines.length).toBeGreaterThan(0);
+		expect(lines.join("\n")).toContain("detection-rules-repo");
+		expect(lines.join("\n")).toContain("kibana-agent-builder");
+	});
+
+	test("the pack is the root, labelled as a pack rather than an entity", async () => {
+		const dir = await packProject();
+
+		const lines = await captureConsole(() => depsTreeCommand(dir, {}));
+
+		// Matches how `why` names the same hop (#192): a bare `elastic-stack`
+		// would read as a skill that doesn't exist.
+		expect(lines[0]).toContain("pack:elastic-stack");
+		expect(lines[0]).toContain("(pack)");
+	});
+
+	test("members hang under the pack, and their own deps under them", async () => {
+		const dir = await packProject();
+
+		const out = (await captureConsole(() => depsTreeCommand(dir, {}))).join("\n");
+
+		// detection-rules-repo is a direct member; kibana-agent-builder is both
+		// a member and its dependency, so it appears twice — the second marked
+		// with the usual duplicate marker.
+		expect(out).toMatch(/[├└]── detection-rules-repo/);
+		expect(out).toContain("(*)");
+	});
+
+	test("a pack root and a plain root coexist", async () => {
+		const dir = await packProject(
+			[
+				PACK_MANIFEST.trimEnd(),
+				"  solo:",
+				"    repo: github.com/org/other",
+				"    path: skills/solo",
+				'    version: "1.0.0"',
+				"",
+			].join("\n"),
+			[
+				PACK_LOCKFILE.trimEnd(),
+				"  solo:",
+				"    type: skill",
+				"    group: prod",
+				"    repo: github.com/org/other",
+				"    path: skills/solo",
+				"    version: 1.0.0",
+				"    commit: cccccccccccccccccccccccccccccccccccccccc",
+				"    dependencies: []",
+				"",
+			].join("\n"),
+		);
+
+		const out = (await captureConsole(() => depsTreeCommand(dir, {}))).join("\n");
+
+		expect(out).toContain("pack:elastic-stack");
+		expect(out).toContain("solo");
+	});
+
+	test("--json nests members under a pack node marked pack: true", async () => {
+		const dir = await packProject();
+
+		const raw: string[] = [];
+		const original = console.log;
+		console.log = (...args: unknown[]) => raw.push(args.join(" "));
+		try {
+			await depsTreeCommand(dir, { json: true });
+		} finally {
+			console.log = original;
+		}
+
+		const tree = JSON.parse(raw.join("")) as Array<{
+			name: string;
+			pack?: boolean;
+			type?: string;
+			dependencies: Array<{ name: string }>;
+		}>;
+
+		expect(tree).toHaveLength(1);
+		expect(tree[0]?.name).toBe("elastic-stack");
+		expect(tree[0]?.pack).toBe(true);
+		// A pack is not an entity, so it carries no EntityType — claiming one
+		// would be a lie a consumer could act on.
+		expect(tree[0]?.type).toBeUndefined();
+		expect(tree[0]?.dependencies.map((d) => d.name).sort()).toEqual([
+			"detection-rules-repo",
+			"kibana-agent-builder",
+		]);
+	});
+
+	test("a project without packs renders no pack node", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "solo");
+		await writeManifest(dir, "dependencies:\n  solo:\n    local: ./skills/solo\n");
+		await installCommand(dir, {});
+
+		const out = (await captureConsole(() => depsTreeCommand(dir, {}))).join("\n");
+
+		expect(out).toContain("solo");
+		expect(out).not.toContain("pack:");
 	});
 });
