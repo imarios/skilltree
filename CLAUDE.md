@@ -108,6 +108,14 @@ Project deps (`.claude/`, gitignored) and global deps (`~/.claude/`) coexist —
 - **Release flow**: Automated via conventional commits. Push a `feat:` or `fix:` commit to main → `release.yml` runs `cz bump` → bumps version in `package.json` + `.cz.toml`, generates `CHANGELOG.md`, tags, pushes → `publish.yml` triggers on the new tag → builds all platforms and publishes to npm.
 - **Manual release**: `make release V=x.y.z` for explicit version control.
 - **Manual publish**: `./scripts/build-npm.sh && ./scripts/publish-npm.sh`
+- **Publish verification**: both workflows call `./scripts/verify-npm-publish.sh <package> <version>`
+  after publishing. It polls the registry for 5 minutes, because npm is
+  read-after-write eventual and a version can take minutes to resolve. A
+  timeout there means the publish succeeded but is not visible yet — not a
+  refused publish (#198); re-running the job is safe. Keep the budget generous:
+  it has been set too tight twice (#39, #198), and a red Release run that was
+  actually fine is what teaches people to ignore the genuinely broken ones
+  (#170).
 
 ## Demo Video
 
