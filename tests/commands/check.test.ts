@@ -295,6 +295,24 @@ describe("validateFrontmatter — per-entity-type keys", () => {
 			.filter((i) => i.message.includes("unknown frontmatter key"))
 			.map((i) => i.field);
 
+	// Every optional field the Agent Skills spec defines must be accepted on a
+	// skill. `compatibility` was missing from the skill key set, so a
+	// spec-valid SKILL.md was reported as carrying an unknown key — the same
+	// defect as #159 and #160, from the same cause: the set was written from
+	// the fields skilltree reads, not from the fields the spec allows.
+	// `name` and `description` are supplied by the `fm` helper above.
+	// Spec: https://agentskills.io/specification
+	const specSkillFields: Array<[string, string]> = [
+		["license", "license: Apache-2.0"],
+		["compatibility", "compatibility: Requires Python 3.14+ and uv"],
+		["metadata", "metadata:\n  author: a@example.com"],
+		["allowed-tools", "allowed-tools: Bash(git:*) Read"],
+	];
+
+	test.each(specSkillFields)("Agent Skills spec field %s is known on a skill", (_field, body) => {
+		expect(unknownKeys(fm(body), "skill")).toEqual([]);
+	});
+
 	// Each row: entity type (undefined = caller couldn't classify the file),
 	// frontmatter body, and the keys that must be reported unknown.
 	// Adding a supported key means adding a row, not a test.

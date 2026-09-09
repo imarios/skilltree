@@ -7,8 +7,18 @@ import type { EntityType, SkillFrontmatter } from "../types.js";
  * Frontmatter is delimited by `---` at the start and end.
  *
  * Reads dependencies from two fields:
- * - `dependencies:` — SKILL.md standard (YAML array)
- * - `skills:` — Agent .md standard (comma-separated string or YAML array)
+ * - `dependencies:` (YAML array) — a **skilltree convention, not a spec field**.
+ *   The Agent Skills spec defines only `name`, `description`, `license`,
+ *   `compatibility`, `metadata` and `allowed-tools`, and designates `metadata:`
+ *   as the bag for author-defined keys. So a skill opts in to skilltree's
+ *   transitive resolution by carrying this key; a spec-only SKILL.md resolves
+ *   as a leaf. Keep that in mind before describing frontmatter resolution as
+ *   working on "standard" skills — it works on skills that adopted this key.
+ * - `skills:` (comma-separated string or YAML array) — a real field in Claude
+ *   Code's subagent schema, where it means "preload these skills into the
+ *   agent's context at startup". skilltree reads it as a dependency edge,
+ *   which is a narrower claim than the field makes but a sound one: an agent
+ *   that preloads a skill does need that skill installed.
  *
  * Both are normalized into string arrays on the result.
  */
@@ -153,8 +163,11 @@ const COMMON_FRONTMATTER_KEYS = [
  * and misplaced fields, not to be the authority on the host's schema.
  */
 const KNOWN_FRONTMATTER_KEYS: Record<EntityType, ReadonlySet<string>> = {
-	// Claude Code skills: `license` and `allowed-tools` scope the skill itself.
-	skill: new Set([...COMMON_FRONTMATTER_KEYS, "license", "allowed-tools"]),
+	// Agent Skills spec fields that scope the skill itself. `compatibility`
+	// was missing until the set was checked against the spec rather than
+	// against what skilltree reads (same root cause as #159/#160).
+	// https://agentskills.io/specification
+	skill: new Set([...COMMON_FRONTMATTER_KEYS, "license", "compatibility", "allowed-tools"]),
 	// Claude Code agents: `tools` restricts tool access (least privilege),
 	// `model` pins the per-agent model, `color` is display-only.
 	agent: new Set([...COMMON_FRONTMATTER_KEYS, "tools", "model", "color"]),
