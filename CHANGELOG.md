@@ -1,3 +1,9 @@
+## v0.38.17 (2026-09-09)
+
+### Fix
+
+- accept the Agent Skills spec field `compatibility` on skills (#202)
+
 ## v0.38.16 (2026-09-09)
 
 ### Fix
