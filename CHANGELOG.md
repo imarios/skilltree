@@ -1,3 +1,9 @@
+## v0.38.16 (2026-09-09)
+
+### Fix
+
+- keep pack attribution when a member resolves transitively first (#200)
+
 ## v0.38.15 (2026-09-09)
 
 ### Fix
