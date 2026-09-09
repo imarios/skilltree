@@ -388,6 +388,29 @@ that happens `why` names the keys to retry with.
 - `--json` — Output paths as JSON
 - `-g, --global` — Inspect the global lockfile
 
+### Pack members
+
+An entity installed by a `pack:` reference reports the pack as its root, prefixed
+so it doesn't read as an entity — a pack has no lockfile entry of its own:
+
+```
+$ skilltree why detection-rules-repo
+detection-rules-repo (skill) ←
+  ← pack:elastic-stack (dependencies: top-level)
+```
+
+Anything a member itself depends on reaches the pack through that member:
+
+```
+$ skilltree why kibana-agent-builder
+kibana-agent-builder (skill) ←
+  ← detection-rules-repo ← pack:elastic-stack (dependencies: top-level)
+```
+
+The attribution comes from `via_pack` in the lockfile, which records the
+consumer's manifest key for the pack ref. In `--json`, a pack hop carries
+`"pack": true`; entity hops omit the field.
+
 ## `skilltree scan [paths...]`
 
 Detect undeclared dependencies in skill body text using regex patterns.

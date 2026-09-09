@@ -28,6 +28,11 @@ interface JsonHop {
 	name: string;
 	/** Non-null only on the root hop (the top-level dep that started the path). */
 	group: Group | null;
+	/**
+	 * Present and true only when this hop is a `pack:` reference rather than an
+	 * entity (#192). Omitted otherwise, so entity hops keep the shape they had.
+	 */
+	pack?: boolean;
 }
 
 interface JsonOutput {
@@ -87,6 +92,7 @@ export async function whyCommand(target: string, opts?: WhyOptions): Promise<voi
 
 	// 3. Build reverse adjacency: child YAML key → set of parent YAML keys.
 	const parentsOf = buildReverseAdjacency(lockfile);
+	const packs = packKeys(lockfile);
 
 	// 4. Walk upward from the target, recording every path that ends at a
 	//    top-level dep. The target itself is omitted from each path.
@@ -102,6 +108,7 @@ export async function whyCommand(target: string, opts?: WhyOptions): Promise<voi
 				p.map((name, i) => ({
 					name,
 					group: i === 0 ? (groupOf(name) ?? null) : null,
+					...(packs.has(name) ? { pack: true } : {}),
 				})),
 			),
 		};
@@ -111,7 +118,7 @@ export async function whyCommand(target: string, opts?: WhyOptions): Promise<voi
 		return;
 	}
 
-	renderText(target, targetEntry, targetKey, paths, groupOf);
+	renderText(target, targetEntry, targetKey, paths, groupOf, packs);
 }
 
 /**
@@ -159,19 +166,63 @@ function buildReverseAdjacency(lockfile: Lockfile): Map<string, Set<string>> {
 	// `buildNameIndex` for the underlying alias-vs-name issue.
 	const nameIndex = buildNameIndex(lockfile);
 	const parentsOf = new Map<string, Set<string>>();
+	const addParent = (childKey: string, parentKey: string): void => {
+		let parents = parentsOf.get(childKey);
+		if (!parents) {
+			parents = new Set();
+			parentsOf.set(childKey, parents);
+		}
+		parents.add(parentKey);
+	};
+
 	for (const [parentKey, entry] of Object.entries(lockfile.packages)) {
 		for (const childName of entry.dependencies) {
 			const childKey = nameIndex.get(childName);
 			if (childKey === undefined) continue; // dangling reference; skip silently
-			let parents = parentsOf.get(childKey);
-			if (!parents) {
-				parents = new Set();
-				parentsOf.set(childKey, parents);
-			}
-			parents.add(parentKey);
+			addParent(childKey, parentKey);
 		}
+		// A pack is never an entity, so no `packages` row lists its members as
+		// dependencies and the members' own keys aren't manifest keys either.
+		// Without this edge the walk dead-ends at the member — and, because
+		// paths below a member can only reach a root through it, at everything
+		// beneath it too (#192). `via_pack` is the consumer's yaml key for the
+		// pack ref (#153), which is exactly what `rootSet` is built from.
+		const pack = packAttribution(entry);
+		if (pack !== undefined) addParent(parentKey, pack);
 	}
 	return parentsOf;
+}
+
+/**
+ * The pack ref a lockfile entry was injected by, or `undefined`.
+ *
+ * A blank `via_pack` is hand-edited data rather than an absence, so it is not
+ * read as a pack named `""` — see "Presence check ≠ value check" in CLAUDE.md.
+ * `indexLockfileByPack` in `core/lockfile.ts` applies the same guard, and
+ * agreeing with it is the point: a blank would not satisfy a pack reference
+ * there, so it must not name one here either.
+ *
+ * No test covers the blank case because it is not observable through this
+ * command's output — an empty parent key is not a manifest key, so the walk
+ * dead-ends exactly as it would with no edge at all. The guard is parity with
+ * the sibling helper, not a behavior this command can demonstrate.
+ */
+function packAttribution(entry: LockfileEntry): string | undefined {
+	return entry.via_pack === undefined || entry.via_pack === "" ? undefined : entry.via_pack;
+}
+
+/**
+ * Every pack ref the lockfile attributes an entry to. Used to label those hops
+ * as packs when rendering: a pack has no `packages` row, so a hop can't be
+ * recognized as one by looking it up.
+ */
+function packKeys(lockfile: Lockfile): Set<string> {
+	const keys = new Set<string>();
+	for (const entry of Object.values(lockfile.packages)) {
+		const pack = packAttribution(entry);
+		if (pack !== undefined) keys.add(pack);
+	}
+	return keys;
 }
 
 function collectPathsToRoots(
@@ -223,6 +274,7 @@ function renderText(
 	targetKey: string,
 	paths: string[][],
 	groupOf: (k: string) => Group | undefined,
+	packs: Set<string>,
 ): void {
 	const topGroup = groupOf(targetKey);
 
@@ -255,7 +307,11 @@ function renderText(
 		if (!root) continue; // collectPathsToRoots never emits empty paths; guard for TS
 		const rootGroup = groupOf(root);
 		const reversed = [...path].reverse(); // now ends with root
-		const chain = reversed.map((n) => pc.cyan(n)).join(` ${dim("←")} `);
+		// Prefix pack hops so the chain doesn't read as though an entity by
+		// that name exists — it doesn't; the pack is a manifest reference.
+		const chain = reversed
+			.map((n) => pc.cyan(packs.has(n) ? `pack:${n}` : n))
+			.join(` ${dim("←")} `);
 		const groupLabel = rootGroup ? `${rootGroup}: top-level` : "top-level";
 		console.log(`  ${dim("←")} ${chain} ${dim(`(${groupLabel})`)}`);
 	}
