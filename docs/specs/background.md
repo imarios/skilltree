@@ -6,7 +6,7 @@ AI coding agent skills (SKILL.md) and agents (.md) are standard across Claude Co
 
 That works for leaf skills -- standalone skills with no dependencies. Install `python-coding`, use it, done.
 
-But real-world skill ecosystems develop dependency graphs. A `code-review` skill depends on `testing`, `linting`, and `language-support`. A `ci-pipeline` skill depends on `code-review`. An agent depends on 5 skills across 3 repos. These dependencies are declared in frontmatter (`dependencies: [testing, linting]`) but **no existing tool resolves them.**
+But real-world skill ecosystems develop dependency graphs. A `code-review` skill depends on `testing`, `linting`, and `language-support`. A `ci-pipeline` skill depends on `code-review`. An agent depends on 5 skills across 3 repos. These dependencies are declared in frontmatter (`dependencies: [testing, linting]`) and, when skilltree was written in April 2026, **no existing tool resolved them.** That is no longer true -- see [Update: September 2026](#update-september-2026) below.
 
 In production skill ecosystems, the dependency graph can reach:
 
@@ -24,7 +24,7 @@ In production skill ecosystems, the dependency graph can reach:
 
 **A Makefile with `git archive`**: Works for 3-4 skills. At 20+ skills across multiple repos, the Makefile becomes the dependency manager -- except it has no transitive resolution, no constraint satisfaction, no lockfile, and every transitive dep must be listed manually.
 
-**Claude Code plugins**: Handle distribution and namespacing, but plugins have no inter-plugin dependency mechanism. `plugin.json` has no `dependencies` field.
+**Claude Code plugins** *(as of April 2026)*: Handled distribution and namespacing, but plugins had no inter-plugin dependency mechanism -- `plugin.json` had no `dependencies` field. **This changed.** See the update below.
 
 **aipm** (the predecessor): Has transitive dependency resolution (Kahn's algorithm, proven with 50+ tests). But requires a running Python API server, Docker container, SQLite database, and OpenAPI codegen pipeline -- all to manage markdown files. The architecture was built before the ecosystem standardized on git repos and SKILL.md.
 
@@ -47,6 +47,8 @@ This is the same argument that justified npm over "wget + tar + a Makefile" -- t
 - **Leaf skills with no dependencies**: `npx skills add` is simpler
 - **One-off skill installation**: Manually copying a SKILL.md directory works
 - **Exploration and discovery**: SkillsMP, skills.sh, plugin directory are better
+- **You only use Claude Code**: native [plugin dependencies](https://code.claude.com/docs/en/plugin-dependencies) are built in
+- **You want the most capable option, or target many harnesses**: [Microsoft APM](https://microsoft.github.io/apm/)
 
 ## When you DO need skilltree
 
@@ -55,6 +57,42 @@ This is the same argument that justified npm over "wget + tar + a Makefile" -- t
 - **Dev + prod split** where some skills are for coding assistance and others ship in Docker
 - **Co-located skill development** where you iterate on a skill alongside the code it teaches
 - **Version pinning** when you need to control which skill versions are used
+
+## Update: September 2026
+
+The premise above was accurate when it was written in April 2026. It is no longer the
+whole picture, and this document would be misleading without saying so.
+
+**Claude Code plugins now resolve dependencies.** `plugin.json` takes a `dependencies`
+array with semver ranges (`~2.1.0`, `^2.0`, `>=1.4`), resolved against git tags using a
+`{plugin-name}--v{version}` convention. Claude Code resolves the full transitive tree,
+intersects ranges when several installed plugins constrain the same dependency, reports
+`range-conflict` when they cannot be satisfied together, gates cross-marketplace
+dependencies behind an allowlist, and prunes orphans. A manifest consisting only of a
+`dependencies` array bundles a curated set behind one install -- the same shape as
+skilltree's packs. What it still lacks is a lockfile: resolution is dynamic at install
+time, so two machines can end up on different versions within the same ranges.
+See [Constrain plugin dependency versions](https://code.claude.com/docs/en/plugin-dependencies).
+
+**Microsoft APM covers most of skilltree's surface.** [APM](https://microsoft.github.io/apm/)
+(started September 2025) declares dependencies in `apm.yml` and pins them in
+`apm.lock.yaml` with exact source refs and content hashes. It supports `git:` + `path:` +
+`ref:` dependencies on individual entities inside a repo, semver ranges resolved against
+remote tags, `devDependencies` with dev-only primitives, and a command set that parallels
+skilltree's own (`doctor`, `deps`, `outdated`, `update`, `prune`, `pack`/`unpack`,
+`search`, `publish`). It compiles to nine harnesses plus MCP and LSP servers, and adds org
+policy controls, an audit trail, and an RFC-2119 manifest and lockfile specification.
+
+**What still distinguishes skilltree**: entity-granular resolution with a type system
+(skill / agent / command, composite keys, name-collision aliasing), a lockfile whose
+integrity hashes are checked by `verify` and `doctor`, and a single static binary with no
+Python or Node runtime.
+
+**What this means for the "why".** The integration argument in this document still holds --
+scanner, resolver, installer, and lockfile are worth more together than apart. What has
+changed is that skilltree is no longer the only tool making that argument, and for most
+users APM or native plugins will be the better choice. The README states this plainly in
+[Should you use skilltree?](../../README.md#should-you-use-skilltree).
 
 ## Lessons from aipm
 

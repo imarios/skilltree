@@ -12,21 +12,51 @@ Dependency manager for AI agent skills, agents, and slash commands. Uses git rep
 
 ## Why skilltree?
 
-AI agent skills ([SKILL.md](https://agentskills.io/specification)) are the open standard for giving coding agents reusable instructions. Existing tools treat skills as independent files — copy to a directory, done. But real-world skill ecosystems develop dependency graphs: a `code-review` skill depends on `testing`, `linting`, and `language-support`. An agent depends on 5 skills spread across 3 repos.
+AI agent skills ([SKILL.md](https://agentskills.io/specification)) are the open standard for giving coding agents reusable instructions. Real-world skill sets develop dependency graphs: a `code-review` skill depends on `testing`, `linting`, and `language-support`; an agent depends on 5 skills spread across 3 repos.
 
 skilltree is `npm` for skills: declare what you need in `skilltree.yml`, run `skilltree install`, and get a resolved, version-pinned, reproducible dependency tree in `skilltree.lock`.
 
+Its distinguishing choice is **entity granularity** — a dependency is an individual skill, agent, or slash command at a path inside a repo, not a whole package or plugin — with every resolved entity recorded under a content hash, so `skilltree verify` and `skilltree doctor` can prove an install still matches its lockfile.
+
 ### How it compares
 
-|                                    | skilltree                        | CC plugins          | npx skills | Microsoft APM    | skillpm          |
-|------------------------------------|----------------------------------|---------------------|------------|------------------|------------------|
-| Transitive dependency resolution   | Yes                              | No                  | No         | Yes              | Yes (via npm)    |
-| Semver range constraints (`^2.0.0`)| Yes                              | No (git refs only)  | No         | No (explicit refs)| Yes (via npm)   |
-| Lockfile                           | Yes                              | No                  | Partial    | Yes              | Yes (via npm)    |
-| Registry / discovery               | Yes (git repos)                  | Yes (git repos)     | No         | No               | Yes (npmjs.org)  |
-| Git-native (no registry server)    | Yes                              | Yes                 | Yes        | Yes              | No (npmjs.org)   |
-| Multi-agent support                | Yes (Claude, Codex, Cursor, ...) | No (Claude Code only)| No        | No               | No               |
-| Single binary, zero infrastructure | Yes                              | Built-in            | N/A        | No (Python/pip)  | No (Node.js/npm) |
+Skill dependency management went from unsolved to crowded over 2026. This table is accurate
+as of **September 2026**; every column links to its source so you can check it yourself.
+
+|                                     | skilltree                    | [Claude Code plugins][ccp] | [Microsoft APM][apm]      | [skillpm][spm]  | [npx skills][sks] |
+|-------------------------------------|------------------------------|----------------------------|---------------------------|-----------------|-------------------|
+| Transitive dependency resolution    | Yes                          | Yes                        | Yes                       | Yes (via npm)   | No                |
+| Semver range constraints (`^2.0.0`) | Yes                          | Yes                        | Yes                       | Yes (via npm)   | No                |
+| Lockfile with content hashes        | Yes                          | No                         | Yes                       | Yes (via npm)   | No                |
+| Resolution granularity              | Entity (skill/agent/command) | Plugin                     | Entity and package        | npm package     | Skill             |
+| Dev/prod dependency split           | Yes                          | No                         | Yes                       | Yes (via npm)   | No                |
+| Registry / discovery                | Yes (git repos)              | Yes (marketplaces)         | Yes (git + HTTP registry) | Yes (npmjs.org) | Yes (directory)   |
+| Git-native (no registry server)     | Yes                          | Yes                        | Yes                       | No              | Yes               |
+| Agent harnesses                     | 6                            | 1 (Claude Code)            | 9, plus MCP and LSP       | via symlinks    | Several           |
+| Runtime required                    | None (single binary)         | Built into Claude Code     | Python                    | Node.js         | Node.js           |
+
+[ccp]: https://code.claude.com/docs/en/plugin-dependencies
+[apm]: https://microsoft.github.io/apm/
+[spm]: https://github.com/sbroenne/skillpm
+[sks]: https://skills.sh
+
+### Should you use skilltree?
+
+Probably worth being honest about which of these you are:
+
+- **You use Claude Code and nothing else, and you think in plugins.** Use [Claude Code's
+  native plugin dependencies][ccp] — transitive resolution against git tags, semver ranges,
+  constraint intersection across dependents, built in, nothing to install. skilltree adds a
+  verifiable lockfile and finer granularity. If you don't need those, you don't need skilltree.
+- **You want the most capable and best-supported option.** Use [Microsoft APM][apm]. It is a
+  superset of skilltree on nearly every row above, targets nine harnesses plus MCP and LSP
+  servers, and has an active team behind it.
+- **You want a single static binary, entity-level dependencies, and a lockfile you can
+  verify — with no Python or Node runtime in the loop.** That's skilltree.
+
+skilltree is maintained by one person. It is thoroughly tested (1,700+ tests) and used daily
+in real projects, but if you need something with an organization behind it, the
+recommendation above is genuine rather than a formality.
 
 ## Install
 
