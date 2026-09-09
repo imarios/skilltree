@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveAll } from "../../src/core/graph.js";
+import { buildLockfile } from "../../src/core/lockfile.js";
 import type { Manifest } from "../../src/types.js";
 import { createTestRepo } from "../helpers/git-fixtures.js";
 
@@ -505,5 +506,133 @@ describe("packs — remote pack errors", () => {
 		expect(result.errors.some((e) => /bad-pack/.test(e) && /absolute local path/i.test(e))).toBe(
 			true,
 		);
+	});
+});
+
+// =============================================================================
+// Group O — Pack attribution must not depend on resolution order (#196)
+// =============================================================================
+
+/**
+ * A pack declares members A and B, and A's frontmatter also depends on B.
+ * A resolves first, pulls B in transitively, and registers it with no
+ * `viaPack`. When the loop then reaches B's own manifest key, `checkDuplicate`
+ * short-circuits — so the stamp that says "the pack shipped this" is dropped,
+ * and which members carry attribution depends on which one resolved first.
+ *
+ * The loss is not cosmetic: `buildPackResolutions` derives the recorded member
+ * set from `entity.viaPack`, so `pack_resolutions.members`, `list`'s Via Pack
+ * column, and the `deps tree` pack node (#194) all understate the pack at once.
+ */
+describe("packs — attribution is order-independent (#196)", () => {
+	async function packOfTwo(): Promise<{ manifest: Manifest; projectDir: string }> {
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-packs-o1-"));
+		const origin = await createTestRepo(
+			tempDir,
+			"origin",
+			[
+				// alpha is listed first *and* depends on beta, so beta is reached
+				// transitively before the loop reaches its own manifest key.
+				{ path: "alpha", name: "alpha", dependencies: ["beta"] },
+				{ path: "beta", name: "beta" },
+			],
+			"v1.0.0",
+		);
+		const projectDir = join(tempDir, "project");
+		await createTestRepo(tempDir, "project", []);
+
+		return {
+			projectDir,
+			manifest: {
+				packs: {
+					stack: [
+						{ repo: `file://${origin}`, path: "alpha", version: "*" },
+						{ repo: `file://${origin}`, path: "beta", version: "*" },
+					],
+				},
+				dependencies: { stack: { pack: "stack" } },
+			},
+		};
+	}
+
+	test("O1 — a member reached transitively first still records its pack", async () => {
+		const { manifest, projectDir } = await packOfTwo();
+
+		const result = await resolveAll(manifest, projectDir);
+
+		expect(result.errors).toEqual([]);
+		expect(result.entities.get("skill:alpha")?.viaPack).toBe("stack");
+		// The one the pack declares *and* alpha depends on. Dropped before #196.
+		expect(result.entities.get("skill:beta")?.viaPack).toBe("stack");
+	});
+
+	test("O2 — pack_resolutions records both members, not just the first", async () => {
+		const { manifest, projectDir } = await packOfTwo();
+
+		const result = await resolveAll(manifest, projectDir);
+		const lockfile = buildLockfile(result.entities, { manifest });
+
+		expect(lockfile.pack_resolutions?.stack?.members).toEqual(["alpha", "beta"]);
+	});
+
+	test("O4 — a duplicate resolution with no pack involved gains no attribution", async () => {
+		// Reaches the same `checkDuplicate` branch the fix lives in, but with no
+		// pack anywhere: alpha and beta are both top-level, and alpha depends on
+		// beta, so beta is resolved transitively and then again by its own key.
+		// O3 does not cover this — `helper` there is never a duplicate, so the
+		// branch never runs and an over-stamping bug would pass unnoticed.
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-packs-o4-"));
+		const origin = await createTestRepo(
+			tempDir,
+			"origin",
+			[
+				{ path: "alpha", name: "alpha", dependencies: ["beta"] },
+				{ path: "beta", name: "beta" },
+			],
+			"v1.0.0",
+		);
+		const projectDir = join(tempDir, "project");
+		await createTestRepo(tempDir, "project", []);
+
+		const manifest: Manifest = {
+			dependencies: {
+				alpha: { repo: `file://${origin}`, path: "alpha", version: "*" },
+				beta: { repo: `file://${origin}`, path: "beta", version: "*" },
+			},
+		};
+
+		const result = await resolveAll(manifest, projectDir);
+
+		expect(result.errors).toEqual([]);
+		expect(result.entities.get("skill:alpha")?.viaPack).toBeUndefined();
+		expect(result.entities.get("skill:beta")?.viaPack).toBeUndefined();
+	});
+
+	test("O3 — a transitive dep that is not a pack member gets no attribution", async () => {
+		// Guard against over-stamping: only entries the pack actually declares
+		// may claim membership, however they were reached.
+		tempDir = await mkdtemp(join(tmpdir(), "skilltree-packs-o3-"));
+		const origin = await createTestRepo(
+			tempDir,
+			"origin",
+			[
+				{ path: "alpha", name: "alpha", dependencies: ["helper"] },
+				{ path: "helper", name: "helper" },
+			],
+			"v1.0.0",
+		);
+		const projectDir = join(tempDir, "project");
+		await createTestRepo(tempDir, "project", []);
+
+		const manifest: Manifest = {
+			// Only alpha is a member; helper is pulled in by alpha's frontmatter.
+			packs: { stack: [{ repo: `file://${origin}`, path: "alpha", version: "*" }] },
+			dependencies: { stack: { pack: "stack" } },
+		};
+
+		const result = await resolveAll(manifest, projectDir);
+
+		expect(result.entities.get("skill:alpha")?.viaPack).toBe("stack");
+		expect(result.entities.get("skill:helper")?.viaPack).toBeUndefined();
 	});
 });
