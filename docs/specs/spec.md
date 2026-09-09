@@ -19,6 +19,8 @@ See [background.md](background.md) for why this tool exists and how it compares 
 
 The manifest says "I need code-review from this repo at ^2.0.0." The lockfile says "code-review resolved to v2.1.3, commit a1b2c3d." The frontmatter says "code-review needs testing."
 
+**On the frontmatter row**: `dependencies:` is a skilltree convention, not an [Agent Skills spec](https://agentskills.io/specification) field -- the spec defines only `name`, `description`, `license`, `compatibility`, `metadata` and `allowed-tools`, and designates `metadata:` for author-defined keys. A skill therefore opts into skilltree's transitive resolution by carrying this key; a spec-only SKILL.md resolves as a leaf. This is still a lighter ask than tools that require a per-package manifest file to participate in the graph, but it is an ask. The agent-side `skills:` field is different: it is a real field in Claude Code's subagent schema ("preload these skills into context"), which skilltree reads as a dependency edge.
+
 ### Where files live
 
 Developer skills are **gitignored** -- like `node_modules/`, they're ephemeral:
