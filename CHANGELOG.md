@@ -1,3 +1,9 @@
+## v0.38.14 (2026-09-09)
+
+### Fix
+
+- render pack references as tree roots in `deps tree` (#197)
+
 ## v0.38.13 (2026-09-09)
 
 ### Fix
