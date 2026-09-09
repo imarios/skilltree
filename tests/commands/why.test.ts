@@ -350,3 +350,138 @@ async function mkdtempAgents(p: string): Promise<string> {
 	await mkdir(p, { recursive: true });
 	return p;
 }
+
+/**
+ * Issue #192: pack members were reported as orphans.
+ *
+ * A pack is never an entity — it has no lockfile entry — so nothing in
+ * `packages` lists it as a parent, and the members' synthesized keys are not
+ * manifest keys either. The upward walk therefore dead-ended at the member,
+ * and `why` concluded that nothing depends on it. The same dead end swallowed
+ * everything *beneath* a member too, since those paths can only terminate at
+ * a root by passing through one.
+ *
+ * The lockfile already carries the attribution: `via_pack` (#153) holds the
+ * consumer's yaml key for the pack that injected each member.
+ */
+describe("why: pack attribution (#192)", () => {
+	const PACK_MANIFEST = [
+		"dependencies:",
+		"  elastic-stack:",
+		"    pack: elastic-stack",
+		"    repo: github.com/org/elastic-skills",
+		'    version: "*"',
+		"",
+	].join("\n");
+
+	/**
+	 * `detection-rules-repo` is a direct pack member; `kibana-agent-builder`
+	 * is a dependency *of* that member, from a different repo — the two cases
+	 * the issue reports, which share one root cause.
+	 */
+	const PACK_LOCKFILE = [
+		"lockfile_version: 1",
+		"packages:",
+		"  detection-rules-repo:",
+		"    type: skill",
+		"    group: prod",
+		"    repo: github.com/org/elastic-skills",
+		"    path: skills/detection-rules-repo",
+		"    version: 0.1.14",
+		"    commit: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"    dependencies:",
+		"      - kibana-agent-builder",
+		"    via_pack: elastic-stack",
+		"  kibana-agent-builder:",
+		"    type: skill",
+		"    group: prod",
+		"    repo: github.com/elastic/agent-skills",
+		"    path: skills/kibana-agent-builder",
+		"    version: 0.6.0",
+		"    commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		"    dependencies: []",
+		"",
+	].join("\n");
+
+	async function packProject(): Promise<string> {
+		const dir = await makeTempDir();
+		await writeManifest(dir, PACK_MANIFEST);
+		await writeFile(join(dir, "skilltree.lock"), PACK_LOCKFILE, "utf-8");
+		return dir;
+	}
+
+	test("a direct pack member names the pack reference, not orphanhood", async () => {
+		const dir = await packProject();
+
+		const out = (await captureConsole(() => whyCommand("detection-rules-repo", { dir }))).join(
+			"\n",
+		);
+
+		expect(out).not.toContain("no top-level dependency");
+		expect(out).toContain("elastic-stack");
+	});
+
+	test("a transitive dep of a member reaches the pack through the member", async () => {
+		const dir = await packProject();
+
+		const out = (await captureConsole(() => whyCommand("kibana-agent-builder", { dir }))).join(
+			"\n",
+		);
+
+		expect(out).not.toContain("no top-level dependency");
+		expect(out).toContain("detection-rules-repo");
+		expect(out).toContain("elastic-stack");
+	});
+
+	test("the pack hop is labelled as a pack, not as a plain dependency", async () => {
+		// `elastic-stack` is a manifest key but not an entity — rendering it
+		// like any other hop would imply a skill by that name exists.
+		const dir = await packProject();
+
+		const out = (await captureConsole(() => whyCommand("detection-rules-repo", { dir }))).join(
+			"\n",
+		);
+
+		expect(out).toContain("pack:elastic-stack");
+	});
+
+	test("--json exposes the pack hop", async () => {
+		const dir = await packProject();
+
+		const out = (
+			await captureConsole(() => whyCommand("detection-rules-repo", { dir, json: true }))
+		).join("");
+		const parsed = JSON.parse(out) as {
+			paths: Array<Array<{ name: string; group: string | null; pack?: boolean }>>;
+		};
+
+		expect(parsed.paths).toHaveLength(1);
+		const root = parsed.paths[0]?.[0];
+		expect(root?.name).toBe("elastic-stack");
+		expect(root?.pack).toBe(true);
+		expect(root?.group).toBe("dependencies");
+	});
+
+	test("a non-pack dep is unaffected and carries no pack marker", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "python-coding");
+		await createLocalSkill(join(dir, "skills"), "task-builder", ["python-coding"]);
+		await writeManifest(
+			dir,
+			[
+				"dependencies:",
+				"  task-builder:",
+				"    local: ./skills/task-builder",
+				"  python-coding:",
+				"    local: ./skills/python-coding",
+				"",
+			].join("\n"),
+		);
+		await installCommand(dir, {});
+
+		const out = (await captureConsole(() => whyCommand("python-coding", { dir }))).join("\n");
+
+		expect(out).toContain("task-builder");
+		expect(out).not.toContain("pack:");
+	});
+});
