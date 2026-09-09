@@ -578,11 +578,32 @@ function checkDuplicate(
 	group: DependencyGroup,
 	state: ResolutionState,
 	declaredIn: EntityOrigin,
+	viaPack?: string,
 ): boolean {
 	if (!state.entities.has(compositeKey)) return false;
 
 	const existing = state.entities.get(compositeKey);
 	if (existing) {
+		// A pack member can be reached transitively — through another member's
+		// frontmatter — before the loop reaches its own manifest key, and that
+		// first resolution carries no attribution. Without this, which members
+		// look like members depends on which one resolved first (#196), and
+		// `buildPackResolutions` derives the recorded member set from `viaPack`,
+		// so `pack_resolutions`, `list`'s Via Pack column, and the `deps tree`
+		// pack node (#194) all understate the pack together.
+		//
+		// Same shape as the group promotion below: a later resolution knows
+		// something the earlier one didn't, so apply it in place.
+		//
+		// Presence check rather than overwrite: an attribution already recorded
+		// stands. No test covers that half, because it is unreachable — a member
+		// key that collides with an existing dep is rejected in
+		// `injectPackMembers`, so two packs can never both claim one entity. It
+		// is written this way to agree with the rest of the codebase, not to
+		// guard a case this resolver can reach.
+		if (viaPack !== undefined && existing.viaPack === undefined) {
+			existing.viaPack = viaPack;
+		}
 		if (
 			existing.key !== yamlKey &&
 			state.manifestKeys.has(existing.key) &&
@@ -670,7 +691,7 @@ async function resolveLocalEntity(
 	const type = dep.type ?? (await inferEntityType(localPath)) ?? "skill";
 	const compositeKey = `${type}:${entityName}`;
 
-	if (checkDuplicate(compositeKey, yamlKey, group, state, declaredIn)) return;
+	if (checkDuplicate(compositeKey, yamlKey, group, state, declaredIn, viaPack)) return;
 
 	const frontmatterDeps = await readLocalFrontmatter(localPath, type, entityName);
 	const entity: ResolvedEntity = {
@@ -770,7 +791,7 @@ async function resolveRemoteEntity(
 
 	const compositeKey = `${type}:${entityName}`;
 
-	if (checkDuplicate(compositeKey, yamlKey, group, state, declaredIn)) return;
+	if (checkDuplicate(compositeKey, yamlKey, group, state, declaredIn, viaPack)) return;
 
 	const frontmatterDeps = await readRemoteFrontmatter(
 		resolution.cachePath,
