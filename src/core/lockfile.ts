@@ -461,8 +461,12 @@ function packResolutionMatches(
  * string, which is a hand-edited value rather than an absence (see "Presence
  * check ≠ value check" in CLAUDE.md) — are omitted, so they can never satisfy
  * a pack reference.
+ *
+ * Exported so `deps tree` (#194) and `why` (#192) answer "which entries did
+ * this pack inject?" from one implementation rather than three copies of the
+ * same guard.
  */
-function indexLockfileByPack(lockfile: Lockfile): Map<string, string[]> {
+export function indexLockfileByPack(lockfile: Lockfile): Map<string, string[]> {
 	const byPack = new Map<string, string[]>();
 	for (const [key, entry] of Object.entries(lockfile.packages)) {
 		const pack = entry.via_pack;

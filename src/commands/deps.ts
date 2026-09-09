@@ -1,4 +1,9 @@
-import { buildNameIndex, readGlobalLockfile, readLockfile } from "../core/lockfile.js";
+import {
+	buildNameIndex,
+	indexLockfileByPack,
+	readGlobalLockfile,
+	readLockfile,
+} from "../core/lockfile.js";
 import { readGlobalManifest, readManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
 import { dim, pc } from "../core/ui.js";
@@ -21,7 +26,13 @@ export interface DepsOptions {
 
 interface JsonTreeNode {
 	name: string;
-	type: EntityType;
+	/**
+	 * Absent on a pack node (#194): a pack is not an entity, so it has no
+	 * `EntityType`. Present on every entity node, as before.
+	 */
+	type?: EntityType;
+	/** Present and true only on a pack node. Omitted for entities. */
+	pack?: boolean;
 	version?: string;
 	/**
 	 * Resolved commit SHA for non-local entries — present whether or not the
@@ -95,12 +106,23 @@ export async function depsTreeCommand(dir: string, opts?: DepsOptions): Promise<
 	// `buildNameIndex` in core/lockfile.ts).
 	const nameIndex = buildNameIndex(lockfile);
 
+	// A `pack:` reference is a manifest key with no lockfile entry — a pack is
+	// never an entity. Its members carry `via_pack` instead (#153), which is
+	// what makes them reachable from the root that declared them (#194).
+	const membersByPack = indexLockfileByPack(lockfile);
+
 	if (opts?.json) {
 		const printedJson = new Set<string>();
 		const tree: JsonTreeNode[] = [];
 		for (const root of roots) {
 			const entry = lockfile.packages[root];
-			if (!entry) continue;
+			if (!entry) {
+				const members = membersByPack.get(root);
+				if (members !== undefined) {
+					tree.push(buildJsonPackNode(root, members, lockfile, nameIndex, printedJson, dedupe));
+				}
+				continue;
+			}
 			// Issue #107: roots use the same canonical name rule as transitives
 			// (entry.name ?? key) so an aliased entry doesn't appear under
 			// two different labels in the same tree.
@@ -117,10 +139,90 @@ export async function depsTreeCommand(dir: string, opts?: DepsOptions): Promise<
 
 	for (const root of roots) {
 		const entry = lockfile.packages[root];
-		if (!entry) continue;
+		if (!entry) {
+			const members = membersByPack.get(root);
+			if (members !== undefined) {
+				printPackNode(root, members, lockfile, nameIndex, printed, dedupe);
+			}
+			continue;
+		}
 		const displayName = canonicalDisplayName(entry, root);
 		printTree(displayName, root, entry, lockfile, nameIndex, "", true, true, printed, dedupe);
 	}
+}
+
+/**
+ * Render a `pack:` reference as a root whose children are the entries it
+ * injected (#194).
+ *
+ * Before this, a pack-only project printed nothing at all: roots come from
+ * manifest keys, the pack key resolves to no lockfile entry, and its members
+ * are not manifest keys either — so neither side of the walk produced a node
+ * while `list` happily showed the skills installed.
+ *
+ * The `pack:` prefix matches how `why` names the same hop (#192); a bare key
+ * would read as an entity that does not exist.
+ *
+ * Members print as non-roots so a second occurrence still gets the `(*)`
+ * marker — they are reached *through* the pack, not declared individually,
+ * and the marker's job is to say "shown above".
+ */
+function printPackNode(
+	packKey: string,
+	members: string[],
+	lockfile: Lockfile,
+	nameIndex: Map<string, string>,
+	printed: Set<string>,
+	dedupe: boolean,
+): void {
+	console.log(`${pc.cyan(`pack:${packKey}`)} ${dim("(pack)")}`);
+	for (let i = 0; i < members.length; i++) {
+		const memberKey = members[i];
+		if (memberKey === undefined) continue;
+		const entry = lockfile.packages[memberKey];
+		if (!entry) continue;
+		printTree(
+			canonicalDisplayName(entry, memberKey),
+			memberKey,
+			entry,
+			lockfile,
+			nameIndex,
+			"",
+			false,
+			i === members.length - 1,
+			printed,
+			dedupe,
+		);
+	}
+}
+
+/** `printPackNode`'s JSON counterpart. See it for why packs need a node. */
+function buildJsonPackNode(
+	packKey: string,
+	members: string[],
+	lockfile: Lockfile,
+	nameIndex: Map<string, string>,
+	printed: Set<string>,
+	dedupe: boolean,
+): JsonTreeNode {
+	const node: JsonTreeNode = { name: packKey, pack: true, dependencies: [] };
+	for (const memberKey of members) {
+		const entry = lockfile.packages[memberKey];
+		if (!entry) continue;
+		node.dependencies.push(
+			buildJsonTree(
+				canonicalDisplayName(entry, memberKey),
+				memberKey,
+				entry,
+				lockfile,
+				nameIndex,
+				printed,
+				false,
+				dedupe,
+			),
+		);
+	}
+	return node;
 }
 
 /**

@@ -1,4 +1,9 @@
-import { buildNameIndex, readGlobalLockfile, readLockfile } from "../core/lockfile.js";
+import {
+	buildNameIndex,
+	indexLockfileByPack,
+	readGlobalLockfile,
+	readLockfile,
+} from "../core/lockfile.js";
 import { readGlobalManifest, readManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
 import { dim, pc } from "../core/ui.js";
@@ -217,12 +222,7 @@ function packAttribution(entry: LockfileEntry): string | undefined {
  * recognized as one by looking it up.
  */
 function packKeys(lockfile: Lockfile): Set<string> {
-	const keys = new Set<string>();
-	for (const entry of Object.values(lockfile.packages)) {
-		const pack = packAttribution(entry);
-		if (pack !== undefined) keys.add(pack);
-	}
-	return keys;
+	return new Set(indexLockfileByPack(lockfile).keys());
 }
 
 function collectPathsToRoots(
