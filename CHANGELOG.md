@@ -1,3 +1,9 @@
+## v0.38.13 (2026-09-09)
+
+### Fix
+
+- attribute pack members to their pack reference in `why` (#195)
+
 ## v0.38.12 (2026-09-08)
 
 ### Fix
