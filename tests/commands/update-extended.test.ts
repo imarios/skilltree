@@ -21,6 +21,72 @@ async function makeTempDir(): Promise<string> {
 }
 
 describe("updateCommand extended", () => {
+	/**
+	 * #190: `update <name>` clears the target's lockfile entries and then calls
+	 * `install`, which diffs manifest against lockfile, sees entries the
+	 * manifest declares and the lockfile lacks, and announces "Manifest
+	 * changed." The manifest did not change — `update` manufactured the
+	 * divergence a moment earlier. `install` cannot tell the two apart from the
+	 * diff alone, so the caller has to say which it is.
+	 */
+	test("selective update does not claim the manifest changed", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
+		);
+		await installCommand(dir, {});
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (msg?: unknown) => {
+			logs.push(String(msg));
+		};
+		try {
+			await updateCommand(dir, "my-skill", {});
+		} finally {
+			console.log = originalLog;
+		}
+
+		expect(logs.some((l) => l.includes("Manifest changed"))).toBe(false);
+		// It is still resolving, and should say so.
+		expect(logs.some((l) => l.includes("Resolving dependencies..."))).toBe(true);
+	});
+
+	/**
+	 * The other half of #190: a genuine manifest edit must keep the accurate
+	 * line. The fix is a caller-supplied reason, not deleting the message.
+	 */
+	test("a real manifest change still says so", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n",
+		);
+		await installCommand(dir, {});
+
+		await createLocalSkill(join(dir, "skills"), "second-skill");
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			"dependencies:\n  my-skill:\n    local: ./skills/my-skill\n  second-skill:\n    local: ./skills/second-skill\n",
+		);
+
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (msg?: unknown) => {
+			logs.push(String(msg));
+		};
+		try {
+			await installCommand(dir, {});
+		} finally {
+			console.log = originalLog;
+		}
+
+		expect(logs.some((l) => l.includes("Manifest changed"))).toBe(true);
+	});
+
 	test("update all deletes lockfile and re-installs", async () => {
 		const dir = await makeTempDir();
 		await createLocalSkill(join(dir, "skills"), "my-skill");

@@ -113,6 +113,7 @@ async function updateAll(
 	await installCommand(dir, {
 		dryRun,
 		force: true,
+		reason: "update",
 		...(isGlobal ? { global: true, globalDir } : {}),
 	});
 }
@@ -133,6 +134,7 @@ async function selectiveUpdate(
 		await installCommand(dir, {
 			dryRun,
 			force: true,
+			reason: "update",
 			...(isGlobal ? { global: true, globalDir } : {}),
 		});
 		return;
@@ -175,6 +177,7 @@ async function selectiveUpdate(
 	await installCommand(dir, {
 		dryRun,
 		force: true,
+		reason: "update",
 		...(isGlobal ? { global: true, globalDir } : {}),
 	});
 
