@@ -685,6 +685,21 @@ async function resolveLocalEntity(
 	const localPath = expandedLocal.startsWith("/")
 		? expandedLocal
 		: `${state.projectDir}/${expandedLocal}`;
+
+	// A `local:` path that isn't there is an ordinary situation — the skill was
+	// moved or renamed, or you switched to a branch without it — and the useful
+	// answer is an error naming the path, the same one `add --local` gives at
+	// add time. Resolving it anyway meant `install`/`update` exited 0 having
+	// silently removed the installed copy, while the lockfile went on claiming
+	// it was there (#207). This is also the "path error" the type-inference
+	// fallback below has always promised and never actually reported (#166).
+	if (!(await pathExists(localPath))) {
+		state.errors.push(
+			`"${entityName}" declared in ${formatOrigin(declaredIn)}: Local path does not exist: ${dep.local}`,
+		);
+		return;
+	}
+
 	// An unclassifiable path falls back to `skill`: resolution continues and the
 	// missing artifact is reported downstream as a path error, which is a better
 	// diagnostic than "unknown type" (#166).
@@ -714,6 +729,19 @@ async function resolveLocalEntity(
 
 	for (const transDepName of frontmatterDeps) {
 		await resolveTransitive(transDepName, group, compositeKey, state);
+	}
+}
+
+/**
+ * Does this path exist on disk? Used to reject `local:` deps pointing at
+ * something that isn't there (#207).
+ */
+async function pathExists(p: string): Promise<boolean> {
+	try {
+		await stat(p);
+		return true;
+	} catch {
+		return false;
 	}
 }
 
