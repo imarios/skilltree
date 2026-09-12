@@ -1,3 +1,9 @@
+## v0.38.20 (2026-09-12)
+
+### Fix
+
+- fail resolution when a local dependency's path does not exist (#212)
+
 ## v0.38.19 (2026-09-12)
 
 ### Fix
