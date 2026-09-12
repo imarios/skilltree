@@ -1,6 +1,23 @@
 import { homedir } from "node:os";
 
 /**
+ * The user's home directory, `$HOME` first.
+ *
+ * Node's own `os.homedir()` consults `$HOME` on POSIX; Bun resolves it once
+ * at process start and ignores later changes. Reading the variable here keeps
+ * the standard semantics under both runtimes, and is what lets the test suite
+ * redirect `~` away from the developer's real home — without it, every test
+ * that reached `install --global` wrote into the real `~/.claude/skills/`.
+ *
+ * An empty `HOME` is treated as unset rather than as the root of the
+ * filesystem, matching `resolveShellHome` in `completion.ts`.
+ */
+export function homeDir(): string {
+	const fromEnv = process.env.HOME;
+	return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : homedir();
+}
+
+/**
  * Replace a leading `~` with the user's home directory.
  * If the path doesn't start with `~`, return it unchanged.
  *
@@ -11,8 +28,8 @@ import { homedir } from "node:os";
  * clear "Local path does not exist" error echoing the original input.
  */
 export function expandTilde(p: string): string {
-	if (p === "~") return homedir();
-	if (p.startsWith("~/")) return `${homedir()}${p.slice(1)}`;
+	if (p === "~") return homeDir();
+	if (p.startsWith("~/")) return `${homeDir()}${p.slice(1)}`;
 	return p;
 }
 
@@ -21,7 +38,7 @@ export function expandTilde(p: string): string {
  * Inverse of expandTilde — used when writing global lockfile entries.
  */
 export function collapseTilde(p: string): string {
-	const home = homedir();
+	const home = homeDir();
 	if (p === home) return "~";
 	if (p.startsWith(`${home}/`)) return `~${p.slice(home.length)}`;
 	return p;

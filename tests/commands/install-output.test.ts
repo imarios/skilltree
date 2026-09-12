@@ -7,9 +7,10 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { installCommand } from "../../src/commands/install.js";
+import { homeDir } from "../../src/core/paths.js";
 import { createLocalSkill } from "../helpers/git-fixtures.js";
 
 let tempDir: string;
@@ -181,7 +182,7 @@ describe("frozen install output: friendly tilde path", () => {
 		// `collapseTilde` fallback in `frozenTarget`. Path is randomized so
 		// parallel test runs don't collide and a SIGKILL leaves at most one
 		// uniquely-named stray dir behind. (Issue #27 item 6.)
-		const home = homedir();
+		const home = homeDir();
 		const suffix = Math.random().toString(36).slice(2);
 		const homeBaseName = `.skilltree-test-${suffix}`;
 		const homeBase = join(home, homeBaseName);

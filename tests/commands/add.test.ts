@@ -286,8 +286,8 @@ describe("addCommand", () => {
 
 	test("checkOverwrite: source alias resolving to local path compares equal to direct local entry", async () => {
 		const dir = await setup();
-		const { homedir } = await import("node:os");
-		const home = homedir();
+		const { homeDir } = await import("../../src/core/paths.js");
+		const home = homeDir();
 
 		// Seed manifest with an existing entry `foo: {local: ~/skills-root/foo}`,
 		// plus a sources: map where `mine: ~/skills-root` resolves to the same place.
@@ -405,8 +405,8 @@ describe("addCommand", () => {
 
 	test("collapses home directory to ~ in --local path for --global", async () => {
 		const dir = await setup();
-		const { homedir } = await import("node:os");
-		const home = homedir();
+		const { homeDir } = await import("../../src/core/paths.js");
+		const home = homeDir();
 
 		// Create a skill under a path that starts with $HOME
 		const skillPath = join(dir, "skills", "my-skill");
@@ -437,8 +437,8 @@ describe("addCommand", () => {
 	});
 
 	test("collapses home directory to ~ in --local path (home-relative)", async () => {
-		const { homedir } = await import("node:os");
-		const home = homedir();
+		const { homeDir } = await import("../../src/core/paths.js");
+		const home = homeDir();
 
 		// Create a temporary skill under $HOME
 		const skillDir = `${home}/.skilltree-test-add-${Date.now()}`;

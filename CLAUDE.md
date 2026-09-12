@@ -60,6 +60,23 @@ bun run dev -- install
 bun build --compile src/cli.ts --outfile dist/skilltree
 ```
 
+### Tests run with a sandboxed `$HOME`
+
+`bunfig.toml` preloads `tests/setup/sandbox-home.ts`, which points `$HOME` at a
+temp directory for the whole run. Don't remove it: `install --global` and
+`teach` resolve their install targets through `expandTilde("~/.claude")`, not
+through the `homeDir`/`globalDir` test overrides, so without the sandbox every
+test touching the global path wrote into the developer's real
+`~/.claude/skills/` — overwriting whatever `skilltree teach` had installed and
+leaving symlinks into deleted temp dirs behind, which Claude Code then tried to
+load.
+
+This works because `homeDir()` in `src/core/paths.ts` reads `$HOME` before
+falling back to `os.homedir()` (Node consults `$HOME` on POSIX too; Bun caches
+it at process start and ignores later changes). Tests that assert on the home
+directory must use `homeDir()`, not `os.homedir()`, or they will compare
+against the real home the code no longer uses.
+
 ### `bun.lock` is committed
 
 CI installs with `bun install --frozen-lockfile`, so the dev toolchain only

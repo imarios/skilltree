@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	AGENT_LABELS,
@@ -12,6 +12,7 @@ import {
 	resolveGlobalTarget,
 	resolveTarget,
 } from "../../src/core/agents.js";
+import { homeDir } from "../../src/core/paths.js";
 
 describe("resolveTarget", () => {
 	test('resolves "claude" to ".claude"', () => {
@@ -49,7 +50,7 @@ describe("resolveTarget", () => {
 });
 
 describe("resolveGlobalTarget", () => {
-	const home = homedir();
+	const home = homeDir();
 
 	test('resolves "claude" to expanded ~/.claude', () => {
 		expect(resolveGlobalTarget("claude")).toBe(join(home, ".claude"));
