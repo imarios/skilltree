@@ -178,6 +178,31 @@ describe("init offers teach when the bundled skill is missing (#157)", () => {
 		expect(out).not.toContain("skilltree teach");
 	});
 
+	test("--target skips the offer, the same as it skips detection", async () => {
+		// --target means "don't detect, don't prompt" (#74). The offer is built on
+		// detection, so it steps aside too; `doctor` still reports a missing skill.
+		const { project, home, globalDir } = await setup({ agents: [".claude", ".codex"] });
+		const { calls, teachFn } = recorder();
+		const questions: string[] = [];
+
+		await captureLogs(() =>
+			initCommand(project, {
+				homeDir: home,
+				globalDir,
+				targets: ["codex"],
+				isInteractive: true,
+				askFn: async (q) => {
+					questions.push(q);
+					return "y";
+				},
+				teachFn,
+			}),
+		);
+
+		expect(calls.length).toBe(0);
+		expect(questions.some((q) => /install it now/i.test(q))).toBe(false);
+	});
+
 	test("no offer when no agents are detected", async () => {
 		const { project, home, globalDir } = await setup({ agents: [] });
 		const { calls, teachFn } = recorder();

@@ -159,11 +159,18 @@ export async function initCommand(dir: string, options?: InitOptions): Promise<v
  * Only a *missing* skill triggers the offer. A stale or unversioned one is
  * `doctor`'s to report; nagging about versions on a fresh `init` would be noise.
  *
+ * Skipped under --target, which already means "don't detect, don't prompt".
+ *
  * Writes outside the project directory, so it never happens silently:
  * `--yes` accepts, an interactive run asks (defaulting to yes), and a
  * non-interactive run only prints how to do it.
  */
 async function offerBundledSkill(options?: InitOptions): Promise<void> {
+	// --target means "don't detect, don't prompt" (#74); the offer is built on
+	// detection, so it steps aside too. Same condition `selectInstallTargets`
+	// uses, so the two can't disagree about whether --target was given.
+	if (options?.targets && options.targets.length > 0) return;
+
 	const detected = await detectInstalledAgents(options?.homeDir);
 	if (detected.length === 0) return;
 
