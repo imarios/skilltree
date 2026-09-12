@@ -250,4 +250,40 @@ describe("lockfile-first install", () => {
 		const after = await readFile(join(dir, "skilltree.lock"), "utf-8");
 		expect(after).toBe("lockfile_version: 1\npackages: {}\n");
 	});
+
+	/**
+	 * #208: the reference documented two contradictory answers for what the
+	 * *next* install does after a failed one — "normal lockfile behavior rules"
+	 * in one bullet, "full resolution from scratch" in another. The preserved
+	 * lockfile is read like any other, so the first is correct. Pinned here
+	 * because #204's rollback now depends on a failed run leaving a lockfile
+	 * the next run will actually use.
+	 */
+	test("after a failed install, the next install reuses the preserved lockfile (#208)", async () => {
+		const dir = await makeTempDir();
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+		await writeManifest(dir, "dependencies:\n  my-skill:\n    local: ./skills/my-skill\n");
+		await installCommand(dir, {});
+
+		// Break resolution without touching the manifest.
+		await createLocalSkill(join(dir, "skills"), "my-skill", ["nonexistent"]);
+		await expect(installCommand(dir, {})).rejects.toThrow("Resolution failed");
+
+		await createLocalSkill(join(dir, "skills"), "my-skill");
+		const logs: string[] = [];
+		const originalLog = console.log;
+		console.log = (msg?: unknown) => {
+			logs.push(String(msg));
+		};
+		try {
+			await installCommand(dir, {});
+		} finally {
+			console.log = originalLog;
+		}
+
+		// "Resolving dependencies..." is the no-lockfile announcement. Seeing it
+		// here would mean the preserved lockfile was ignored.
+		expect(logs.some((l) => l.includes("Resolving dependencies..."))).toBe(false);
+		expect(logs.some((l) => l.includes("Re-reading local dependencies..."))).toBe(true);
+	});
 });

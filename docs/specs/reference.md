@@ -580,7 +580,6 @@ Malformed frontmatter errors are collected in the batch error pattern (not fail-
 - **`skilltree update` on a local dep:** Re-reads from the filesystem and updates the lockfile if transitive dependencies changed. There is no version to bump -- local deps always use the working tree.
 - **Tag prefix case sensitivity:** Only lowercase `v` is recognized (`v1.0.0`). Uppercase `V1.0.0` is treated as non-semver and ignored. The `semver` npm package handles this by default.
 - **`skilltree list` with nothing installed:** Shows an empty table with headers, or "No dependencies installed. Run `skilltree install`."
-- **Failed install (cycle, missing deps, etc.):** Does NOT write a partial lockfile. The next `skilltree install` runs full resolution from scratch. If a lockfile existed before the failed run, it is left unchanged.
 - **`remove --keep-files` then `install`:** Leftover files from `--keep-files` are ignored by `install` (they have no lockfile entry). If the same dep is re-added later, `install` overwrites the leftover files.
 - **`skilltree scan --check` on a non-skill file:** Skips files that have no YAML frontmatter (exit 0). Only validates files that look like skills or agents (contain `---` frontmatter).
 - **Install path creation:** `skilltree install` creates the install path and its `skills/`, `agents/`, and `commands/` subdirectories if they don't exist (`mkdir -p` behavior). Applies to both the default `.claude/` path and `--install-path` overrides.
