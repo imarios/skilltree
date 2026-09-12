@@ -68,7 +68,14 @@ export async function verifyCommand(dir: string, opts?: VerifyOptions): Promise<
 		isGlobal ? globalDir : dir,
 	);
 
-	const drifted = hasDrift(statuses);
+	// Resolution errors are drift too. An entity that fails to resolve — a
+	// `local:` path that no longer exists (#207) — is absent from
+	// `result.entities`, so it never reaches `verifyInstalled` and would
+	// otherwise drop out of this report without a word. Every other
+	// `resolveAll` caller already acts on these; `verify` was the one that
+	// silently discarded them.
+	const resolutionErrors = result.errors;
+	const drifted = hasDrift(statuses) || resolutionErrors.length > 0;
 
 	if (opts?.json) {
 		// Machine-readable shape: array of {name, status}. No diagnostics, no
@@ -81,6 +88,9 @@ export async function verifyCommand(dir: string, opts?: VerifyOptions): Promise<
 		}
 
 		printVerifyDiagnostics(statuses, isGlobal);
+		for (const message of resolutionErrors) {
+			warn(message);
+		}
 
 		if (drifted) {
 			// Same shape as `check`'s verdict line (#172): under --strict the run
