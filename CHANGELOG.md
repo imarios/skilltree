@@ -1,3 +1,9 @@
+## v0.38.18 (2026-09-12)
+
+### Fix
+
+- preserve skilltree.lock when update fails to resolve (#206)
+
 ## v0.38.17 (2026-09-09)
 
 ### Fix
