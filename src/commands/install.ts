@@ -52,6 +52,17 @@ import { isLocalDependency } from "../types.js";
 export interface InstallCommandOptions extends InstallOptions {
 	global?: boolean;
 	globalDir?: string; // test override
+	/**
+	 * Why this install is running, when the caller knows something the
+	 * manifest-vs-lockfile diff cannot show (#190).
+	 *
+	 * `update` clears the target's lockfile entries and then calls `install`,
+	 * which sees entries the manifest declares and the lockfile lacks — the
+	 * same diff a genuine manifest edit produces. Without this, `install`
+	 * announces "Manifest changed" for a divergence `update` manufactured a
+	 * moment earlier. Omitted means "the diff speaks for itself".
+	 */
+	reason?: "update";
 }
 
 /**
@@ -236,7 +247,7 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 		return;
 	}
 
-	const result = await resolveWithLockfile(manifest, existingLockfile, dir);
+	const result = await resolveWithLockfile(manifest, existingLockfile, dir, "", options.reason);
 	throwOnResolutionErrors(result);
 
 	// Determine install targets — preserves agent labels for friendly per-target output.
@@ -390,7 +401,13 @@ async function installGlobal(options: InstallCommandOptions): Promise<void> {
 		return;
 	}
 
-	const result = await resolveWithLockfile(manifest, existingLockfile, globalDir, "Global ");
+	const result = await resolveWithLockfile(
+		manifest,
+		existingLockfile,
+		globalDir,
+		"Global ",
+		options.reason,
+	);
 	throwOnResolutionErrors(result);
 
 	// Print install order once — shared across all targets.
@@ -426,6 +443,7 @@ async function resolveWithLockfile(
 	existingLockfile: Lockfile | null,
 	dir: string,
 	label = "",
+	reason?: InstallCommandOptions["reason"],
 ): Promise<{
 	entities: Map<string, ResolvedEntity>;
 	errors: string[];
@@ -453,6 +471,10 @@ async function resolveWithLockfile(
 			console.log(
 				dim(provable ? "Re-reading local dependencies..." : "Re-resolving pack members..."),
 			);
+		} else if (reason === "update") {
+			// The entries are missing because `update` just cleared them, not
+			// because the user edited anything (#190).
+			console.log(`${label}Resolving dependencies...`);
 		} else {
 			console.log(`${label}Manifest changed. Resolving dependencies...`);
 		}
