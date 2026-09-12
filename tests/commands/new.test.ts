@@ -13,7 +13,7 @@ let tempDir: string;
 
 async function setup(): Promise<string> {
 	tempDir = await mkdtemp(join(tmpdir(), "skilltree-new-"));
-	await initCommand(tempDir);
+	await initCommand(tempDir, { isInteractive: false });
 	return tempDir;
 }
 
@@ -298,13 +298,13 @@ describe("newCommand — CLI parity (subcommand form vs --type)", () => {
 		// same call at the command-function level, so identity of behaviour at
 		// the function boundary is the parity contract.
 		const dir1 = await mkdtemp(join(tmpdir(), "skilltree-new-parity1-"));
-		await initCommand(dir1);
+		await initCommand(dir1, { isInteractive: false });
 		await newCommand("skill", "foo", {}, dir1);
 		const content1 = await readFile(join(dir1, "skills", "foo", "SKILL.md"), "utf-8");
 		const manifest1 = await readManifest(dir1);
 
 		const dir2 = await mkdtemp(join(tmpdir(), "skilltree-new-parity2-"));
-		await initCommand(dir2);
+		await initCommand(dir2, { isInteractive: false });
 		await newCommand("skill", "foo", {}, dir2);
 		const content2 = await readFile(join(dir2, "skills", "foo", "SKILL.md"), "utf-8");
 		const manifest2 = await readManifest(dir2);

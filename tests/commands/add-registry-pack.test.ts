@@ -17,7 +17,7 @@ async function setup(): Promise<string> {
 		`skilltree-addreg-pack-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 	);
 	await mkdir(tempDir, { recursive: true });
-	await initCommand(tempDir);
+	await initCommand(tempDir, { isInteractive: false });
 	return tempDir;
 }
 

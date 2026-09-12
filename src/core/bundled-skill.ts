@@ -1,9 +1,12 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import semver from "semver";
 import pkg from "../../package.json" with { type: "json" };
 import commandsMd from "../../skills/skilltree/references/commands.md" with { type: "text" };
 import workflowsMd from "../../skills/skilltree/references/workflows.md" with { type: "text" };
 import skillMd from "../../skills/skilltree/SKILL.md" with { type: "text" };
+import { resolveAgentHome } from "./agents.js";
+import { parseFrontmatter } from "./frontmatter.js";
 
 /**
  * Skill files embedded into the compiled binary at build time. When adding
@@ -68,4 +71,56 @@ export async function materializeBundledSkill(targetDir: string): Promise<string
 		),
 	);
 	return targetDir;
+}
+
+/**
+ * What an agent has installed of the bundled skilltree skill.
+ *
+ * Shared by `doctor`'s bundled-skill check, which reports every non-current
+ * state, and by `init` (#157), which offers `teach` when the skill is missing.
+ * One definition so the two can never disagree about what "installed" means.
+ */
+export type AgentSkillState =
+	| { agent: string; kind: "current"; version: string }
+	| { agent: string; kind: "stale"; version: string }
+	| { agent: string; kind: "missing" }
+	| { agent: string; kind: "no-version" }
+	| { agent: string; kind: "error"; message: string };
+
+export async function inspectAgentSkill(
+	agent: string,
+	homeDir: string | undefined,
+): Promise<AgentSkillState> {
+	const agentHome = resolveAgentHome(agent, homeDir);
+	if (agentHome === null) {
+		// Unknown agent — detectInstalledAgents wouldn't return it, but stay
+		// defensive in case the registry changes asymmetrically.
+		return { agent, kind: "error", message: "unknown agent" };
+	}
+	const skillPath = join(agentHome, "skills", "skilltree", "SKILL.md");
+	let text: string;
+	try {
+		text = await readFile(skillPath, "utf-8");
+	} catch (err) {
+		const code = (err as NodeJS.ErrnoException).code;
+		if (code === "ENOENT" || code === "ENOTDIR") return { agent, kind: "missing" };
+		return { agent, kind: "error", message: err instanceof Error ? err.message : String(err) };
+	}
+	let fm: ReturnType<typeof parseFrontmatter>;
+	try {
+		fm = parseFrontmatter(text);
+	} catch (err) {
+		return { agent, kind: "error", message: err instanceof Error ? err.message : String(err) };
+	}
+	// Presence check on the parsed string (CLAUDE.md §"Presence check ≠ value
+	// check"): `version` may legitimately be undefined, or it may be present
+	// but un-parseable (legacy install, hand-edited file). Treat both as
+	// "predates version tracking" so the user gets the same remediation.
+	const installed = fm?.version;
+	if (installed === undefined) return { agent, kind: "no-version" };
+	if (!semver.valid(installed)) return { agent, kind: "no-version" };
+	if (semver.lt(installed, pkg.version)) {
+		return { agent, kind: "stale", version: installed };
+	}
+	return { agent, kind: "current", version: installed };
 }

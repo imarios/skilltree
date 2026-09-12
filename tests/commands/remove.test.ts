@@ -12,7 +12,7 @@ let tempDir: string;
 
 async function setup(): Promise<string> {
 	tempDir = await mkdtemp(join(tmpdir(), "skilltree-remove-"));
-	await initCommand(tempDir);
+	await initCommand(tempDir, { isInteractive: false });
 	return tempDir;
 }
 
