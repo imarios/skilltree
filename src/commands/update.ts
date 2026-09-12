@@ -1,6 +1,11 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import semver from "semver";
-import { GLOBAL_MANIFEST, MANIFEST_NEW, resolveGlobalLockfilePath } from "../core/filenames.js";
+import {
+	GLOBAL_MANIFEST,
+	MANIFEST_NEW,
+	resolveGlobalLockfilePath,
+	resolveLockfilePath,
+} from "../core/filenames.js";
 import { ensureCached, listTags } from "../core/git.js";
 import {
 	readGlobalLockfile,
@@ -31,11 +36,62 @@ export async function updateCommand(
 	const isGlobal = !!opts?.global;
 	const globalDir = opts?.globalDir ?? getGlobalDir();
 
-	if (!name) {
-		return updateAll(dir, isGlobal, globalDir, dryRun);
-	}
+	const lockfilePath = isGlobal
+		? resolveGlobalLockfilePath(globalDir).path
+		: resolveLockfilePath(dir).path;
 
-	return selectiveUpdate(name, dir, isGlobal, globalDir, dryRun);
+	return withLockfileRollback(lockfilePath, !dryRun, async () => {
+		if (!name) {
+			return updateAll(dir, isGlobal, globalDir, dryRun);
+		}
+
+		return selectiveUpdate(name, dir, isGlobal, globalDir, dryRun);
+	});
+}
+
+/**
+ * Hold the lockfile's bytes in memory for the duration of `run` and put them
+ * back if it throws (#204).
+ *
+ * `update` clears the lockfile to force a fresh resolution, so it is the one
+ * command that destroys good pins before it knows whether it can produce new
+ * ones. When resolution then failed, the user was left with nothing: `verify`,
+ * `doctor` and `install --frozen` all stop working without a lockfile, and
+ * `doctor` reports it as a missing file rather than as damage `update` did.
+ * #67 fixed this ordering for --dry-run; this is the non-dry-run half.
+ *
+ * Restores the raw bytes rather than a parsed round trip, so a failed update
+ * leaves the file exactly as the user had it instead of silently reformatting
+ * it through our serializer.
+ *
+ * `enabled` is false under --dry-run, which mutates nothing.
+ */
+async function withLockfileRollback(
+	lockfilePath: string,
+	enabled: boolean,
+	run: () => Promise<void>,
+): Promise<void> {
+	const previous = enabled ? await readFileOrNull(lockfilePath) : null;
+	try {
+		await run();
+	} catch (err) {
+		// Restore only what was there, and only if the run actually changed it:
+		// a failure before the lockfile was touched (an unknown dep name, an
+		// unreadable manifest) should not rewrite the file, and a project with
+		// no lockfile must not have one conjured for it.
+		if (previous !== null && (await readFileOrNull(lockfilePath)) !== previous) {
+			await writeFile(lockfilePath, previous, "utf-8");
+		}
+		throw err;
+	}
+}
+
+async function readFileOrNull(path: string): Promise<string | null> {
+	try {
+		return await readFile(path, "utf-8");
+	} catch {
+		return null;
+	}
 }
 
 async function updateAll(
@@ -46,19 +102,12 @@ async function updateAll(
 ): Promise<void> {
 	console.log(`Updating all ${isGlobal ? "global " : ""}dependencies...`);
 
-	// Delete lockfile to force full re-resolution.
-	// Skipped under --dry-run so we don't mutate state during a preview.
+	// Delete the lockfile to force full re-resolution. Skipped under --dry-run
+	// so we don't mutate state during a preview (#67); restored by
+	// `withLockfileRollback` if the re-resolution fails (#204).
 	if (!dryRun) {
-		try {
-			if (isGlobal) {
-				const { path } = resolveGlobalLockfilePath(globalDir);
-				await rm(path);
-			} else {
-				await rm(`${dir}/skilltree.lock`);
-			}
-		} catch {
-			// No lockfile
-		}
+		const { path } = isGlobal ? resolveGlobalLockfilePath(globalDir) : resolveLockfilePath(dir);
+		await rm(path, { force: true });
 	}
 
 	await installCommand(dir, {
