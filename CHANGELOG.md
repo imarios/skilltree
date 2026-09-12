@@ -1,3 +1,9 @@
+## v0.39.0 (2026-09-12)
+
+### Feat
+
+- offer to install the skilltree skill during init (#213)
+
 ## v0.38.21 (2026-09-12)
 
 ### Fix
