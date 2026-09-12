@@ -127,7 +127,10 @@ describe("verify still reports a local dep whose source vanished (#207)", () => 
 			console.warn = warnFn;
 		}
 		const failed = process.exitCode === 1;
-		process.exitCode = exitBefore;
+		// `verify --strict` sets process.exitCode rather than exiting. Restore it,
+		// or the whole test run exits 1 with every test green. `?? 0` because Bun
+		// does not treat assigning `undefined` as a reset.
+		process.exitCode = exitBefore ?? 0;
 		return `${lines.join("\n")}\n__EXIT_FAILED__=${failed}`;
 	}
 
