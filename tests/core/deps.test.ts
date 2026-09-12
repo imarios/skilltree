@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { homedir } from "node:os";
 import { canonicalSource } from "../../src/core/deps.js";
+import { homeDir } from "../../src/core/paths.js";
 import type { Dependency } from "../../src/types.js";
 
 describe("canonicalSource", () => {
@@ -26,13 +26,13 @@ describe("canonicalSource", () => {
 	test("source alias to local path produces `local:<absolute>/<path>`", () => {
 		const dep = { source: "mine", path: "foo" } as unknown as Dependency;
 		expect(canonicalSource(dep, { mine: "~/skills-root" })).toBe(
-			`local:${homedir()}/skills-root/foo`,
+			`local:${homeDir()}/skills-root/foo`,
 		);
 	});
 
 	test("source alias to local path with path '.' just returns the base", () => {
 		const dep = { source: "mine", path: "." } as unknown as Dependency;
-		expect(canonicalSource(dep, { mine: "~/skills-root" })).toBe(`local:${homedir()}/skills-root`);
+		expect(canonicalSource(dep, { mine: "~/skills-root" })).toBe(`local:${homeDir()}/skills-root`);
 	});
 
 	test("direct local: dep matches the equivalent source-aliased form", () => {
@@ -54,14 +54,14 @@ describe("canonicalSource", () => {
 	test("trailing slash in source-aliased local path is normalized away", () => {
 		const dep = { source: "mine", path: "foo" } as unknown as Dependency;
 		expect(canonicalSource(dep, { mine: "~/skills-root/" })).toBe(
-			`local:${homedir()}/skills-root/foo`,
+			`local:${homeDir()}/skills-root/foo`,
 		);
 	});
 
 	test("path-side trailing slash in source-aliased form is normalized", () => {
 		const dep = { source: "mine", path: "foo/" } as unknown as Dependency;
 		expect(canonicalSource(dep, { mine: "~/skills-root" })).toBe(
-			`local:${homedir()}/skills-root/foo`,
+			`local:${homeDir()}/skills-root/foo`,
 		);
 	});
 
@@ -91,7 +91,7 @@ describe("canonicalSource", () => {
 	test("source path starting with / doesn't produce a double slash", () => {
 		const dep = { source: "mine", path: "/foo" } as unknown as Dependency;
 		expect(canonicalSource(dep, { mine: "~/skills-root" })).toBe(
-			`local:${homedir()}/skills-root/foo`,
+			`local:${homeDir()}/skills-root/foo`,
 		);
 	});
 });

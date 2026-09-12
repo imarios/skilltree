@@ -1,21 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { homedir } from "node:os";
 import {
 	canonicalPath,
 	collapseTilde,
 	expandTilde,
 	getGlobalDir,
 	getGlobalInstallBase,
+	homeDir,
 	isLocalSource,
 } from "../../src/core/paths.js";
 
 describe("expandTilde", () => {
 	test("expands ~ to home directory", () => {
-		expect(expandTilde("~")).toBe(homedir());
+		expect(expandTilde("~")).toBe(homeDir());
 	});
 
 	test("expands ~/ prefix", () => {
-		expect(expandTilde("~/Projects/my-skills")).toBe(`${homedir()}/Projects/my-skills`);
+		expect(expandTilde("~/Projects/my-skills")).toBe(`${homeDir()}/Projects/my-skills`);
 	});
 
 	test("leaves absolute paths unchanged", () => {
@@ -36,7 +36,7 @@ describe("expandTilde", () => {
 });
 
 describe("collapseTilde", () => {
-	const home = homedir();
+	const home = homeDir();
 
 	test("collapses home directory to ~", () => {
 		expect(collapseTilde(home)).toBe("~");
@@ -84,13 +84,13 @@ describe("isLocalSource", () => {
 
 describe("getGlobalDir", () => {
 	test("returns expanded ~/.skilltree", () => {
-		expect(getGlobalDir()).toBe(`${homedir()}/.skilltree`);
+		expect(getGlobalDir()).toBe(`${homeDir()}/.skilltree`);
 	});
 });
 
 describe("getGlobalInstallBase", () => {
 	test("returns expanded ~/.claude", () => {
-		expect(getGlobalInstallBase()).toBe(`${homedir()}/.claude`);
+		expect(getGlobalInstallBase()).toBe(`${homeDir()}/.claude`);
 	});
 });
 

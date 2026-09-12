@@ -1,0 +1,4 @@
+[test]
+# Redirects $HOME so no test can write into the developer's real ~/.claude.
+# See tests/setup/sandbox-home.ts.
+preload = ["./tests/setup/sandbox-home.ts"]

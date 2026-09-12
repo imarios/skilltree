@@ -504,8 +504,8 @@ describe("global deps e2e", () => {
 	});
 
 	test("global lockfile preserves tilde in paths", async () => {
-		const { homedir } = await import("node:os");
-		const home = homedir();
+		const { homeDir } = await import("../../src/core/paths.js");
+		const home = homeDir();
 
 		const { buildLockfile, serializeLockfile, parseLockfile } = await import(
 			"../../src/core/lockfile.js"
