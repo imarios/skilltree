@@ -2,6 +2,7 @@ import { rm, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { detectInstalledAgents, resolveTarget } from "../core/agents.js";
+import { inspectAgentSkill } from "../core/bundled-skill.js";
 import {
 	findExistingGlobalManifest,
 	findExistingManifest,
@@ -14,6 +15,7 @@ import { getGlobalDir } from "../core/paths.js";
 import { type LocalEntry, scanLocalRepo } from "../core/repo-scanner.js";
 import { dim, pluralize, success, warn } from "../core/ui.js";
 import type { Dependency, LocalDependency, Manifest } from "../types.js";
+import { teachCommand } from "./teach.js";
 
 /**
  * Trailing comment hint about the optional `scan.ignore` field. Surfaced in
@@ -55,6 +57,11 @@ export interface InitOptions {
 	askFn?: (question: string) => Promise<string>;
 	/** Override TTY detection. Defaults to process.stdout.isTTY. Tests should set this explicitly. */
 	isInteractive?: boolean;
+	/**
+	 * Test override for `teach`, which writes into each agent's global config.
+	 * Tests about init's offer (#157) must not write outside their temp dir.
+	 */
+	teachFn?: (opts: { homeDir?: string; globalDir?: string }) => Promise<void>;
 }
 
 export async function initCommand(dir: string, options?: InitOptions): Promise<void> {
@@ -137,6 +144,65 @@ export async function initCommand(dir: string, options?: InitOptions): Promise<v
 	if (added.length > 0) {
 		success(`Updated .gitignore (added ${added.join(", ")})`);
 	}
+
+	await offerBundledSkill(options);
+}
+
+/**
+ * Offer to install the bundled skilltree skill for detected agents that don't
+ * have it (#157).
+ *
+ * `teach` is one-time global setup, and until now a first-time user only
+ * learned about it from `doctor`'s remediation line — if they ever ran
+ * `doctor`. `init` is where a new user reliably shows up, so ask there.
+ *
+ * Only a *missing* skill triggers the offer. A stale or unversioned one is
+ * `doctor`'s to report; nagging about versions on a fresh `init` would be noise.
+ *
+ * Skipped under --target, which already means "don't detect, don't prompt".
+ *
+ * Writes outside the project directory, so it never happens silently:
+ * `--yes` accepts, an interactive run asks (defaulting to yes), and a
+ * non-interactive run only prints how to do it.
+ */
+async function offerBundledSkill(options?: InitOptions): Promise<void> {
+	// --target means "don't detect, don't prompt" (#74); the offer is built on
+	// detection, so it steps aside too. Same condition `selectInstallTargets`
+	// uses, so the two can't disagree about whether --target was given.
+	if (options?.targets && options.targets.length > 0) return;
+
+	const detected = await detectInstalledAgents(options?.homeDir);
+	if (detected.length === 0) return;
+
+	const states = await Promise.all(
+		detected.map((agent) => inspectAgentSkill(agent, options?.homeDir)),
+	);
+	const missing = states.filter((state) => state.kind === "missing").map((state) => state.agent);
+	if (missing.length === 0) return;
+
+	const teach = options?.teachFn ?? teachCommand;
+	const teachOptions = { homeDir: options?.homeDir, globalDir: options?.globalDir };
+
+	console.log(`\nThe skilltree skill isn't installed for ${missing.join(", ")}.`);
+
+	if (options?.yes) {
+		await teach(teachOptions);
+		return;
+	}
+
+	const interactive = options?.isInteractive ?? Boolean(process.stdout.isTTY);
+	const ask = options?.askFn ?? (interactive ? readlineAsk : null);
+	if (!ask) {
+		console.log(dim("Run `skilltree teach` to install it."));
+		return;
+	}
+
+	const answer = (await ask("Install it now (recommended)? [Y/n] ")).trim().toLowerCase();
+	if (answer === "" || answer === "y" || answer === "yes") {
+		await teach(teachOptions);
+		return;
+	}
+	console.log(dim("Skipped. Run `skilltree teach` whenever you want it."));
 }
 
 async function initGlobal(globalDirOverride?: string): Promise<void> {

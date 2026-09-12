@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initCommand } from "../../src/commands/init.js";
+import { resolveAgentHome } from "../../src/core/agents.js";
 import { readManifest } from "../../src/core/manifest.js";
 
 let tempDir: string;
@@ -19,6 +20,17 @@ async function makeHomeWith(dir: string, agents: string[]): Promise<string> {
 		// detectDir for codex/copilot differs from the dir we install into.
 		const detectDir = a === "codex" ? ".codex" : a === "copilot" ? ".copilot" : `.${a}`;
 		await mkdir(join(fakeHome, detectDir), { recursive: true });
+		// These tests are about which agents get enrolled (#74). Give each one a
+		// current skilltree skill so init's teach offer (#157) — a separate concern
+		// with its own tests — never fires here. Without this, an `askFn` that
+		// answers "y" or a `yes: true` ran the real `teach` against the
+		// developer's actual global config.
+		const agentHome = resolveAgentHome(a, fakeHome);
+		if (agentHome !== null) {
+			const skillDir = join(agentHome, "skills", "skilltree");
+			await mkdir(skillDir, { recursive: true });
+			await writeFile(join(skillDir, "SKILL.md"), "---\nname: skilltree\nversion: 999.0.0\n---\n");
+		}
 	}
 	return fakeHome;
 }

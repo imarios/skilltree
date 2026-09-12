@@ -77,7 +77,7 @@ describe("initCommand", () => {
 		const fakeHome = join(dir, "home");
 		await mkdir(join(fakeHome, ".codex"), { recursive: true });
 
-		await initCommand(dir, { homeDir: fakeHome });
+		await initCommand(dir, { homeDir: fakeHome, isInteractive: false });
 
 		const content = await readFile(join(dir, ".gitignore"), "utf-8");
 		expect(content).toContain(".agents/skills/");
@@ -93,7 +93,7 @@ describe("initCommand", () => {
 		const fakeHome = join(dir, "home");
 		await mkdir(join(fakeHome, ".copilot"), { recursive: true });
 
-		await initCommand(dir, { homeDir: fakeHome });
+		await initCommand(dir, { homeDir: fakeHome, isInteractive: false });
 
 		const content = await readFile(join(dir, ".gitignore"), "utf-8");
 		expect(content).toContain(".github/skills/");
