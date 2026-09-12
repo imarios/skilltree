@@ -299,9 +299,17 @@ describe("local dep path does not exist", () => {
 			},
 		};
 
-		// Should not throw — resolveAll should handle gracefully
+		// Should not throw — resolveAll collects errors rather than crashing.
 		const result = await resolveAll(manifest, dir);
-		// Entity should still be created (type inferred as skill by default)
-		expect(result.entities.has("skill:ghost")).toBe(true);
+
+		// But it must report the missing path rather than resolve an entity for
+		// it. Registering one anyway is how `install`/`update` came to exit 0 on a
+		// dependency whose source was gone (#207). #166's type-inference fallback
+		// promised this would surface "downstream as a path error"; nothing ever
+		// reported it.
+		expect(result.entities.has("skill:ghost")).toBe(false);
+		expect(
+			result.errors.some((e) => e.includes("Local path does not exist: ./skills/does-not-exist")),
+		).toBe(true);
 	});
 });
