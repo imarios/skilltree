@@ -1,3 +1,9 @@
+## v0.40.0 (2026-09-13)
+
+### Feat
+
+- consistent confirmation and alias flags across the CLI (#214)
+
 ## v0.39.0 (2026-09-12)
 
 ### Feat
