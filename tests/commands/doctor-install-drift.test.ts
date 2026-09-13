@@ -7,7 +7,7 @@
 // because the thing under test is the relationship between the lockfile and
 // what is actually on disk.
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runDoctor } from "../../src/commands/doctor.js";
@@ -135,5 +135,43 @@ describe("doctor install-drift (#187)", () => {
 		const check = await driftCheck(dir, { global: true, globalDir });
 
 		expect(check?.status).toBe("skip");
+	});
+});
+
+/**
+ * #205: entries in the install tree that skilltree didn't install. `doctor`
+ * reports them, but as a warning: a hand-placed skill is a legitimate thing to
+ * have, and a preflight check must not fail on it.
+ */
+describe("doctor install-drift: entries skilltree didn't install (#205)", () => {
+	async function handPlaced(dir: string): Promise<void> {
+		await mkdir(join(dir, ".claude", "skills", "hand-placed"), { recursive: true });
+		await writeFile(
+			join(dir, ".claude", "skills", "hand-placed", "SKILL.md"),
+			"---\nname: hand-placed\n---\n",
+		);
+	}
+
+	test("warns, not fails, on a skill skilltree didn't install", async () => {
+		const dir = await installedProject();
+		await handPlaced(dir);
+
+		const check = await driftCheck(dir);
+
+		expect(check?.status).toBe("warn");
+		expect(check?.detail).toContain("extraneous");
+		expect(check?.detail).toContain("hand-placed");
+		expect(check?.fix).toBeDefined();
+	});
+
+	test("an extraneous entry does not hide a real failure", async () => {
+		const dir = await installedProject();
+		await handPlaced(dir);
+		await rm(join(dir, ".claude", "skills", "my-skill"));
+
+		const check = await driftCheck(dir);
+
+		expect(check?.status).toBe("fail");
+		expect(check?.detail).toContain("missing");
 	});
 });

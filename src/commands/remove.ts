@@ -1,5 +1,4 @@
 import { rm } from "node:fs/promises";
-import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { GLOBAL_MANIFEST, MANIFEST_NEW } from "../core/filenames.js";
 import { getTargetPath } from "../core/installer.js";
@@ -12,14 +11,14 @@ import {
 	writeLockfile,
 } from "../core/lockfile.js";
 import {
-	getInstallTargets,
 	loadManifestOrThrow,
+	resolveInstallBases,
 	validateManifestOrThrow,
 	warnLegacyInstallPath,
 	writeGlobalManifest,
 	writeManifest,
 } from "../core/manifest.js";
-import { getGlobalDir, getGlobalInstallBase } from "../core/paths.js";
+import { getGlobalDir } from "../core/paths.js";
 import { dim, dryRunBanner, pc, success, warnDeprecationOnce } from "../core/ui.js";
 import type { Lockfile, Manifest } from "../types.js";
 
@@ -98,21 +97,6 @@ export async function removeCommand(
 			await writeLockfile(dir, lockfile);
 		}
 	}
-}
-
-/**
- * All install base directories (absolute paths) configured by the manifest.
- *
- * `remove` must clean files from EVERY configured target, not just the first
- * one — otherwise non-default targets (.agents/, .cursor/, .gemini/, ...) keep
- * orphan copies of the removed dep.
- */
-function resolveInstallBases(manifest: Manifest, dir: string, isGlobal: boolean): string[] {
-	if (isGlobal) {
-		const targets = getInstallTargets(manifest, { global: true });
-		return targets.length > 0 ? targets : [getGlobalInstallBase()];
-	}
-	return getInstallTargets(manifest).map((t) => join(dir, t));
 }
 
 async function previewRemove(

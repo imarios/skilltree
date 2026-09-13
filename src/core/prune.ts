@@ -1,5 +1,6 @@
-import { lstat, readlink, rm } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import type { Dirent } from "node:fs";
+import { lstat, readdir, readlink, rm } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import type { EntityType, Lockfile, LockfileEntry } from "../types.js";
 import { computeIntegrity, getTargetPath } from "./installer.js";
 import { installedName } from "./lockfile.js";
@@ -116,4 +117,68 @@ function keptMessage(
 		foreign: "it is now a link to something skilltree did not install",
 	}[state];
 	return `Kept ${name} at ${targetPath}: it is no longer a dependency, but ${why}. Run \`skilltree install --force\` to remove it.`;
+}
+
+/**
+ * Entries in the install tree that skilltree did not install (#205): on disk
+ * under `skills/`, `agents/` or `commands/`, but not in the lockfile.
+ *
+ * The counterpart of pruning. Pruning only removes what the lockfile records,
+ * so leftovers from before there was a lockfile, or skills placed by hand,
+ * would otherwise be invisible. These are reported, never removed: a
+ * hand-placed skill is a legitimate thing to have. Dotfiles and files that
+ * are not entities (a skill is a directory; agents and commands are `.md`) are
+ * ignored. Names are matched through `installedName`, so an aliased entity is
+ * recognised under the name it is installed as.
+ */
+export async function findExtraneous(
+	lockfile: Lockfile,
+	installBases: string[],
+): Promise<Array<{ name: string; type: EntityType; path: string }>> {
+	const managed = new Set(
+		Object.entries(lockfile.packages).map(
+			([key, entry]) => `${entry.type}:${installedName(key, entry)}`,
+		),
+	);
+
+	const found: Array<{ name: string; type: EntityType; path: string }> = [];
+	for (const installBase of installBases) {
+		for (const [subdir, type] of ENTITY_DIRS) {
+			for (const entry of await listDir(join(installBase, subdir))) {
+				const name = entityName(entry, type);
+				if (name === null || managed.has(`${type}:${name}`)) continue;
+				found.push({ name, type, path: join(installBase, subdir, entry.name) });
+			}
+		}
+	}
+	return found.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+const ENTITY_DIRS: ReadonlyArray<readonly [string, EntityType]> = [
+	["skills", "skill"],
+	["agents", "agent"],
+	["commands", "command"],
+];
+
+/** A directory's entries, or none when it doesn't exist. */
+async function listDir(path: string): Promise<Dirent[]> {
+	try {
+		return await readdir(path, { withFileTypes: true });
+	} catch {
+		return [];
+	}
+}
+
+/**
+ * The entity name an install-tree entry stands for, or null when it isn't one:
+ * a skill is a directory (or a link to one), agents and commands are `.md`
+ * files (or links to them), and dotfiles are never entities.
+ */
+function entityName(entry: Dirent, type: EntityType): string | null {
+	if (entry.name.startsWith(".")) return null;
+	if (type === "skill") {
+		return entry.isDirectory() || entry.isSymbolicLink() ? entry.name : null;
+	}
+	const isMarkdown = (entry.isFile() || entry.isSymbolicLink()) && entry.name.endsWith(".md");
+	return isMarkdown ? entry.name.slice(0, -".md".length) : null;
 }
