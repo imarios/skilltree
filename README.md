@@ -393,7 +393,7 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `skilltree init` | Create `skilltree.yml` and update `.gitignore` |
 | `skilltree new <type> <name>` | Scaffold a new skill/agent/command with valid frontmatter and auto-register it |
 | `skilltree add <name>` | Add a dependency (remote, local, or dev) |
-| `skilltree install` | Resolve dependencies and install |
+| `skilltree install` | Resolve dependencies and install; removes deps no longer in the manifest |
 | `skilltree update [name]` | Update to latest versions |
 | `skilltree outdated [name]` | Preview which deps have newer versions (read-only) |
 | `skilltree remove <name>` | Remove a dependency |

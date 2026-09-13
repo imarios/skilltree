@@ -13,6 +13,7 @@ import { computeIntegrity, executeInstall, getTargetPath, planInstall } from "..
 import {
 	buildLockfile,
 	diffManifestLockfile,
+	installedName,
 	readLockfile,
 	writeLockfile,
 } from "../core/lockfile.js";
@@ -357,7 +358,7 @@ async function getModifiedVendoredFiles(
 	const modified: string[] = [];
 	for (const [key, entry] of Object.entries(lockfile.packages)) {
 		if (!entry.integrity) continue;
-		const name = entry.name ?? key;
+		const name = installedName(key, entry);
 		const targetPath = getTargetPath({ name, type: entry.type }, installBase);
 		try {
 			const actual = await computeIntegrity(targetPath);
@@ -398,7 +399,7 @@ function filterUnpublishedLocals(
 
 async function deleteVendoredFiles(lockfile: Lockfile, installBase: string): Promise<void> {
 	for (const [key, entry] of Object.entries(lockfile.packages)) {
-		const name = entry.name ?? key;
+		const name = installedName(key, entry);
 		const targetPath = getTargetPath({ name, type: entry.type }, installBase);
 		try {
 			await rm(targetPath, { recursive: true });

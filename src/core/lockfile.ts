@@ -482,6 +482,16 @@ export function indexLockfileByPack(lockfile: Lockfile): Map<string, string[]> {
  * Build ResolvedEntity map + resolution context from a lockfile.
  * Shared between frozenInstall and resolveFromLockfile to avoid duplication.
  */
+/**
+ * The name an entity is installed under: its `name:` when aliased, otherwise
+ * its lockfile key. Install paths must come from this, never from the key —
+ * an aliased entity lives at `skills/<name>`, and code that used the key looked
+ * in the wrong place (#102 for orphan detection, #205 for deleting files).
+ */
+export function installedName(key: string, entry: Pick<LockfileEntry, "name">): string {
+	return entry.name ?? key;
+}
+
 export function entitiesFromLockfile(lockfile: Lockfile): {
 	entities: Map<string, ResolvedEntity>;
 	resolutionContext: Map<string, string>;
@@ -490,13 +500,13 @@ export function entitiesFromLockfile(lockfile: Lockfile): {
 	const resolutionContext = new Map<string, string>();
 
 	for (const [key, entry] of Object.entries(lockfile.packages)) {
-		const compositeKey = `${entry.type}:${entry.name ?? key}`;
+		const compositeKey = `${entry.type}:${installedName(key, entry)}`;
 		const isLocal = entry.source === "local";
 		const entryPath = expandTilde(entry.path);
 
 		entities.set(compositeKey, {
 			key,
-			name: entry.name ?? key,
+			name: installedName(key, entry),
 			type: entry.type,
 			group: entry.group,
 			repo: entry.repo,
@@ -506,7 +516,7 @@ export function entitiesFromLockfile(lockfile: Lockfile): {
 			local: isLocal,
 			dependencies: entry.dependencies,
 		});
-		resolutionContext.set(entry.name ?? key, compositeKey);
+		resolutionContext.set(installedName(key, entry), compositeKey);
 	}
 
 	return { entities, resolutionContext };
