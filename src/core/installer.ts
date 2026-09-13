@@ -527,7 +527,15 @@ async function setReadOnly(path: string): Promise<void> {
 	}
 }
 
-export type VerifyStatus = "ok" | "modified" | "linked" | "missing" | "stale" | "broken";
+export type VerifyStatus =
+	| "ok"
+	| "modified"
+	| "linked"
+	| "missing"
+	| "stale"
+	| "broken"
+	/** On disk in the install tree, but not installed by skilltree (#205). */
+	| "extraneous";
 
 /**
  * Verify installed entities against lockfile integrity hashes.

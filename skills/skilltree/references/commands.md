@@ -239,12 +239,16 @@ skilltree verify --json --strict   # same gate, machine-readable rows
 - `--json` — Emit `[{name, status}]` instead of the table
 - `--strict` — Exit 1 if any entity has drifted from the lockfile
 
-Reports: `OK` (matches), `MODIFIED` (changed), `LINKED` (symlink), `MISSING`, `STALE` (vendored local dep with newer source), `BROKEN` (dead symlink).
+Reports: `OK` (matches), `MODIFIED` (changed), `LINKED` (symlink), `MISSING`, `STALE` (vendored local dep with newer source), `BROKEN` (dead symlink), `EXTRANEOUS` (in the install tree, but not installed by skilltree).
 
 `OK` and `LINKED` are both healthy — `LINKED` is the steady state for a local
 dependency. Everything else counts as drift, and drift is what `--strict`
 gates on. Without `--strict` the command still exits 0, so existing scripts
 that assume 0 keep working.
+
+`EXTRANEOUS` is not drift: a skill placed by hand is a legitimate thing to
+have, so `--strict` never fails on it. skilltree never removes these either;
+`install` only prunes what the lockfile records.
 
 ## `skilltree check`
 
@@ -305,7 +309,7 @@ Checks performed (in order):
 1. **manifest-schema** — `skilltree.yml` parses and validates. Reports YAML parse errors with the file name (e.g. `Failed to load skilltree.yml: …`) instead of conflating "missing" with "malformed" (issue #123).
 2. **lint** — wraps `skilltree check` (asymmetric publish + frontmatter validity).
 3. **lockfile-sync** — `skilltree.lock` has no `added` / `removed` / `changed` entries vs the manifest. Vacuously passes when the manifest declares zero deps (no lockfile required for an empty project — issue #121). Distinguishes "missing `lockfile_version` key" from "wrong version value" in the error (issue #123).
-4. **install-drift** — the files recorded in the lockfile are actually installed and unmodified. Fails on `missing` / `modified` / `broken`, warns on `stale` (a vendored copy behind its local source is an authoring state, not a broken checkout). Skipped when there is no lockfile, since #3 already reports that; vacuously passes on zero declared deps. Reads the lockfile rather than re-resolving, so it makes no network calls (issue #187). `skilltree verify` reports the same statuses per entity.
+4. **install-drift** — the files recorded in the lockfile are actually installed and unmodified. Fails on `missing` / `modified` / `broken`, warns on `stale` (a vendored copy behind its local source is an authoring state, not a broken checkout) and on `extraneous` (an entry skilltree didn't install, such as a hand-placed skill). Skipped when there is no lockfile, since #3 already reports that; vacuously passes on zero declared deps. Reads the lockfile rather than re-resolving, so it makes no network calls (issue #187). `skilltree verify` reports the same statuses per entity.
 5. **target-consistency** — every `install_targets` entry resolves through the agent registry or is a literal path that exists.
 6. **gitignore** — every `.gitignore` entry that `init` would write for the configured targets is present. Missing entries warn, never fail; extra user-authored lines are ignored.
 7. **registry-reachability** — each configured registry reachable via `git ls-remote` (5s timeout). The probe forces `LC_ALL=C`/`LANG=C`/`GIT_TERMINAL_PROMPT=0` on the spawn so auth/unreachable classification stays correct in non-English locales and so private-repo URLs don't block on a credential prompt (issue #114). Auth-required and timeout are reported as warnings, not failures.
