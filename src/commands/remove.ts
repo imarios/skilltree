@@ -5,6 +5,7 @@ import { GLOBAL_MANIFEST, MANIFEST_NEW } from "../core/filenames.js";
 import { getTargetPath } from "../core/installer.js";
 import {
 	buildNameIndex,
+	installedName,
 	readGlobalLockfile,
 	readLockfile,
 	writeGlobalLockfile,
@@ -135,7 +136,10 @@ async function previewRemove(
 	const entry = lockfile.packages[name];
 	if (entry && !keepFiles) {
 		for (const installBase of installBases) {
-			const targetPath = getTargetPath({ name, type: entry.type }, installBase);
+			const targetPath = getTargetPath(
+				{ name: installedName(name, entry), type: entry.type },
+				installBase,
+			);
 			console.log(dim(`Would remove installed files at ${targetPath}`));
 		}
 	}
@@ -150,7 +154,10 @@ async function previewRemove(
 			console.log(dim(`Would drop orphaned transitive dependency: ${orphan} (files kept)`));
 		} else {
 			for (const installBase of installBases) {
-				const targetPath = getTargetPath({ name: orphan, type: orphanEntry.type }, installBase);
+				const targetPath = getTargetPath(
+					{ name: installedName(orphan, orphanEntry), type: orphanEntry.type },
+					installBase,
+				);
 				console.log(dim(`Would remove orphaned transitive dependency: ${orphan} (${targetPath})`));
 			}
 		}
@@ -261,7 +268,10 @@ async function deleteEntityFiles(
 
 	delete lockfile.packages[name];
 	for (const installBase of installBases) {
-		const targetPath = getTargetPath({ name, type: entry.type }, installBase);
+		const targetPath = getTargetPath(
+			{ name: installedName(name, entry), type: entry.type },
+			installBase,
+		);
 		try {
 			await rm(targetPath, { recursive: true });
 			console.log(dim(`Removed installed files at ${targetPath}`));
@@ -286,7 +296,10 @@ async function cleanOrphans(
 		delete lockfile.packages[orphan];
 		if (!keepFiles && entry) {
 			for (const installBase of installBases) {
-				const targetPath = getTargetPath({ name: orphan, type: entry.type }, installBase);
+				const targetPath = getTargetPath(
+					{ name: installedName(orphan, entry), type: entry.type },
+					installBase,
+				);
 				try {
 					await rm(targetPath, { recursive: true });
 				} catch {
