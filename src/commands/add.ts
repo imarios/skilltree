@@ -555,6 +555,13 @@ function checkOverwrite(
 		}
 		return;
 	}
+	// `frozen` is a version pin, not an orthogonal field, so re-adding drops it
+	// just as it replaces `version` (#203). Say so: silently unfreezing would
+	// undo a choice the user made on purpose.
+	const oldFrozen = (oldDep as { frozen?: unknown }).frozen;
+	if (oldFrozen !== undefined) {
+		warn(`"${name}" was frozen at ${oldFrozen}; re-adding unfreezes it`);
+	}
 	if (oldSource !== newSource) {
 		warn(`overwriting "${name}" — changing source from ${oldSource} to ${newSource}`);
 	} else {

@@ -7,24 +7,29 @@
 
 ## Stubs to implement
 
-- [ ] `src/types.ts`: `LockfileEntry.frozen?` (if chosen)
-- [ ] `src/core/lockfile.ts`: write `frozen` in `buildLockfile`; `classifyDep` compares `locked.frozen` too
-- [ ] `src/commands/freeze.ts`: `freezeCommand`, `unfreezeCommand`
-- [ ] `src/commands/update.ts`: frozen note in `updateAll`, early return in `selectiveUpdate`, skip in `reportBlockingConstraint`
-- [ ] `src/commands/outdated.ts`: `frozenAt`, skip frozen in `readConstraintsByRepo`, `--check`
+- [x] `src/types.ts`: `LockfileEntry.frozen?`
+- [x] `src/core/lockfile.ts`: write `frozen` in `buildLockfile`, carry it in `entitiesFromLockfile`; `classifyDep` compares `locked.frozen` too
+- [x] `src/commands/freeze.ts`: `freezeCommand`, `unfreezeCommand`
+- [x] `src/commands/update.ts`: `reportFrozenDeps` after `updateAll`, early return in `selectiveUpdate` (`reportBlockingConstraint` already skips: frozen deps have no `version`)
+- [x] `src/commands/outdated.ts`: `frozenAt` via `withFrozenAt`, skip frozen in `readConstraintsByRepo`, `--check`, "frozen at" note
 - [ ] `src/commands/list.ts`: `(frozen)` in Version, `frozen` in JSON
 - [ ] `src/commands/add.ts`: warn when re-add drops `frozen`
-- [ ] `src/cli.ts`, `src/commands/completion.ts`, help snapshot
+- [x] `src/cli.ts`, `src/commands/completion.ts`, help snapshot, flag-parity lists
 
 ## Tests written (red → green)
 
-- [ ] LF1–LF4
-- [ ] FR1–FR11
-- [ ] UF1–UF5
-- [ ] UP1–UP3
-- [ ] OD1–OD4
+- [x] LF1–LF4
+- [x] FR1–FR9, FR11 (FR10 global: still to write)
+- [x] UF1–UF5
+- [x] UP1–UP3
+- [x] OD1–OD4
 - [ ] LS1, AD1
-- [ ] CL1, CL2
+- [x] CL1, CL2
+
+## Found during the phase
+
+- `freeze` first deleted the dep's lockfile entry to force re-resolution. That removed the previous commit `planInstall` needs to overwrite stale files (#119 Bug B), so FR1/UF1 reinstalled nothing. Now it clears only the entry's `frozen` marker (and only when freezing), which the diff sees as a change while the commit stays.
+- Pre-commit hooks lint and type-check the whole tree, not just staged files: a red test importing a not-yet-written module blocks every commit.
 
 ## Notes
 
