@@ -22,7 +22,7 @@
 - `resolveRepoVersions` skips frozen deps when building `repoConstraints`, so they never enter `resolveIntersection` or the #119 capped warning.
 - Frozen deps are resolved by a new `resolveFrozen(repo, frozenTag, state)`:
   1. `ensureCached`, `listTags`; find the tag whose version equals `frozenTag` (accept `v`-prefixed or bare tags).
-  2. Read preserved ref `refs/skilltree/frozen/<tag>` (tag name taken from the match, or from the manifest spelling when the tag is gone — try both `vX` and `X`).
+  2. Read preserved ref `refs/skilltree/frozen/<version>` (named by version so it doesn't depend on a tag spelling that may be gone).
   3. Outcomes:
      - tag present, no preserved ref → commit = tag commit; write preserved ref.
      - tag present, preserved ref equal → use it.

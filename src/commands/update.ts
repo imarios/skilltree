@@ -137,6 +137,8 @@ async function updateAll(
 		previousLockfile,
 		...(isGlobal ? { global: true, globalDir } : {}),
 	});
+
+	await reportFrozenDeps(dir, isGlobal, globalDir);
 }
 
 async function selectiveUpdate(
@@ -168,6 +170,15 @@ async function selectiveUpdate(
 	const dep = allDeps[name];
 	if (!dep) {
 		throw new Error(`"${name}" is not in ${isGlobal ? GLOBAL_MANIFEST : MANIFEST_NEW}.`);
+	}
+
+	// A frozen dep resolves at its tag no matter what `update` clears (#203).
+	// Re-resolving would change nothing, so say why instead of printing "Done".
+	if (isRemoteDependency(dep) && dep.frozen !== undefined) {
+		console.log(
+			`"${name}" is frozen at ${dep.frozen}. Run \`skilltree unfreeze ${name}\` to update it.`,
+		);
+		return;
 	}
 
 	// Clear lockfile entries for this dep (and same-repo siblings).
@@ -206,6 +217,27 @@ async function selectiveUpdate(
 	});
 
 	await reportBlockingConstraint(name, dep, isGlobal ? GLOBAL_MANIFEST : MANIFEST_NEW);
+}
+
+/**
+ * After updating everything, name the deps that stayed put because they are
+ * frozen (#203) — the same missing sentence as `reportBlockingConstraint`, for
+ * a pin the user made with `freeze` rather than a version range.
+ *
+ * The manifest was already loaded successfully by the install that just ran,
+ * so a failure here is not worth failing the update over.
+ */
+async function reportFrozenDeps(dir: string, isGlobal: boolean, globalDir: string): Promise<void> {
+	try {
+		const expanded = expandSources(await loadManifestOrThrow(dir, { global: isGlobal, globalDir }));
+		const deps = { ...expanded.dependencies, ...expanded["dev-dependencies"] };
+		for (const [key, dep] of Object.entries(deps)) {
+			if (!isRemoteDependency(dep) || dep.frozen === undefined) continue;
+			console.log(dim(`${key}: frozen at ${dep.frozen} (skilltree unfreeze ${key} to update it)`));
+		}
+	} catch {
+		// See above: a note, not a failure.
+	}
 }
 
 /**

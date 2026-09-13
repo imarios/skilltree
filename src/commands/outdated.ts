@@ -52,6 +52,12 @@ export interface OutdatedRow {
 	 * table said nothing about that before.
 	 */
 	pinnedAt: string | null;
+	/**
+	 * The tag this dep is frozen at (#203), from the lockfile, or null. A frozen
+	 * row still reports `latest` and `bump` — they exist upstream — but carries
+	 * no `pinnedAt`/`cappedBy` (freezing is neither), and `--check` ignores it.
+	 */
+	frozenAt: string | null;
 }
 
 /**
@@ -107,7 +113,9 @@ export async function outdatedCommand(
 	// Resolve rows in parallel — each row hits a different repo cache, and
 	// the network roundtrip dominates per-row work.
 	const rows = await Promise.all(
-		entries.map(([key, entry]) => buildRow(key, entry, constraintsByRepo)),
+		entries.map(async ([key, entry]) =>
+			withFrozenAt(await buildRow(key, entry, constraintsByRepo), entry),
+		),
 	);
 
 	if (opts?.json) {
@@ -116,7 +124,8 @@ export async function outdatedCommand(
 		printOutdatedTable(rows);
 	}
 
-	if (opts?.check && rows.some((r) => r.bump !== null)) {
+	// A frozen dep with newer tags is a pin the user chose, not drift (#203).
+	if (opts?.check && rows.some((r) => r.bump !== null && r.frozenAt === null)) {
 		// Setting process.exitCode (rather than calling process.exit) lets the
 		// process flush stdout/stderr naturally before exiting — important
 		// since we just printed the table or JSON the user wants to see.
@@ -128,7 +137,7 @@ async function buildRow(
 	key: string,
 	entry: LockfileEntry,
 	constraintsByRepo: ConstraintsByRepo,
-): Promise<OutdatedRow> {
+): Promise<Omit<OutdatedRow, "frozenAt">> {
 	const name = entry.name ?? key;
 	const type = entry.type;
 
@@ -244,6 +253,17 @@ async function buildRow(
 	return { name, type, current, currentCommit, latest, bump, repo, cappedBy, pinnedAt };
 }
 
+/**
+ * Attach frozen state to a row (#203). Read from the lockfile rather than the
+ * manifest so it reflects what was actually installed. A frozen dep can be
+ * neither pinned by a range nor capped by a sibling — freezing replaces both —
+ * so those annotations are cleared rather than computed for it.
+ */
+function withFrozenAt(row: Omit<OutdatedRow, "frozenAt">, entry: LockfileEntry): OutdatedRow {
+	if (entry.frozen === undefined) return { ...row, frozenAt: null };
+	return { ...row, pinnedAt: null, cappedBy: null, frozenAt: entry.frozen };
+}
+
 type ConstraintsByRepo = Map<string, Array<{ name: string; constraint: string }>>;
 
 /**
@@ -279,6 +299,9 @@ async function readConstraintsByRepo(
 			if (!isRemoteDependency(dep) && !isSourceDependency(dep)) continue;
 			const repo = "repo" in dep ? dep.repo : undefined;
 			if (repo === undefined) continue;
+			// Frozen deps sit outside their repo's shared resolution (#203): they
+			// neither cap siblings nor count as `*`.
+			if (dep.frozen !== undefined) continue;
 			const constraint = dep.version ?? "*";
 			const list = result.get(repo) ?? [];
 			list.push({ name, constraint });
@@ -383,6 +406,7 @@ const OUTDATED_COLUMNS: ColumnDef<DisplayRow>[] = [
  * rather than a precedence rule.
  */
 function noteFor(r: OutdatedRow): string {
+	if (r.frozenAt !== null) return `frozen at ${r.frozenAt}`;
 	if (r.pinnedAt !== null) return `pinned at ${r.pinnedAt}`;
 	if (r.cappedBy !== null) return `capped by ${r.cappedBy.join(", ")}`;
 	return "";

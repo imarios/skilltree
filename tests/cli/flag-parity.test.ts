@@ -24,7 +24,15 @@ import { buildProgram } from "../../src/cli.js";
  * - `registry {add,remove,update,init}`: out-of-band cache mutations,
  *   not project state — preview unclear
  */
-const MUTATING_COMMANDS = ["install", "update", "remove", "vendor", "unvendor"];
+const MUTATING_COMMANDS = [
+	"install",
+	"update",
+	"freeze",
+	"unfreeze",
+	"remove",
+	"vendor",
+	"unvendor",
+];
 
 /**
  * Commands whose primary effect is to read state and produce output.
@@ -63,6 +71,8 @@ const STATEFUL_COMMANDS = [
 	"add",
 	"install",
 	"update",
+	"freeze",
+	"unfreeze",
 	"remove",
 	"verify",
 	"list",

@@ -8,6 +8,7 @@ import { checkCommand } from "./commands/check.js";
 import { completionCommand } from "./commands/completion.js";
 import { depsTreeCommand } from "./commands/deps.js";
 import { doctorCommand } from "./commands/doctor.js";
+import { freezeCommand, unfreezeCommand } from "./commands/freeze.js";
 import { indexCommand } from "./commands/index-cmd.js";
 import { infoCommand } from "./commands/info.js";
 import { initCommand } from "./commands/init.js";
@@ -206,6 +207,30 @@ export function buildProgram(): Command {
 			await outdatedCommand(process.cwd(), name, {
 				json: opts.json,
 				check: opts.check,
+				global: opts.global,
+			});
+		});
+
+	program
+		.command("freeze <name> [tag]")
+		.description("Pin a dependency to an exact tag, outside its repo's shared version")
+		.option("-n, --dry-run", "Preview the change without writing anything")
+		.option("-g, --global", "Freeze a global dependency")
+		.action(async (name: string, tag: string | undefined, opts) => {
+			await freezeCommand(process.cwd(), name, tag, {
+				dryRun: opts.dryRun,
+				global: opts.global,
+			});
+		});
+
+	program
+		.command("unfreeze <name>")
+		.description("Return a frozen dependency to its repo's shared version")
+		.option("-n, --dry-run", "Preview the change without writing anything")
+		.option("-g, --global", "Unfreeze a global dependency")
+		.action(async (name: string, opts) => {
+			await unfreezeCommand(process.cwd(), name, {
+				dryRun: opts.dryRun,
 				global: opts.global,
 			});
 		});

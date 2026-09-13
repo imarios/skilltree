@@ -14,7 +14,7 @@ import type {
 import { isLocalDependency, isPackDependency, isRemoteDependency } from "../types.js";
 import { resolveGlobalLockfilePath, resolveLockfilePath } from "./filenames.js";
 import type { ResolvedEntity } from "./graph.js";
-import { expandSources } from "./manifest.js";
+import { expandSources, parseFrozenVersion } from "./manifest.js";
 import { collapseTilde, expandTilde } from "./paths.js";
 
 /**
@@ -73,6 +73,10 @@ export function buildLockfile(
 		// hardening pattern — direct deps leave the field unset, not "".
 		if (entity.viaPack !== undefined) {
 			entry.via_pack = entity.viaPack;
+		}
+
+		if (entity.frozen !== undefined) {
+			entry.frozen = entity.frozen;
 		}
 
 		packages[entity.key] = entry;
@@ -515,6 +519,7 @@ export function entitiesFromLockfile(lockfile: Lockfile): {
 			commit: entry.commit,
 			local: isLocal,
 			dependencies: entry.dependencies,
+			...(entry.frozen !== undefined ? { frozen: entry.frozen } : {}),
 		});
 		resolutionContext.set(installedName(key, entry), compositeKey);
 	}
@@ -536,6 +541,22 @@ function classifyDep(
 	if (isRemoteDependency(dep)) {
 		if (dep.repo !== locked.repo) {
 			changed.push(key);
+			return;
+		}
+		// Frozen state is recorded on both sides (#203), so freezing, unfreezing
+		// or moving the tag — by command or by hand — re-resolves. Compared as
+		// versions so `v0.4.0` and `0.4.0` are the same pin.
+		const lockedFrozen =
+			locked.frozen === undefined ? undefined : parseFrozenVersion(locked.frozen);
+		const declaredFrozen = dep.frozen === undefined ? undefined : parseFrozenVersion(dep.frozen);
+		if (lockedFrozen !== declaredFrozen) {
+			changed.push(key);
+			return;
+		}
+		// A frozen dep is pinned to exactly one version, so any other locked
+		// version means the lockfile was written for a different tag.
+		if (declaredFrozen !== undefined) {
+			(locked.version === declaredFrozen ? unchanged : changed).push(key);
 			return;
 		}
 		const constraint = dep.version ?? "*";

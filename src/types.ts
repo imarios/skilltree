@@ -134,6 +134,13 @@ export interface LockfileEntry {
 	 * "Via Pack" column; never used in the install path.
 	 */
 	via_pack?: string;
+	/**
+	 * The `frozen:` tag this entry was resolved under (#203), as written in the
+	 * manifest or inherited from a frozen parent. Recorded so that removing or
+	 * changing `frozen:` re-resolves — a frozen 0.4.0 and a `*` that resolved to
+	 * 0.4.0 are otherwise indistinguishable — and so `list` can show it.
+	 */
+	frozen?: string;
 }
 
 /**
