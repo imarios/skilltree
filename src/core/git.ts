@@ -317,6 +317,26 @@ async function ensureBareFetchRefspec(git: ReturnType<typeof simpleGit>): Promis
  * pull from the stale remote.
  */
 export async function cloneOrFetchBare(repoUrl: string, targetDir: string): Promise<void> {
+	// One clone/fetch per cache directory at a time. Concurrent fetches of one
+	// bare repo can fail on git's ref locks, and `syncBareCache` treats a failed
+	// fetch as a corrupt cache — deleting it under every other caller and
+	// dropping preserved refs (#203). `outdated` builds rows in parallel, so two
+	// deps from one repo hit this. Later callers wait, then fetch in turn.
+	const previous = cacheSyncs.get(targetDir) ?? Promise.resolve();
+	// The previous caller already saw its own failure; this one starts fresh.
+	const current = previous.catch(() => undefined).then(() => syncBareCache(repoUrl, targetDir));
+	cacheSyncs.set(targetDir, current);
+	try {
+		await current;
+	} finally {
+		if (cacheSyncs.get(targetDir) === current) cacheSyncs.delete(targetDir);
+	}
+}
+
+/** The latest clone/fetch queued for each cache directory; see `cloneOrFetchBare`. */
+const cacheSyncs = new Map<string, Promise<void>>();
+
+async function syncBareCache(repoUrl: string, targetDir: string): Promise<void> {
 	if (existsSync(targetDir)) {
 		// Verify it's a valid bare repo with a configured remote before fetching.
 		// HEAD alone is insufficient — git init writes HEAD before the clone
