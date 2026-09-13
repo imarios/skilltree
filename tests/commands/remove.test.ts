@@ -4,10 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addCommand } from "../../src/commands/add.js";
 import { initCommand } from "../../src/commands/init.js";
+import { installCommand } from "../../src/commands/install.js";
 import { removeCommand, resolveRemoveSkipConfirmation } from "../../src/commands/remove.js";
 import { readLockfile } from "../../src/core/lockfile.js";
 import { readManifest } from "../../src/core/manifest.js";
 import { _resetDeprecationWarningsForTests } from "../../src/core/ui.js";
+import { createTestRepo } from "../helpers/git-fixtures.js";
 
 let tempDir: string;
 
@@ -24,6 +26,32 @@ afterEach(async () => {
 });
 
 describe("removeCommand", () => {
+	/**
+	 * #205: an aliased dep installs under its real name (`name:`), not its
+	 * manifest key. `remove` built the install path from the key, found nothing
+	 * there, and reported success with the files still in place.
+	 */
+	test("removes an aliased dep's files, which live under its real name", async () => {
+		const dir = await setup();
+		const repo = await createTestRepo(
+			dir,
+			"aliasrepo",
+			[{ path: "skills/bar", name: "bar" }],
+			"1.0.0",
+		);
+		await writeFile(
+			join(dir, "skilltree.yml"),
+			`install_targets: [claude]\ndependencies:\n  my-bar:\n    repo: file://${repo}\n    path: skills/bar\n    version: "*"\n    name: bar\n`,
+		);
+		await installCommand(dir, {});
+		const installed = join(dir, ".claude", "skills", "bar");
+		await stat(installed);
+
+		await removeCommand("my-bar", dir, { yes: true });
+
+		await expect(stat(installed)).rejects.toThrow();
+	});
+
 	test("removes a dependency from manifest", async () => {
 		const dir = await setup();
 		await addCommand("my-skill", { repo: "github.com/user/repo", path: "skills/my-skill" }, dir);

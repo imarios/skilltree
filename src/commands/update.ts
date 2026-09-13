@@ -17,7 +17,7 @@ import { expandSources, loadManifestOrThrow } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
 import { filterSemverTags } from "../core/resolver.js";
 import { dim, pc } from "../core/ui.js";
-import type { Dependency } from "../types.js";
+import type { Dependency, Lockfile } from "../types.js";
 import { isRemoteDependency } from "../types.js";
 import { installCommand } from "./install.js";
 
@@ -40,12 +40,19 @@ export async function updateCommand(
 		? resolveGlobalLockfilePath(globalDir).path
 		: resolveLockfilePath(dir).path;
 
+	// The lockfile as it was before `update` clears or trims it: the baseline
+	// `install` prunes against (#205). Without it, install would find no record
+	// of what it previously installed. A corrupt lockfile is no baseline, so
+	// fall back to not pruning rather than failing an update that was about to
+	// replace it anyway.
+	const previousLockfile = await readLockfileOrNull(isGlobal, dir, globalDir);
+
 	return withLockfileRollback(lockfilePath, !dryRun, async () => {
 		if (!name) {
-			return updateAll(dir, isGlobal, globalDir, dryRun);
+			return updateAll(dir, isGlobal, globalDir, dryRun, previousLockfile);
 		}
 
-		return selectiveUpdate(name, dir, isGlobal, globalDir, dryRun);
+		return selectiveUpdate(name, dir, isGlobal, globalDir, dryRun, previousLockfile);
 	});
 }
 
@@ -86,6 +93,18 @@ async function withLockfileRollback(
 	}
 }
 
+async function readLockfileOrNull(
+	isGlobal: boolean,
+	dir: string,
+	globalDir: string,
+): Promise<Lockfile | null> {
+	try {
+		return isGlobal ? await readGlobalLockfile(globalDir) : await readLockfile(dir);
+	} catch {
+		return null;
+	}
+}
+
 async function readFileOrNull(path: string): Promise<string | null> {
 	try {
 		return await readFile(path, "utf-8");
@@ -99,6 +118,7 @@ async function updateAll(
 	isGlobal: boolean,
 	globalDir: string,
 	dryRun?: boolean,
+	previousLockfile: Lockfile | null = null,
 ): Promise<void> {
 	console.log(`Updating all ${isGlobal ? "global " : ""}dependencies...`);
 
@@ -114,6 +134,7 @@ async function updateAll(
 		dryRun,
 		force: true,
 		reason: "update",
+		previousLockfile,
 		...(isGlobal ? { global: true, globalDir } : {}),
 	});
 }
@@ -124,6 +145,7 @@ async function selectiveUpdate(
 	isGlobal: boolean,
 	globalDir: string,
 	dryRun?: boolean,
+	previousLockfile: Lockfile | null = null,
 ): Promise<void> {
 	console.log(`Updating ${name}...`);
 
@@ -135,6 +157,7 @@ async function selectiveUpdate(
 			dryRun,
 			force: true,
 			reason: "update",
+			previousLockfile,
 			...(isGlobal ? { global: true, globalDir } : {}),
 		});
 		return;
@@ -178,6 +201,7 @@ async function selectiveUpdate(
 		dryRun,
 		force: true,
 		reason: "update",
+		previousLockfile,
 		...(isGlobal ? { global: true, globalDir } : {}),
 	});
 

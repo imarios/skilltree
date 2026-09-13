@@ -36,6 +36,7 @@ import {
 	warnLegacyInstallPath,
 } from "../core/manifest.js";
 import { collapseTilde, expandTilde, getGlobalDir, getGlobalInstallBase } from "../core/paths.js";
+import { pruneRemovedEntities } from "../core/prune.js";
 import {
 	dim,
 	error,
@@ -63,6 +64,13 @@ export interface InstallCommandOptions extends InstallOptions {
 	 * moment earlier. Omitted means "the diff speaks for itself".
 	 */
 	reason?: "update";
+	/**
+	 * The lockfile to prune against, when the caller changed the one on disk
+	 * before calling install (#205). `update` clears or trims `skilltree.lock`
+	 * first, so the file install reads no longer records what was installed.
+	 * Omitted means "prune against the lockfile on disk".
+	 */
+	previousLockfile?: Lockfile | null;
 }
 
 /**
@@ -268,6 +276,8 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 		existingLockfile,
 	);
 
+	await pruneAfterInstall(result.entities, existingLockfile, targets, dir, options);
+
 	if (options.dryRun) return;
 
 	warnStaleTargets(existingLockfile, getInstallTargets(manifest));
@@ -283,6 +293,29 @@ export async function installCommand(dir: string, options: InstallCommandOptions
 	await writeLockfile(dir, lockfile);
 	console.log(dim("Updated skilltree.lock"));
 	success("Done.");
+}
+
+/**
+ * Remove entities that left the manifest since the lockfile was written
+ * (#205). The rules for what is safe to delete live in `pruneRemovedEntities`.
+ */
+async function pruneAfterInstall(
+	entities: Map<string, ResolvedEntity>,
+	existingLockfile: Lockfile | null,
+	targets: TargetInfo[],
+	baseDir: string,
+	options: InstallCommandOptions,
+): Promise<void> {
+	const previous =
+		options.previousLockfile !== undefined ? options.previousLockfile : existingLockfile;
+	await pruneRemovedEntities(previous, entities.values(), {
+		baseDir,
+		installBases: targets.map((target) => target.installBase),
+		dryRun: options.dryRun,
+		// `update` always installs with force so it can take new versions. That
+		// must not double as permission to delete an orphan the user edited.
+		removeModified: options.force === true && options.reason !== "update",
+	});
 }
 
 async function installToTargets(
@@ -421,6 +454,8 @@ async function installGlobal(options: InstallCommandOptions): Promise<void> {
 		options,
 		existingLockfile,
 	);
+
+	await pruneAfterInstall(result.entities, existingLockfile, targets, globalDir, options);
 
 	if (options.dryRun) return;
 

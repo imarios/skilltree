@@ -421,10 +421,12 @@ Updated skilltree.lock
 | Manifest changed | Resolve new/changed entries only. Keep locked versions for rest. |
 | `--frozen` | Lockfile is sole source of truth. Skip **version resolution** (no tag listing, no constraint solving). Still fetches repo content at locked commit SHAs (git clone/fetch needed on clean machines). Error if manifest/lockfile out of sync. Local deps still read from filesystem; if local dep's frontmatter adds a transitive dep not in lockfile, error. (Like `npm ci`.) |
 
+**Pruning:** entities no longer in the manifest are removed, the way npm prunes packages nothing depends on. Only entities the previous lockfile lists are candidates, and only when their files are still what skilltree installed; an orphan with local edits is kept with a warning. See `reference.md` for the full rules.
+
 **Flags:**
 - `--prod` -- Only `dependencies`, skip `dev-dependencies`. Uses `src_install_path` if set, otherwise `--install-path` or the default `.claude/` path.
 - `--frozen` -- Lockfile-only, error if out of sync
-- `--force` -- Overwrite local modifications
+- `--force` -- Overwrite local modifications, and remove orphaned entities that have them
 - `--dry-run` -- Show plan without installing
 - `--install-path <path>` -- Override target (e.g., `./build/.claude` for Docker). Creates `skills/`, `agents/`, and `commands/` subdirs. Local deps copied, not symlinked. Takes precedence over `src_install_path`.
 
@@ -439,7 +441,7 @@ Updated skilltree.lock. Installing...done.
 $ skilltree update
 ```
 
-Resolves new versions, updates lockfile, and reinstalls (like `npm update`). `--dry-run` previews version bumps without applying.
+Resolves new versions, updates lockfile, and reinstalls (like `npm update`). Like `install`, it removes dependencies no longer in the manifest; an orphan with local edits is always kept. `--dry-run` previews version bumps without applying.
 
 ### `skilltree remove <name>`
 ```bash

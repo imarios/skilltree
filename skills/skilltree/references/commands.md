@@ -117,7 +117,7 @@ skilltree install --install-path ./build/.claude  # Docker build
 **Flags:**
 - `--prod` — Skip `dev-dependencies`
 - `--frozen` — Use lockfile only, error if out of sync (like `npm ci`)
-- `-f, --force` — Overwrite locally modified installed files
+- `-f, --force` — Overwrite locally modified installed files, and remove orphaned entities that have local edits
 - `-n, --dry-run` — Show install plan without writing files
 - `--install-path <path>` — Override install directory; copies local deps instead of symlinking
 - `-g, --global` — Install global dependencies to ~/.claude/
@@ -127,6 +127,7 @@ skilltree install --install-path ./build/.claude  # Docker build
 - Subsequent installs: reads lockfile, no re-resolution
 - Manifest changed: resolves new/changed entries only
 - Local deps: always re-read from filesystem
+- Deps removed from the manifest are pruned: an entity is deleted only if the previous lockfile lists it and its files are unchanged. Edited orphans are kept with a warning (`--force` removes them); hand-placed skills are never touched
 
 ## `skilltree update [name]`
 
@@ -142,6 +143,8 @@ skilltree update --global         # Update global deps
 **Flags:**
 - `-n, --dry-run` — Preview version bumps without applying
 - `-g, --global` — Update global dependencies
+
+Like `install`, `update` prunes deps no longer in the manifest. An orphan with local edits is always kept.
 
 `update` never crosses a version constraint you wrote — an exact `1.0.0`, or a
 range like `~1.0.0` that excludes the newer tag. When a constraint is what kept
