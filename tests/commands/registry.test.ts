@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,9 +14,11 @@ import {
 	registryRemoveCommand,
 	registryUpdateCommand,
 	resolveRegistryAddUrl,
+	resolveRegistryAlias,
 } from "../../src/commands/registry.js";
 import { getRegistryIndexPath, writeRegistryIndex } from "../../src/core/registry-cache.js";
 import { readConfig, writeConfig } from "../../src/core/registry-config.js";
+import { _resetDeprecationWarningsForTests } from "../../src/core/ui.js";
 import type { RegistryIndex } from "../../src/types.js";
 import { createTestRepo } from "../helpers/git-fixtures.js";
 
@@ -168,6 +170,71 @@ describe("resolveRegistryAddUrl", () => {
 		expect(() => resolveRegistryAddUrl(undefined, "")).toThrow(/required/i);
 		expect(() => resolveRegistryAddUrl("", undefined)).toThrow(/required/i);
 		expect(() => resolveRegistryAddUrl("", "")).toThrow(/required/i);
+	});
+});
+
+function captureWarnings(fn: () => void): string[] {
+	const warnings: string[] = [];
+	const original = console.warn;
+	console.warn = (msg: string) => {
+		warnings.push(msg);
+	};
+	try {
+		fn();
+	} finally {
+		console.warn = original;
+	}
+	return warnings;
+}
+
+/**
+ * #23: `registry add --name` collided with every other "name" in the CLI (the
+ * thing's name, `add <name>`, `--registry <name>`). `--as <alias>` says what it
+ * is. `--name` keeps working with a deprecation warning.
+ */
+describe("resolveRegistryAlias (#23)", () => {
+	beforeEach(() => {
+		_resetDeprecationWarningsForTests();
+	});
+
+	test("--as sets the alias without any warning", () => {
+		const warnings = captureWarnings(() => {
+			expect(resolveRegistryAlias("internal", undefined)).toBe("internal");
+		});
+		expect(warnings).toEqual([]);
+	});
+
+	test("no flag leaves the alias to be inferred from the URL", () => {
+		expect(resolveRegistryAlias(undefined, undefined)).toBeUndefined();
+	});
+
+	test("deprecated --name still works, and says to use --as", () => {
+		const warnings = captureWarnings(() => {
+			expect(resolveRegistryAlias(undefined, "internal")).toBe("internal");
+		});
+		expect(warnings.length).toBe(1);
+		expect(warnings[0]).toContain("--as");
+		expect(warnings[0]).toContain("DEPRECATION");
+	});
+
+	test("--as and --name that agree are accepted", () => {
+		captureWarnings(() => {
+			expect(resolveRegistryAlias("internal", "internal")).toBe("internal");
+		});
+	});
+
+	test("--as and --name that disagree are an error", () => {
+		captureWarnings(() => {
+			expect(() => resolveRegistryAlias("internal", "other")).toThrow(/conflict/i);
+		});
+	});
+
+	test("an empty alias is an explicit error, not a silent fallback to inference", () => {
+		// CLAUDE.md "presence check ≠ value check": `--as ""` was authored.
+		captureWarnings(() => {
+			expect(() => resolveRegistryAlias("", undefined)).toThrow(/empty/i);
+			expect(() => resolveRegistryAlias(undefined, "")).toThrow(/empty/i);
+		});
 	});
 });
 

@@ -98,7 +98,7 @@ describe("dev_install_path deprecation warning", () => {
 		// Install first so there's something to remove.
 		await installCommand(dir, {});
 
-		const warns = await captureWarn(() => removeCommand("my-skill", dir, { force: true }));
+		const warns = await captureWarn(() => removeCommand("my-skill", dir, { yes: true }));
 		expect(warns.some((w) => w.includes("deprecated"))).toBe(true);
 	});
 });
@@ -132,7 +132,7 @@ describe("global manifest rejects legacy install-path fields", () => {
 		);
 
 		await expect(
-			removeCommand("my-skill", dir, { global: true, globalDir, force: true }),
+			removeCommand("my-skill", dir, { global: true, globalDir, yes: true }),
 		).rejects.toThrow("Global manifest validation failed");
 	});
 });

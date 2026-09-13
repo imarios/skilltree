@@ -120,4 +120,30 @@ export function throwOnResolutionErrors(result: { errors: string[]; warnings: st
 	}
 }
 
+const DEPRECATION_PREFIX = pc.yellow("[DEPRECATION]");
+
+/**
+ * Once-per-process gate for deprecation warnings, keyed by a stable string, so
+ * each deprecation warns once per run however many code paths reach it, and
+ * silencing one never silences another. Lives here rather than beside any one
+ * deprecation because there is more than one kind: filename extensions and
+ * renamed CLI flags (#23).
+ */
+const warnedDeprecations = new Set<string>();
+
+/** Print a `[DEPRECATION]` warning the first time `key` is seen in this process. */
+export function warnDeprecationOnce(key: string, message: string): void {
+	if (warnedDeprecations.has(key)) return;
+	warnedDeprecations.add(key);
+	console.warn(`${DEPRECATION_PREFIX} ${message}`);
+}
+
+/**
+ * Test-only helper: reset the gate so each test that asserts on a deprecation
+ * warning sees it fire. Not part of the public CLI API.
+ */
+export function _resetDeprecationWarningsForTests(): void {
+	warnedDeprecations.clear();
+}
+
 export { pc };

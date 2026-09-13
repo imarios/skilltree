@@ -348,7 +348,7 @@ skilltree targets detect                # auto-detect installed agents
 skilltree init --target claude --target codex   # opt in at init time, skip detection
 ```
 
-By default `init` enrols only Claude Code if multiple agents are detected — interactive runs get a prompt to include the rest; CI/non-interactive runs stay on the safe `[claude]` default. Use `--target` (repeatable) or `--yes` to enrol others up front, or `skilltree targets add <agent>` / `skilltree targets detect` later.
+By default `init` enrols only Claude Code if multiple agents are detected — interactive runs get a prompt to include the rest; CI/non-interactive runs stay on the safe `[claude]` default. Use `--target` (repeatable) or `--yes` to enrol others up front, or `skilltree targets add <target>` / `skilltree targets detect` later.
 
 Migrating from `dev_install_path`? Run `skilltree targets migrate`.
 
@@ -432,8 +432,9 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `--json` | list, verify, outdated, search, info, scan, deps tree, doctor | Emit machine-readable JSON |
 | `--prod` | install | Skip dev-dependencies |
 | `--frozen` | install, vendor | Lockfile-only, error if out of sync (CI mode) |
-| `--force` | install, remove | Overwrite modified files / skip confirmation |
-| `--dry-run` | install, update, vendor | Preview without applying |
+| `--force` | init, install, unvendor | Overwrite files on disk (an existing manifest, locally modified files) |
+| `--yes` | init, add, remove | Skip confirmation prompts |
+| `--dry-run` | install, update, remove, vendor, unvendor | Preview without applying |
 | `--install-path <path>` | install | Override install directory (copies instead of symlinks) |
 | `--dev` | add | Add as dev dependency |
 | `--local <path>` | add | Add a local (symlinked) dependency |

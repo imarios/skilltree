@@ -229,7 +229,7 @@ Removed dev_install_path from skilltree.yml.
 
 ### `skilltree targets`
 - [ ] `targets list` shows detected + configured agents
-- [ ] `targets add <agent>` adds to manifest
+- [ ] `targets add <target>` adds to manifest
 - [ ] `targets add <path>` adds custom path to manifest
 - [ ] `targets remove <agent>` removes from manifest
 - [ ] `targets remove` last target → error

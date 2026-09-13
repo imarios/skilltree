@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import pc from "picocolors";
 import { getGlobalDir } from "./paths.js";
+import { warnDeprecationOnce } from "./ui.js";
 
 // .yml is the canonical extension; .yaml is still accepted on read with a
 // deprecation warning so existing projects keep working without changes.
@@ -17,26 +17,6 @@ export const GLOBAL_MANIFEST_ALT = "global.yaml";
 export const GLOBAL_LOCKFILE = "global.lock";
 export const INDEX_NEW = "skilltree-index.yml";
 export const INDEX_DISPLAY = INDEX_NEW;
-
-const DEPRECATION_PREFIX = pc.yellow("[DEPRECATION]");
-
-// Once-per-process gate for deprecation warnings, keyed by a stable string
-// so callers don't accumulate sibling boolean flags as new deprecations land.
-const warnedOnce = new Set<string>();
-
-function warnOnce(key: string, message: string): void {
-	if (warnedOnce.has(key)) return;
-	warnedOnce.add(key);
-	console.warn(message);
-}
-
-/**
- * Test-only helper: reset the warn-once gate so each test that wants to
- * assert on a deprecation warning sees it fire. Not part of the public CLI API.
- */
-export function _resetDeprecationWarningsForTests(): void {
-	warnedOnce.clear();
-}
 
 /**
  * Resolve the manifest filename in a directory.
@@ -58,9 +38,9 @@ export function resolveManifestPath(dir: string): { path: string; filename: stri
 		return { path: newPath, filename: MANIFEST_NEW };
 	}
 	if (altExists) {
-		warnOnce(
+		warnDeprecationOnce(
 			"manifest-yaml-ext",
-			`${DEPRECATION_PREFIX} Found ${MANIFEST_NEW_ALT} — \`.yml\` is now the default extension. Rename to ${MANIFEST_NEW} when convenient; ${MANIFEST_NEW_ALT} is still accepted.`,
+			`Found ${MANIFEST_NEW_ALT} — \`.yml\` is now the default extension. Rename to ${MANIFEST_NEW} when convenient; ${MANIFEST_NEW_ALT} is still accepted.`,
 		);
 		return { path: altPath, filename: MANIFEST_NEW_ALT };
 	}
@@ -137,9 +117,9 @@ export function resolveGlobalManifestPath(globalDir?: string): {
 		);
 	}
 	if (yamlExists && !ymlExists) {
-		warnOnce(
+		warnDeprecationOnce(
 			"global-manifest-yaml-ext",
-			`${DEPRECATION_PREFIX} Found ${GLOBAL_MANIFEST_ALT} in ${dir} — \`.yml\` is now the default extension. Rename to ${GLOBAL_MANIFEST} when convenient; ${GLOBAL_MANIFEST_ALT} is still accepted.`,
+			`Found ${GLOBAL_MANIFEST_ALT} in ${dir} — \`.yml\` is now the default extension. Rename to ${GLOBAL_MANIFEST} when convenient; ${GLOBAL_MANIFEST_ALT} is still accepted.`,
 		);
 		return { path: yamlPath, filename: GLOBAL_MANIFEST_ALT };
 	}

@@ -447,7 +447,7 @@ $ skilltree remove code-review
 Warning: ci-pipeline depends on code-review. Remove anyway? [y/N]
 ```
 
-Removes from manifest, lockfile, and installed files. Cleans orphaned transitive deps (any entity no longer reachable from a remaining manifest entry via the dependency graph, including cascading: if A -> B -> C and A is removed, both B and C are orphaned unless reachable by another path). `--force` skips confirmation. `--keep-files` leaves installed files in place.
+Removes from manifest, lockfile, and installed files. Cleans orphaned transitive deps (any entity no longer reachable from a remaining manifest entry via the dependency graph, including cascading: if A -> B -> C and A is removed, both B and C are orphaned unless reachable by another path). `--yes` skips confirmation (`--force` is still accepted, with a deprecation warning). `--keep-files` leaves installed files in place.
 
 ### `skilltree deps tree`
 ```bash

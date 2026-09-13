@@ -198,7 +198,7 @@ exports[`CLI help snapshots \`remove --help\` is stable 1`] = `
 Remove a dependency
 
 Options:
-  -f, --force    Skip confirmation
+  -y, --yes      Skip confirmation
   --keep-files   Leave installed files in place
   -n, --dry-run  Preview the removal without changing anything
   -g, --global   Remove from global dependencies
@@ -381,7 +381,7 @@ Commands:
 
   Examples:
     skilltree registry add github.com/VoltAgent/awesome-agent-skills
-    skilltree registry add --repo github.com/trailofbits/skills --name security
+    skilltree registry add --repo github.com/trailofbits/skills --as security
   remove <name>            Remove a registered registry
   list [options]           List all registered registries
   update [options] [name]  Fetch registry repos and rebuild search indexes
@@ -415,11 +415,11 @@ transfers).
 
 Examples:
   skilltree registry add github.com/VoltAgent/awesome-agent-skills
-  skilltree registry add --repo github.com/trailofbits/skills --name security
+  skilltree registry add --repo github.com/trailofbits/skills --as security
 
 Options:
   -r, --repo <url>  Git repository URL (alias for the positional <url>)
-  --name <alias>    Custom name for the registry
+  --as <alias>      Custom name for the registry
   -h, --help        display help for command
 "
 `;

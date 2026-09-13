@@ -136,7 +136,7 @@ describe("e2e lifecycle: init → add → install → verify → update → remo
 		expect(updatedContent).toContain("Updated content for v1.1.0");
 
 		// ── STEP 7: remove ──
-		await removeCommand("local-skill", dir, { force: true });
+		await removeCommand("local-skill", dir, { yes: true });
 
 		// Verify removed from manifest
 		const manifestAfterRemove = await readFile(join(dir, "skilltree.yml"), "utf-8");

@@ -251,7 +251,7 @@ describe("global deps e2e", () => {
 		await removeCommand("skill-a", dir, {
 			global: true,
 			globalDir,
-			force: true,
+			yes: true,
 		});
 
 		const updatedManifest = await readGlobalManifest(globalDir);
@@ -495,7 +495,7 @@ describe("global deps e2e", () => {
 		await removeCommand("code-reviewer", dir, {
 			global: true,
 			globalDir,
-			force: true,
+			yes: true,
 		});
 
 		const updatedManifest = await readGlobalManifest(globalDir);

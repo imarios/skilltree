@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import pkg from "../package.json";
 import { completeCommand } from "./commands/_complete.js";
 import { addCommand } from "./commands/add.js";
@@ -23,8 +23,9 @@ import {
 	registryRemoveCommand,
 	registryUpdateCommand,
 	resolveRegistryAddUrl,
+	resolveRegistryAlias,
 } from "./commands/registry.js";
-import { removeCommand } from "./commands/remove.js";
+import { removeCommand, resolveRemoveSkipConfirmation } from "./commands/remove.js";
 import { scanCommand } from "./commands/scan.js";
 import { searchCommand } from "./commands/search.js";
 import {
@@ -224,14 +225,16 @@ export function buildProgram(): Command {
 	program
 		.command("remove <name>")
 		.description("Remove a dependency")
-		.option("-f, --force", "Skip confirmation")
+		.option("-y, --yes", "Skip confirmation")
+		// Deprecated spelling of --yes (#23): hidden from --help, still accepted.
+		.addOption(new Option("-f, --force").hideHelp())
 		.option("--keep-files", "Leave installed files in place")
 		.option("-n, --dry-run", "Preview the removal without changing anything")
 		.option("-g, --global", "Remove from global dependencies")
 		.option("-D, --dev", "Only remove from dev-dependencies (mirrors `add -D`)")
 		.action(async (name: string, opts) => {
 			await removeCommand(name, process.cwd(), {
-				force: opts.force,
+				yes: resolveRemoveSkipConfirmation({ yes: opts.yes, force: opts.force }),
 				keepFiles: opts.keepFiles,
 				dryRun: opts.dryRun,
 				global: opts.global,
@@ -396,13 +399,15 @@ export function buildProgram(): Command {
 	registry
 		.command("add [url]")
 		.description(
-			"Register a git repo as a searchable registry\n\nThe URL can be passed positionally or via --repo (so muscle memory from `add` transfers).\n\nExamples:\n  skilltree registry add github.com/VoltAgent/awesome-agent-skills\n  skilltree registry add --repo github.com/trailofbits/skills --name security",
+			"Register a git repo as a searchable registry\n\nThe URL can be passed positionally or via --repo (so muscle memory from `add` transfers).\n\nExamples:\n  skilltree registry add github.com/VoltAgent/awesome-agent-skills\n  skilltree registry add --repo github.com/trailofbits/skills --as security",
 		)
 		.option("-r, --repo <url>", "Git repository URL (alias for the positional <url>)")
-		.option("--name <alias>", "Custom name for the registry")
+		.option("--as <alias>", "Custom name for the registry")
+		// Deprecated spelling of --as (#23): hidden from --help, still accepted.
+		.addOption(new Option("--name <alias>").hideHelp())
 		.action(async (url: string | undefined, opts) => {
 			const resolvedUrl = resolveRegistryAddUrl(url, opts.repo);
-			await registryAddCommand(resolvedUrl, { name: opts.name });
+			await registryAddCommand(resolvedUrl, { name: resolveRegistryAlias(opts.as, opts.name) });
 		});
 
 	registry

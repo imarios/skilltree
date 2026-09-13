@@ -8,7 +8,7 @@ import {
 } from "../core/registry-cache.js";
 import { addRegistry, listRegistries, removeRegistry } from "../core/registry-config.js";
 import { scanRegistry } from "../core/registry-scanner.js";
-import { dim, pc, success, warn } from "../core/ui.js";
+import { dim, pc, success, warn, warnDeprecationOnce } from "../core/ui.js";
 import type { RegistryEntry, RegistryIndex } from "../types.js";
 
 /**
@@ -29,6 +29,38 @@ export const DEFAULT_REGISTRIES: RegistryEntry[] = [
 
 export interface RegistryAddOptions {
 	name?: string;
+}
+
+/**
+ * The registry alias from `--as`, or from the deprecated `--name` (#23).
+ *
+ * `--name` collided with every other "name" in the CLI — the entity in
+ * `add <name>`, the registry in `--registry <name>` — while this flag sets an
+ * alias. `--name` still works, with a deprecation warning. Same presence-check
+ * rules as `resolveRegistryAddUrl`: an authored empty alias is an error, not a
+ * silent fallback to inferring one from the URL.
+ */
+export function resolveRegistryAlias(
+	asFlag: string | undefined,
+	nameFlag: string | undefined,
+): string | undefined {
+	if (nameFlag !== undefined) {
+		warnDeprecationOnce(
+			"registry-add-name-flag",
+			"`skilltree registry add --name` is now `--as`. `--name` still works for now.",
+		);
+	}
+	if (asFlag === "" || nameFlag === "") {
+		throw new Error(
+			"the registry alias cannot be empty. Pass one with --as, or omit it to infer it from the URL.",
+		);
+	}
+	if (asFlag !== undefined && nameFlag !== undefined && asFlag !== nameFlag) {
+		throw new Error(
+			`conflicting aliases: --as "${asFlag}" vs --name "${nameFlag}". Pass only --as.`,
+		);
+	}
+	return asFlag ?? nameFlag;
 }
 
 /**

@@ -208,7 +208,7 @@ Remove a dependency from manifest, lockfile, and installed files.
 
 ```bash
 skilltree remove code-review
-skilltree remove code-review --force       # Skip dependents warning
+skilltree remove code-review --yes         # Skip the dependents confirmation
 skilltree remove code-review --keep-files  # Remove from manifest but keep files
 skilltree remove code-review --global     # Remove from global deps
 ```
@@ -476,11 +476,11 @@ Register a git repo as a searchable registry for skill discovery.
 
 ```bash
 skilltree registry add github.com/org/shared-skills
-skilltree registry add github.com/company/private-skills --name internal
+skilltree registry add github.com/company/private-skills --as internal
 ```
 
 **Flags:**
-- `--name <alias>` — Custom name for the registry (default: last path segment of URL)
+- `--as <alias>` — Custom name for the registry (default: last path segment of URL)
 
 ## `skilltree registry remove <name>`
 

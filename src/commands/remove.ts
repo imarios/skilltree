@@ -19,11 +19,12 @@ import {
 	writeManifest,
 } from "../core/manifest.js";
 import { getGlobalDir, getGlobalInstallBase } from "../core/paths.js";
-import { dim, dryRunBanner, pc, success } from "../core/ui.js";
+import { dim, dryRunBanner, pc, success, warnDeprecationOnce } from "../core/ui.js";
 import type { Lockfile, Manifest } from "../types.js";
 
 export interface RemoveOptions {
-	force?: boolean;
+	/** Skip the "X depends on Y. Remove anyway?" confirmation. */
+	yes?: boolean;
 	keepFiles?: boolean;
 	global?: boolean;
 	globalDir?: string; // test override
@@ -192,12 +193,31 @@ function validateRemoveTarget(
 	}
 }
 
+/**
+ * Whether `remove` should skip its dependents confirmation (#23).
+ *
+ * `-y, --yes` is the flag, as on `init` and `add`. It used to be `-f, --force`,
+ * but everywhere else `--force` means "overwrite files on disk" (`init`,
+ * `install`, `unvendor`), so `remove -f` put a different meaning under the same
+ * letter. `--force` still works here, with a deprecation warning, so no script
+ * breaks.
+ */
+export function resolveRemoveSkipConfirmation(opts: { yes?: boolean; force?: boolean }): boolean {
+	if (opts.force === true) {
+		warnDeprecationOnce(
+			"remove-force-flag",
+			"`skilltree remove --force` is now `--yes` (`-y`). `--force` still works for now.",
+		);
+	}
+	return opts.yes === true || opts.force === true;
+}
+
 async function confirmIfDependents(
 	name: string,
 	lockfile: Lockfile | null,
 	options: RemoveOptions,
 ): Promise<void> {
-	if (!lockfile || options.force) return;
+	if (!lockfile || options.yes === true) return;
 	const dependents = findDependents(name, lockfile);
 	if (dependents.length === 0) return;
 

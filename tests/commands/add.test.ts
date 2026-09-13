@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addCommand } from "../../src/commands/add.js";
 import { initCommand } from "../../src/commands/init.js";
-import { _resetDeprecationWarningsForTests } from "../../src/core/filenames.js";
 import { readManifest } from "../../src/core/manifest.js";
+import { _resetDeprecationWarningsForTests } from "../../src/core/ui.js";
 
 let tempDir: string;
 
