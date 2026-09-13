@@ -1,25 +1,23 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import YAML from "yaml";
 import type { RegistryConfig, RegistryEntry } from "../types.js";
+import { getGlobalDir } from "./paths.js";
 
-const CONFIG_DIR = join(homedir(), ".skilltree");
-const CONFIG_PATH = join(CONFIG_DIR, "config.yaml");
-
+/** `~/.skilltree`, resolved per call so it follows `$HOME`. */
 export function getConfigDir(): string {
-	return CONFIG_DIR;
+	return getGlobalDir();
 }
 
 export function getConfigPath(): string {
-	return CONFIG_PATH;
+	return join(getConfigDir(), "config.yaml");
 }
 
 /**
  * Read the global config. Returns empty registries array if file doesn't exist.
  */
 export async function readConfig(configPath?: string): Promise<RegistryConfig> {
-	const path = configPath ?? CONFIG_PATH;
+	const path = configPath ?? getConfigPath();
 	let content: string;
 	try {
 		content = await readFile(path, "utf-8");
@@ -44,7 +42,7 @@ export async function readConfig(configPath?: string): Promise<RegistryConfig> {
  * Write the global config to disk. Creates parent directories if needed.
  */
 export async function writeConfig(config: RegistryConfig, configPath?: string): Promise<void> {
-	const path = configPath ?? CONFIG_PATH;
+	const path = configPath ?? getConfigPath();
 	await mkdir(dirname(path), { recursive: true });
 	await writeFile(path, YAML.stringify(config, { lineWidth: 0 }), "utf-8");
 }

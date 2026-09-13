@@ -1,10 +1,8 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import simpleGit from "simple-git";
-
-const CACHE_DIR = join(homedir(), ".skilltree", "cache");
+import { getGlobalDir } from "./paths.js";
 
 /**
  * Normalize a repo URL into a cache path.
@@ -12,7 +10,7 @@ const CACHE_DIR = join(homedir(), ".skilltree", "cache");
  * Strips protocol prefixes and trailing .git
  */
 export function repoCachePath(repoUrl: string): string {
-	return join(CACHE_DIR, normalizeGitUrl(repoUrl));
+	return join(getCacheDir(), normalizeGitUrl(repoUrl));
 }
 
 /**
@@ -370,6 +368,11 @@ async function isOriginUrlDrifted(
 	}
 }
 
+/**
+ * `~/.skilltree/cache`, resolved per call through `$HOME` (see `homeDir`).
+ * A module-load constant built from `os.homedir()` would ignore the test
+ * suite's sandboxed `$HOME` under Bun and write clones into the real home.
+ */
 export function getCacheDir(): string {
-	return CACHE_DIR;
+	return join(getGlobalDir(), "cache");
 }

@@ -1,11 +1,9 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
 import type { RegistryIndex } from "../types.js";
 import { cloneOrFetchBare } from "./git.js";
-
-const REGISTRY_CACHE_DIR = join(homedir(), ".skilltree", "registry-cache");
+import { getGlobalDir } from "./paths.js";
 
 /** Default TTL: 24 hours in milliseconds */
 export const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -35,16 +33,17 @@ export const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
  */
 export const SCANNER_VERSION = 3;
 
+/** `~/.skilltree/registry-cache`, resolved per call so it follows `$HOME`. */
 export function getRegistryCacheDir(): string {
-	return REGISTRY_CACHE_DIR;
+	return join(getGlobalDir(), "registry-cache");
 }
 
 export function getRegistryRepoDir(name: string, cacheDir?: string): string {
-	return join(cacheDir ?? REGISTRY_CACHE_DIR, name, "repo");
+	return join(cacheDir ?? getRegistryCacheDir(), name, "repo");
 }
 
 export function getRegistryIndexPath(name: string, cacheDir?: string): string {
-	return join(cacheDir ?? REGISTRY_CACHE_DIR, name, "index.json");
+	return join(cacheDir ?? getRegistryCacheDir(), name, "index.json");
 }
 
 /**
@@ -174,7 +173,7 @@ export async function isStale(name: string, ttlMs?: number, cacheDir?: string): 
  * Remove the entire cache directory for a registry.
  */
 export async function cleanRegistryCache(name: string, cacheDir?: string): Promise<void> {
-	const registryDir = join(cacheDir ?? REGISTRY_CACHE_DIR, name);
+	const registryDir = join(cacheDir ?? getRegistryCacheDir(), name);
 	await rm(registryDir, { recursive: true, force: true });
 }
 
