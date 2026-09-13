@@ -1,3 +1,9 @@
+## v0.42.1 (2026-09-13)
+
+### Fix
+
+- resolve ~/.skilltree cache and config paths through $HOME (#217)
+
 ## v0.42.0 (2026-09-13)
 
 ### Feat
