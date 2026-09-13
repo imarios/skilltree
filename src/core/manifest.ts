@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import semver from "semver";
 import YAML from "yaml";
 import type {
 	Dependency,
@@ -406,6 +407,57 @@ function expandSourceDep(
 }
 
 /**
+ * The version a `frozen:` value pins, or null when it isn't an exact version.
+ * Tags match with or without a leading `v`, so `v0.4.0` and `0.4.0` freeze the
+ * same release (#203).
+ */
+export function parseFrozenVersion(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	return semver.valid(value.startsWith("v") ? value.slice(1) : value);
+}
+
+/**
+ * Validate `frozen:` on a single entry (#203). A frozen dep is pinned to one
+ * exact tag and skips its repo's shared resolution, so a range would bring
+ * resolution back, and a `version:` beside it would say two different things.
+ */
+function validateFrozen(
+	dep: Dependency,
+	group: string,
+	key: string,
+	placement: { hasLocal: boolean; isPackMember: boolean },
+	errors: string[],
+): void {
+	const bag = dep as { frozen?: unknown; version?: unknown };
+	if (bag.frozen === undefined) return;
+	const label = `${group}.${key}`;
+
+	if (placement.hasLocal) {
+		errors.push(
+			`${label}: "frozen" is only valid on repo/source entries (a local dep has no tags)`,
+		);
+		return;
+	}
+	if (placement.isPackMember) {
+		errors.push(
+			`${label}: "frozen" is not supported on pack members — freeze the dependency directly instead`,
+		);
+		return;
+	}
+	if (parseFrozenVersion(bag.frozen) === null) {
+		errors.push(
+			`${label}: "frozen" must be an exact version tag like "0.4.0", got ${JSON.stringify(bag.frozen)}`,
+		);
+		return;
+	}
+	if (bag.version !== undefined) {
+		errors.push(
+			`${label}: "frozen" and "version" are mutually exclusive — a frozen dep is pinned to one tag`,
+		);
+	}
+}
+
+/**
  * Validate `publish` and `exclude` fields on a single dependency entry
  * (publication_surface.md §PS4, PS7, PS27, PS28).
  *
@@ -473,7 +525,7 @@ function validatePackRef(dep: PackDependency, group: string, key: string, errors
 		errors.push(`${group}.${key}: "repo" and "source" are mutually exclusive on pack references`);
 	}
 
-	for (const field of ["path", "type", "name", "local", "force_path"] as const) {
+	for (const field of ["path", "type", "name", "local", "force_path", "frozen"] as const) {
 		if (field in bag) {
 			errors.push(
 				`${group}.${key}: "${field}" is not valid on pack references (packs have no entity surface)`,
@@ -513,6 +565,13 @@ function validatePacksSection(manifest: Manifest, errors: string[]): void {
 				errors.push(`${group}: "repo"/"source" and "local" are mutually exclusive`);
 			}
 			validatePublishExclude(member as Dependency, "packs", `${packName}[${i}]`, hasLocal, errors);
+			validateFrozen(
+				member as Dependency,
+				"packs",
+				`${packName}[${i}]`,
+				{ hasLocal, isPackMember: true },
+				errors,
+			);
 		}
 
 		// Collision: a pack named `X` and a non-pack `dependencies.X` shares a
@@ -574,6 +633,7 @@ export function validateManifest(manifest: Manifest): string[] {
 			// conventional probe. See origin_manifest_resolution.md §R9.
 
 			validatePublishExclude(dep, group, key, hasLocal, errors);
+			validateFrozen(dep, group, key, { hasLocal, isPackMember: false }, errors);
 		}
 	}
 

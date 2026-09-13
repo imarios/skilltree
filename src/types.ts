@@ -9,6 +9,11 @@ export interface RemoteDependency {
 	name?: string;
 	/** Silence origin-manifest path warnings (R10). */
 	force_path?: boolean;
+	/**
+	 * Pin to one exact tag, outside the repo's shared version resolution (#203).
+	 * Mutually exclusive with `version`. See docs/planning/neon/PLAN.md.
+	 */
+	frozen?: string;
 }
 
 export interface SourceDependency {
@@ -19,6 +24,8 @@ export interface SourceDependency {
 	name?: string;
 	/** Silence origin-manifest path warnings (R10). */
 	force_path?: boolean;
+	/** Pin to one exact tag (#203). Carried onto the expanded repo dep. */
+	frozen?: string;
 }
 
 export interface LocalDependency {
