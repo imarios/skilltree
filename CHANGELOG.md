@@ -1,3 +1,9 @@
+## v0.41.0 (2026-09-13)
+
+### Feat
+
+- prune dependencies removed from the manifest (#215)
+
 ## v0.40.0 (2026-09-13)
 
 ### Feat
