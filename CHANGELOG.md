@@ -1,3 +1,9 @@
+## v0.43.0 (2026-09-13)
+
+### Feat
+
+- freeze a dependency at an exact tag (#218)
+
 ## v0.42.1 (2026-09-13)
 
 ### Fix
