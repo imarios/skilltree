@@ -1,4 +1,5 @@
 import type { Dependency } from "../types.js";
+import { canonicalRepo } from "./git.js";
 import { canonicalPath, expandTilde, isLocalSource } from "./paths.js";
 
 /**
@@ -19,7 +20,8 @@ import { canonicalPath, expandTilde, isLocalSource } from "./paths.js";
  * storage — those keep the original, user-authored shape.
  *
  * Contract:
- * - Remote (repo or alias-to-URL) → the URL.
+ * - Remote (repo or alias-to-URL) → the URL in `canonicalRepo` form, so
+ *   `github.com/x/y` and `https://github.com/x/y.git` are one source (#203).
  * - Remote alias with no entry in `sources` → `"unresolved source alias: <alias>"`
  *   (unspoofable — no real git URL begins with whitespace).
  * - Local path (direct or alias-to-local-path) → `"local:<expanded-absolute-path>"`.
@@ -38,7 +40,7 @@ export function canonicalSource(
 		return canonicalPackSource(dep, sources);
 	}
 
-	if ("repo" in dep && dep.repo) return dep.repo;
+	if ("repo" in dep && dep.repo) return canonicalRepo(dep.repo);
 
 	if ("source" in dep && dep.source) {
 		const resolved = sources?.[dep.source];
@@ -52,7 +54,7 @@ export function canonicalSource(
 			const full = path && path !== "." ? `${base}/${path}` : base;
 			return `local:/${canonicalPath(full)}`;
 		}
-		return resolved;
+		return canonicalRepo(resolved);
 	}
 
 	if ("local" in dep && dep.local) {
@@ -67,7 +69,7 @@ function canonicalPackSource(
 	sources?: Record<string, string>,
 ): string {
 	const packName = dep.pack;
-	if (dep.repo) return `pack:${dep.repo}:${packName}`;
+	if (dep.repo) return `pack:${canonicalRepo(dep.repo)}:${packName}`;
 	if (dep.source) {
 		const resolved = sources?.[dep.source];
 		if (!resolved) return `pack:unresolved source alias: ${dep.source}:${packName}`;

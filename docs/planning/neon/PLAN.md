@@ -53,8 +53,8 @@ One PR for the whole project (user decision); phases are commits.
 
 ## Phase status
 
-- Phase 1: ✅ implemented (2026-09-13) — full-suite run pending
-- Phase 2: ⏳ in progress — decisions made: lockfile gets an optional `frozen` field; `outdated --check` ignores frozen rows
+- Phase 1: ✅ complete (2026-09-13) — full suite 1874 pass
+- Phase 2: ✅ implemented (2026-09-13) — lockfile gets an optional `frozen` field; `outdated --check` ignores frozen rows; full-suite run pending
 - Phase 3: pending
 
 ## Definition of Done

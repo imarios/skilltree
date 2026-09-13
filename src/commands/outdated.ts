@@ -1,6 +1,6 @@
 import semver from "semver";
 import { MANIFEST_NEW, manifestExists } from "../core/filenames.js";
-import { ensureCached, listTags } from "../core/git.js";
+import { canonicalRepo, ensureCached, listTags } from "../core/git.js";
 import { readGlobalLockfile, readLockfile } from "../core/lockfile.js";
 import { expandSources, readGlobalManifest, readManifest } from "../core/manifest.js";
 import { getGlobalDir } from "../core/paths.js";
@@ -303,9 +303,10 @@ async function readConstraintsByRepo(
 			// neither cap siblings nor count as `*`.
 			if (dep.frozen !== undefined) continue;
 			const constraint = dep.version ?? "*";
-			const list = result.get(repo) ?? [];
+			// Canonical key: two spellings of one repo are siblings (#203).
+			const list = result.get(canonicalRepo(repo)) ?? [];
 			list.push({ name, constraint });
-			result.set(repo, list);
+			result.set(canonicalRepo(repo), list);
 		}
 	}
 	return result;
@@ -329,7 +330,7 @@ function computeCappedBy(
 	latest: string,
 	constraintsByRepo: ConstraintsByRepo,
 ): string[] | null {
-	const siblings = constraintsByRepo.get(repo);
+	const siblings = constraintsByRepo.get(canonicalRepo(repo));
 	if (siblings === undefined) return null;
 
 	// A self-imposed cap is reported as `pinnedAt` instead — the two are
@@ -359,7 +360,7 @@ function computePinnedAt(
 	latest: string,
 	constraintsByRepo: ConstraintsByRepo,
 ): string | null {
-	const self = constraintsByRepo.get(repo)?.find((s) => s.name === name);
+	const self = constraintsByRepo.get(canonicalRepo(repo))?.find((s) => s.name === name);
 	if (self === undefined || self.constraint === "*") return null;
 	return semver.satisfies(latest, self.constraint) ? null : self.constraint;
 }

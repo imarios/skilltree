@@ -13,6 +13,7 @@ import type {
 } from "../types.js";
 import { isLocalDependency, isPackDependency, isRemoteDependency } from "../types.js";
 import { resolveGlobalLockfilePath, resolveLockfilePath } from "./filenames.js";
+import { canonicalRepo } from "./git.js";
 import type { ResolvedEntity } from "./graph.js";
 import { expandSources, parseFrozenVersion } from "./manifest.js";
 import { collapseTilde, expandTilde } from "./paths.js";
@@ -539,7 +540,8 @@ function classifyDep(
 		return;
 	}
 	if (isRemoteDependency(dep)) {
-		if (dep.repo !== locked.repo) {
+		// Respelling a repo URL (`.git`, scheme) isn't a change (#203).
+		if (locked.repo === undefined || canonicalRepo(dep.repo) !== canonicalRepo(locked.repo)) {
 			changed.push(key);
 			return;
 		}

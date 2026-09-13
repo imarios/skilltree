@@ -6,7 +6,7 @@ import {
 	resolveGlobalLockfilePath,
 	resolveLockfilePath,
 } from "../core/filenames.js";
-import { ensureCached, listTags } from "../core/git.js";
+import { canonicalRepo, ensureCached, listTags } from "../core/git.js";
 import {
 	readGlobalLockfile,
 	readLockfile,
@@ -184,10 +184,15 @@ async function selectiveUpdate(
 	// Clear lockfile entries for this dep (and same-repo siblings).
 	// Under --dry-run we only count what would be cleared; we do not mutate
 	// the in-memory lockfile or write it back.
-	const targetRepo = isRemoteDependency(dep) ? dep.repo : undefined;
+	// Siblings are matched by canonical repo, so a respelled URL still counts (#203).
+	const targetRepo = isRemoteDependency(dep) ? canonicalRepo(dep.repo) : undefined;
 	let removedCount = 0;
 	for (const [key, entry] of Object.entries(lockfile.packages)) {
-		if (key === name || (targetRepo && entry.repo === targetRepo)) {
+		const sameRepo =
+			targetRepo !== undefined &&
+			entry.repo !== undefined &&
+			canonicalRepo(entry.repo) === targetRepo;
+		if (key === name || sameRepo) {
 			if (!dryRun) {
 				delete lockfile.packages[key];
 			}

@@ -299,6 +299,8 @@ Git tags (`v1.0.0` or `1.0.0`). Tags that don't parse as semver (e.g., `release-
 
 Default version when omitted: `"*"` (latest tag).
 
+**Frozen deps** are the one exception: `frozen: <tag>` pins a dep to that exact tag outside the repo's intersection, so upstream removing a skill doesn't hold the rest of the repo back. See `skilltree freeze` below and [decisions.md](decisions.md) #1.
+
 ### Name Aliasing
 
 When a skill and agent share a name (e.g., `workflow-builder`), use a unique YAML key with a `name:` field for the actual entity name:
@@ -442,6 +444,21 @@ $ skilltree update
 ```
 
 Resolves new versions, updates lockfile, and reinstalls (like `npm update`). Like `install`, it removes dependencies no longer in the manifest; an orphan with local edits is always kept. `--dry-run` previews version bumps without applying.
+
+### `skilltree freeze <name> [tag]` / `skilltree unfreeze <name>`
+```bash
+# Keep a skill upstream removed at the last tag that had it
+$ skilltree freeze kibana-dashboards 0.4.0
+✔ Froze kibana-dashboards at 0.4.0.
+
+# Freeze at whatever is installed now
+$ skilltree freeze kibana-dashboards
+
+# Follow the repo's version again
+$ skilltree unfreeze kibana-dashboards
+```
+
+`freeze` writes `frozen: <tag>` on the manifest entry, removes its `version:` (the two are mutually exclusive), and reinstalls. A frozen dep resolves at that exact tag, outside its repo's shared version, so it neither follows nor caps its siblings; its same-repo transitive deps resolve at the same tag. `update` leaves it where it is and says so, and `outdated --check` doesn't count it as drift. `unfreeze` removes `frozen:` and reinstalls at the repo's version. Both take `--dry-run` and `--global`. Unrelated to `install --frozen`, which installs strictly from the lockfile.
 
 ### `skilltree remove <name>`
 ```bash

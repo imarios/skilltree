@@ -28,6 +28,12 @@ dependencies:
     path: skills/code-review
     version: "^2.0.0"
 
+  # Frozen remote dep -- pinned to one exact tag, outside the repo's shared version
+  kibana-dashboards:
+    repo: github.com/elastic/agent-skills
+    path: skills/kibana-dashboards
+    frozen: "0.4.0"
+
   # Remote dep (single-entity repo, SKILL.md at root)
   some-skill:
     repo: github.com/user/some-skill
@@ -77,12 +83,13 @@ scan:
 | `local:` | Yes (local) | Filesystem path. Relative (`./`) for project manifests, `~/` or absolute for global manifests. Mutually exclusive with `repo:`. |
 | `path:` | Yes (remote and local-source) | Path within the repo or local source directory. Use `.` for root. Required when using `source:` (both remote and local). Not used with standalone `local:`. |
 | `version:` | No | Semver constraint (`^2.0.0`, `>=1.0`, `*`). Default `"*"`. Not used for local deps during install. |
+| `frozen:` | No | Exact tag (`0.4.0` or `v0.4.0`) this dep is pinned to, outside its repo's shared version resolution (#203). Mutually exclusive with `version:`. Remote and `source:` deps only; not valid on local deps, pack references or pack members. Set with `skilltree freeze`. |
 | `type:` | No | `skill`, `agent`, or `command`. Inferred from content if omitted (see "Type inference" below). |
 | `name:` | No | Actual entity name when YAML key is an alias. Default: YAML key. |
 
 **Type inference:** Directory containing `SKILL.md` = skill. A single `.md` file under any `commands/` segment = command (Claude Code slash command). Any other `.md` file = agent. Override with explicit `type:` when the path doesn't reflect the intended layout.
 
-**Versioning:** Git tags (`v1.0.0` or `1.0.0`). One repo = one version -- all entities from the same repo share a tag. Multiple constraints on the same repo are intersected.
+**Versioning:** Git tags (`v1.0.0` or `1.0.0`). One repo = one version -- all entities from the same repo share a tag. Multiple constraints on the same repo are intersected. A `frozen:` dep is the exception: it resolves at its own tag. Repo URLs are compared in canonical form, so `github.com/x/y` and `https://github.com/x/y.git` are the same repo.
 
 #### Packs section
 
@@ -210,6 +217,7 @@ packages:
 | `name` | Actual entity name (only present when aliased) |
 | `dependencies` | List of dependency names |
 | `via_pack` | Consumer's yaml key for the pack reference that injected this entry. Only present on pack-expanded members. Read by `list` for the "Via Pack" column, and by `diffManifestLockfile` to match a `pack:` reference against its members. (#153, #161) |
+| `frozen` | The `frozen:` tag this entry was resolved under, declared on the entry or inherited from a frozen parent in the same repo. Only present on frozen entries. Compared by `diffManifestLockfile`, so freezing, unfreezing or changing the tag re-resolves; read by `list` and `outdated`. (#203) |
 
 **Top-level sections besides `packages`:**
 
@@ -332,6 +340,10 @@ For each **repo** in the graph:
 4. Find the highest tag satisfying the intersection
 5. Error if no tag satisfies all constraints
 6. **Capped-sibling warning**: if the intersection picks a version lower than the latest available tag *and* one or more `*`-constrained deps share the repo, emit a non-blocking warning naming the capped `*` deps and the tighter sibling constraint(s) that capped them. Without this, adding a sibling like `tut --version ^0.5.0` silently downgrades earlier `*`-constrained deps from the same repo. `skilltree outdated` previews the same attribution under a `Notes` column (`capped by <name>@<constraint>`) so users can spot the cap before they try to bump.
+
+**Frozen deps** (#203) skip steps 1–6. Each is resolved at its own exact tag, and the tag's commit is recorded under `refs/skilltree/frozen/<version>` in the repo cache — outside `refs/tags/*`, so the tag-pruning fetch never removes it. If upstream later deletes the tag, the preserved commit is used with a warning. If upstream moves it, the preserved commit is kept with a warning, and `skilltree freeze <name> <tag>` takes the new one. A frozen dep's same-repo transitive deps resolve at the frozen tag.
+
+Repos are grouped by canonical URL, so spelling one repo two ways (`…/skills` and `…/skills.git`) gives it one resolution, not two.
 
 Local deps skip version resolution -- working tree is the source of truth.
 
@@ -469,7 +481,15 @@ Error: Incompatible version constraints for repo github.com/user/skills-core
   testing requires ^1.0.0
 
   No git tag satisfies both constraints.
-  Fix: Align version constraints, or move entities to separate repos.
+  Fix: Align version constraints, or freeze the deps that need an older tag: skilltree freeze <name> <tag>
+```
+
+```
+Error: Frozen tag not found
+
+  kibana-dashboards is frozen at 0.5.0, but github.com/elastic/agent-skills has no tag for 0.5.0.
+
+Fix: Freeze at a tag that exists, or remove `frozen:` to follow the repo's version.
 ```
 
 ```
@@ -583,6 +603,8 @@ Malformed frontmatter errors are collected in the batch error pattern (not fail-
 - **`remove --keep-files` then `install`:** Leftover files from `--keep-files` are ignored by `install` (they have no lockfile entry). If the same dep is re-added later, `install` overwrites the leftover files.
 - **`install` and `update` prune dependencies removed from the manifest** (#205). An entity is removed only when the lockfile the run started from lists it *and* what is on disk is still what skilltree installed: a symlink pointing at the recorded source, or a copy matching the recorded integrity hash. Anything else (local edits, no integrity record, a link the user replaced) is kept with a warning, and `skilltree install --force` removes it. `update` never removes an edited orphan, even though it installs with force. Orphans are matched by type and installed name, so renaming an alias does not delete the entity it just installed. Nothing missing from the previous lockfile is ever considered, so hand-placed skills are untouched, and with no previous lockfile nothing is pruned. Pruning a local dep removes its symlink, never its source. `--dry-run` lists what would be removed.
 - **`verify` and `doctor` report what skilltree didn't install** (#205). Entries under an install target's `skills/`, `agents/` or `commands/` that the lockfile doesn't record are listed as `EXTRANEOUS`. They are never removed and never count as drift: `verify --strict` does not fail on them, and `doctor`'s install-drift check only warns. Dotfiles and files that aren't entities are ignored.
+- **`skilltree freeze` / `unfreeze`** (#203) edit one manifest entry and reinstall; if the install fails, the manifest and lockfile go back to their original bytes. `freeze` without a tag uses the lockfile's version and errors if the dep isn't installed. `freeze` drops the entry's `version:`; `unfreeze` leaves no `version:`, so the dep follows `*`. `add` over a frozen entry drops `frozen` and warns. `update <name>` on a frozen dep only prints how to unfreeze it.
+- **`frozen:` vs `install --frozen`:** unrelated. `--frozen` installs strictly from the lockfile; `frozen:` pins one dep to a tag.
 - **`skilltree scan --check` on a non-skill file:** Skips files that have no YAML frontmatter (exit 0). Only validates files that look like skills or agents (contain `---` frontmatter).
 - **Install path creation:** `skilltree install` creates the install path and its `skills/`, `agents/`, and `commands/` subdirectories if they don't exist (`mkdir -p` behavior). Applies to both the default `.claude/` path and `--install-path` overrides.
 
@@ -592,6 +614,16 @@ Malformed frontmatter errors are collected in the batch error pattern (not fail-
 Warning: github.com/user/my-skill has no version tags.
   Using default branch (main) at commit a1b2c3d.
   Consider adding semver tags (e.g., v1.0.0) for version control.
+```
+
+```
+Warning: kibana-dashboards is frozen at 0.4.0, but github.com/elastic/agent-skills no longer has that tag.
+  Using the preserved commit a1b2c3d.
+```
+
+```
+Warning: kibana-dashboards is frozen at 0.4.0, but tag v0.4.0 in github.com/elastic/agent-skills was moved upstream (now d4e5f6a).
+  Keeping the frozen commit a1b2c3d. To take the new commit: skilltree freeze kibana-dashboards 0.4.0
 ```
 
 ```

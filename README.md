@@ -396,6 +396,8 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `skilltree install` | Resolve dependencies and install; removes deps no longer in the manifest |
 | `skilltree update [name]` | Update to latest versions |
 | `skilltree outdated [name]` | Preview which deps have newer versions (read-only) |
+| `skilltree freeze <name> [tag]` | Pin a dependency to an exact tag, outside its repo's shared version (defaults to the locked version) |
+| `skilltree unfreeze <name>` | Return a frozen dependency to its repo's shared version |
 | `skilltree remove <name>` | Remove a dependency |
 | `skilltree verify` | Check installed files against lockfile (`--strict` exits 1 on drift, for CI); lists entries skilltree didn't install |
 | `skilltree check` | Lint `skilltree.yml` for design-time issues (asymmetric publish, frontmatter) |
@@ -428,13 +430,13 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 
 | Flag | Commands | Description |
 |------|----------|-------------|
-| `--global` | init, add, install, update, remove, list, verify, deps tree, why, doctor | Operate on global deps (`~/.skilltree/global.yaml` → `~/.claude/`) |
+| `--global` | init, add, install, update, freeze, unfreeze, remove, list, verify, deps tree, why, doctor | Operate on global deps (`~/.skilltree/global.yaml` → `~/.claude/`) |
 | `--json` | list, verify, outdated, search, info, scan, deps tree, doctor | Emit machine-readable JSON |
 | `--prod` | install | Skip dev-dependencies |
-| `--frozen` | install, vendor | Lockfile-only, error if out of sync (CI mode) |
+| `--frozen` | install, vendor | Lockfile-only, error if out of sync (CI mode). Unrelated to `skilltree freeze` |
 | `--force` | init, install, unvendor | Overwrite files on disk (an existing manifest, locally modified files) |
 | `--yes` | init, add, remove | Skip confirmation prompts |
-| `--dry-run` | install, update, remove, vendor, unvendor | Preview without applying |
+| `--dry-run` | install, update, freeze, unfreeze, remove, vendor, unvendor | Preview without applying |
 | `--install-path <path>` | install | Override install directory (copies instead of symlinks) |
 | `--dev` | add | Add as dev dependency |
 | `--local <path>` | add | Add a local (symlinked) dependency |

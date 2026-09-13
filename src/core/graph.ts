@@ -23,6 +23,7 @@ import {
 import { MANIFEST_NEW, MANIFEST_NEW_ALT } from "./filenames.js";
 import { getDeclaredDeps, parseFrontmatter } from "./frontmatter.js";
 import {
+	canonicalRepo,
 	ensureCached,
 	FROZEN_REF_PREFIX,
 	getCommitSha,
@@ -103,6 +104,8 @@ export interface ResolutionResult {
 }
 
 interface RepoResolution {
+	/** The repo URL as the manifest spelled it: what gets cloned and printed. */
+	repo: string;
 	cachePath: string;
 	tag?: string;
 	version?: string;
@@ -148,11 +151,13 @@ interface ResolutionState {
 	 */
 	packsReferencedByName: Set<string>;
 	/**
-	 * Frozen resolution keys already attempted (#203). `resolveRepoVersions`
-	 * runs twice, and a frozen tag that failed to resolve leaves no entry in
-	 * `repoResolutions` to stop the second pass from reporting it again.
+	 * Resolution keys already attempted, resolved or not. `resolveRepoVersions`
+	 * runs twice (Phase 1.5b), and a repo whose constraints conflict — or a
+	 * frozen tag that doesn't exist (#203) — leaves no entry in
+	 * `repoResolutions`, so without this the second pass reported the same
+	 * error again.
 	 */
-	frozenAttempted: Set<string>;
+	resolutionAttempted: Set<string>;
 }
 
 interface OriginHiddenHint {
@@ -182,7 +187,7 @@ export async function resolveAll(
 		packMemberOrigin: new Map(),
 		packMemberViaPack: new Map(),
 		packsReferencedByName: new Set(),
-		frozenAttempted: new Set(),
+		resolutionAttempted: new Set(),
 	};
 
 	await resolveRepoVersions(state.expanded, state);
@@ -210,7 +215,9 @@ function indentBlock(text: string, indent: string): string {
 }
 
 async function resolveRepoVersions(expanded: Manifest, state: ResolutionState): Promise<void> {
-	const repoConstraints = new Map<string, Constraint[]>();
+	// Keyed by canonical repo, so every spelling of one repo joins one
+	// intersection (#203). `repo` keeps the first spelling seen, for cloning.
+	const repoConstraints = new Map<string, { repo: string; constraints: Constraint[] }>();
 	// Frozen deps pin one exact tag and never join their repo's intersection,
 	// so they can't cap their siblings (#203). Keyed like their resolution.
 	const frozenDeps = new Map<string, { repo: string; frozen: string; names: string[] }>();
@@ -241,17 +248,18 @@ async function resolveRepoVersions(expanded: Manifest, state: ResolutionState): 
 				frozenDeps.set(resolutionId, group);
 				continue;
 			}
-			const existing = repoConstraints.get(repo) ?? [];
-			existing.push({
+			const repoKey = resolutionKey(repo, undefined);
+			const shared = repoConstraints.get(repoKey) ?? { repo, constraints: [] };
+			shared.constraints.push({
 				name: key,
 				constraint: version ?? "*",
 				source: consumerSource,
 			});
-			repoConstraints.set(repo, existing);
+			repoConstraints.set(repoKey, shared);
 		}
 	}
 
-	for (const [repo, constraints] of repoConstraints) {
+	for (const { repo, constraints } of repoConstraints.values()) {
 		await resolveOneRepo(repo, constraints, state);
 	}
 	for (const { repo, frozen, names } of frozenDeps.values()) {
@@ -265,8 +273,9 @@ async function resolveRepoVersions(expanded: Manifest, state: ResolutionState): 
  * own (#203). `v0.4.0` and `0.4.0` share one.
  */
 function resolutionKey(repo: string, frozen: string | undefined): string {
-	if (frozen === undefined) return repo;
-	return `${repo}#frozen=${parseFrozenVersion(frozen) ?? frozen}`;
+	const key = canonicalRepo(repo);
+	if (frozen === undefined) return key;
+	return `${key}#frozen=${parseFrozenVersion(frozen) ?? frozen}`;
 }
 
 /**
@@ -299,8 +308,8 @@ async function resolveFrozen(
 	state: ResolutionState,
 ): Promise<void> {
 	const key = resolutionKey(repo, frozen);
-	if (state.frozenAttempted.has(key)) return;
-	state.frozenAttempted.add(key);
+	if (state.resolutionAttempted.has(key)) return;
+	state.resolutionAttempted.add(key);
 	// validateManifest rejects anything that isn't an exact version first.
 	const version = parseFrozenVersion(frozen);
 	if (version === null) return;
@@ -322,7 +331,7 @@ async function resolveFrozen(
 	const tag = filterSemverTags(tags).find((t) => t.version === version)?.tag;
 	const preservedRef = `${FROZEN_REF_PREFIX}${version}`;
 	const preserved = await readRef(cachePath, preservedRef);
-	const base = { cachePath, version, frozen };
+	const base = { repo, cachePath, version, frozen };
 
 	if (tag !== undefined) {
 		const tagCommit = await getCommitSha(cachePath, `${tag}^{commit}`);
@@ -357,9 +366,12 @@ async function resolveOneRepo(
 	state: ResolutionState,
 ): Promise<void> {
 	// Idempotent: Phase 1.5b calls resolveRepoVersions a second time to pick
-	// up repos introduced by pack-member injection. Skip anything Phase 1 already
-	// resolved so the second pass is free for unchanged repos.
-	if (state.repoResolutions.has(repo)) return;
+	// up repos introduced by pack-member injection. Skip anything already
+	// attempted — resolved or failed — so the second pass is free for unchanged
+	// repos and a conflict is reported once, not twice.
+	const key = resolutionKey(repo, undefined);
+	if (state.resolutionAttempted.has(key)) return;
+	state.resolutionAttempted.add(key);
 	try {
 		const cachePath = await ensureCached(repo);
 		const tags = await listTags(cachePath);
@@ -370,14 +382,15 @@ async function resolveOneRepo(
 				await addTaglessRepoResolution(repo, cachePath, state);
 			} else {
 				state.errors.push(
-					`Error: Version conflict on repo ${repo}\n\n${indentBlock(result.error, "  ")}\n\nFix: Align version constraints in the listed manifest(s), or move entities to separate repos.`,
+					`Error: Version conflict on repo ${repo}\n\n${indentBlock(result.error, "  ")}\n\nFix: Align version constraints in the listed manifest(s), or freeze the deps that need an older tag: skilltree freeze <name> <tag>`,
 				);
 			}
 			return;
 		}
 
 		const commit = await getCommitSha(cachePath, result.tag);
-		state.repoResolutions.set(repo, {
+		state.repoResolutions.set(resolutionKey(repo, undefined), {
+			repo,
 			cachePath,
 			tag: result.tag,
 			version: result.version,
@@ -423,7 +436,7 @@ function warnIfCappedByTighterSibling(
 	if (cappingConstraints.length === 0) return;
 
 	state.warnings.push(
-		`${repo}: ${cappedDeps.join(", ")} capped at ${pickedVersion} by ${cappingConstraints.join(", ")} (latest available: ${maxAvailable}). Loosen the tighter constraint or split the dep across repos to upgrade the rest.`,
+		`${repo}: ${cappedDeps.join(", ")} capped at ${pickedVersion} by ${cappingConstraints.join(", ")} (latest available: ${maxAvailable}). Loosen the tighter constraint, or freeze that dep so it stops capping the rest: skilltree freeze <name> <tag>`,
 	);
 }
 
@@ -437,7 +450,7 @@ async function addTaglessRepoResolution(
 	state.warnings.push(
 		`Warning: ${repo} has no version tags.\n  Using default branch (${defaultBranch}) at commit ${commit.slice(0, 7)}.\n  Consider adding semver tags (e.g., v1.0.0) for version control.`,
 	);
-	state.repoResolutions.set(repo, { cachePath, commit });
+	state.repoResolutions.set(resolutionKey(repo, undefined), { repo, cachePath, commit });
 }
 
 // =============================================================================
@@ -498,7 +511,7 @@ async function fetchPackMembers(
 	}
 
 	// Remote pack: read packs: from the containing repo's manifest at the resolved ref.
-	const resolution = state.repoResolutions.get(dep.repo);
+	const resolution = state.repoResolutions.get(resolutionKey(dep.repo, undefined));
 	if (!resolution) {
 		// Phase 1 already failed to resolve this repo and pushed an error.
 		return null;
@@ -1193,7 +1206,10 @@ async function resolveOriginRemoteEntry(
 ): Promise<void> {
 	// A frozen parent's same-repo deps stay at its tag (#203); the repo's
 	// shared resolution may be a different version.
-	const frozen = prodEntry.repo === parentEntity.repo ? parentEntity.frozen : undefined;
+	const sameRepo =
+		parentEntity.repo !== undefined &&
+		canonicalRepo(prodEntry.repo) === canonicalRepo(parentEntity.repo);
+	const frozen = sameRepo ? parentEntity.frozen : undefined;
 	if (frozen === undefined && parentEntity.repo !== undefined) {
 		const ok = await ensureRepoResolvedLazy(
 			prodEntry.repo,
@@ -1260,7 +1276,7 @@ async function detectPathMismatch(
 		if (!hasDotDotSegment(p)) originPath = p;
 	} else if (
 		isRemoteDependency(entry) &&
-		entry.repo === consumerRepo &&
+		canonicalRepo(entry.repo) === canonicalRepo(consumerRepo) &&
 		entry.path &&
 		!hasDotDotSegment(entry.path)
 	) {
@@ -1302,10 +1318,11 @@ function formatPathWarning(
  * would otherwise get.
  */
 async function checkStaleTagManifests(state: ResolutionState): Promise<void> {
-	for (const [repo, resolution] of state.repoResolutions) {
+	for (const resolution of state.repoResolutions.values()) {
 		// A frozen dep chose an old tag on purpose (#203); "cut a new tag" is
-		// no fix for it, and its key isn't a repo URL to print.
+		// no fix for it.
 		if (resolution.frozen !== undefined) continue;
+		const { repo } = resolution;
 		const ref = resolution.tag ?? resolution.commit;
 
 		// If manifest is present at the resolved ref, nothing to check.
@@ -1368,7 +1385,7 @@ async function inferDirectDepPath(
 				if (!hasDotDotSegment(p)) return p;
 			} else if (
 				isRemoteDependency(entry) &&
-				entry.repo === consumerRepo &&
+				canonicalRepo(entry.repo) === canonicalRepo(consumerRepo) &&
 				entry.path &&
 				!hasDotDotSegment(entry.path)
 			) {
@@ -1400,7 +1417,7 @@ async function ensureRepoResolvedLazy(
 	originRepo: string,
 	state: ResolutionState,
 ): Promise<boolean> {
-	const existing = state.repoResolutions.get(repo);
+	const existing = state.repoResolutions.get(resolutionKey(repo, undefined));
 	if (existing) {
 		if (constraint === "*") return true;
 		// Tagless resolution — can't validate a constraint against no version.
@@ -1418,7 +1435,7 @@ async function ensureRepoResolvedLazy(
 	// that asked for this repo, not a "<transitive via ...>" placeholder. The
 	// originRepo's resolution may not exist yet (first transitive into a new
 	// repo); fall back to "transitive" without a ref in that case.
-	const originResolution = state.repoResolutions.get(originRepo);
+	const originResolution = state.repoResolutions.get(resolutionKey(originRepo, undefined));
 	const ref = originResolution?.tag ?? originResolution?.commit ?? "transitive";
 	await resolveOneRepo(
 		repo,
@@ -1431,7 +1448,7 @@ async function ensureRepoResolvedLazy(
 		],
 		state,
 	);
-	return state.repoResolutions.has(repo);
+	return state.repoResolutions.has(resolutionKey(repo, undefined));
 }
 
 async function tryResolveFromSameRepo(

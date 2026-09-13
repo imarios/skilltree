@@ -230,12 +230,24 @@ export async function getDefaultBranch(cachePath: string): Promise<string> {
  * "git@github.com:user/repo" → "github.com/user/repo"
  */
 export function normalizeGitUrl(url: string): string {
+	// Trailing slashes go before the `.git` suffix: `…/repo.git/` must reach
+	// the same form as `…/repo.git`, or the two get separate caches (#203).
 	return url
 		.replace(/^https?:\/\//, "")
 		.replace(/^git@/, "")
 		.replace(/:([^/])/, "/$1")
-		.replace(/\.git$/, "")
-		.replace(/\/+$/, "");
+		.replace(/\/+$/, "")
+		.replace(/\.git$/, "");
+}
+
+/**
+ * A repo's identity for comparison: do two repo strings name the same repo?
+ * (#203). Scheme, `git@`, a `.git` suffix and trailing slashes don't matter —
+ * the same rules as the cache path, so two spellings that share a clone also
+ * share a resolution. For keys and comparisons only; never clone from it.
+ */
+export function canonicalRepo(repo: string): string {
+	return normalizeGitUrl(repo);
 }
 
 /**

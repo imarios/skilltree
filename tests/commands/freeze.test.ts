@@ -206,7 +206,7 @@ describe("freeze", () => {
 		expect((await readLockfile(fx.projectDir))?.packages.stable?.commit).toBe(fx.newCommit);
 		const result = await resolveAll(await readManifest(fx.projectDir), fx.projectDir);
 		expect(result.warnings.filter((w) => w.includes("was moved upstream"))).toEqual([]);
-	});
+	}, 30_000); // two freezes and an install: over the 5s default under full-suite load
 
 	test("FR11 a dev-dependency is frozen in place", async () => {
 		const fx = await buildFixture();

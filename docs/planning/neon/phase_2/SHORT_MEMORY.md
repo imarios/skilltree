@@ -12,18 +12,18 @@
 - [x] `src/commands/freeze.ts`: `freezeCommand`, `unfreezeCommand`
 - [x] `src/commands/update.ts`: `reportFrozenDeps` after `updateAll`, early return in `selectiveUpdate` (`reportBlockingConstraint` already skips: frozen deps have no `version`)
 - [x] `src/commands/outdated.ts`: `frozenAt` via `withFrozenAt`, skip frozen in `readConstraintsByRepo`, `--check`, "frozen at" note
-- [ ] `src/commands/list.ts`: `(frozen)` in Version, `frozen` in JSON
-- [ ] `src/commands/add.ts`: warn when re-add drops `frozen`
+- [x] `src/commands/list.ts`: `(frozen)` in Version, `frozen` in JSON
+- [x] `src/commands/add.ts`: warn when re-add drops `frozen`
 - [x] `src/cli.ts`, `src/commands/completion.ts`, help snapshot, flag-parity lists
 
 ## Tests written (red → green)
 
 - [x] LF1–LF4
-- [x] FR1–FR9, FR11 (FR10 global: still to write)
+- [x] FR1–FR11 (FR10 in `tests/commands/freeze-global.test.ts`)
 - [x] UF1–UF5
 - [x] UP1–UP3
 - [x] OD1–OD4
-- [ ] LS1, AD1
+- [x] LS1, AD1
 - [x] CL1, CL2
 
 ## Found during the phase

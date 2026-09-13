@@ -156,6 +156,13 @@ py is pinned at 1.0.0 in skilltree.yml, so 1.1.0 was not taken.
 Change the version constraint to take it.
 ```
 
+A frozen dep (see `skilltree freeze`) stays at its tag through `update`. `update`
+lists it with how to unfreeze it, and `update <frozen dep>` changes nothing:
+
+```
+"kibana-dashboards" is frozen at 0.4.0. Run `skilltree unfreeze kibana-dashboards` to update it.
+```
+
 ## `skilltree outdated [name]`
 
 Read-only preview of dependency drift. Reports which deps have newer semver tags available upstream without modifying the lockfile or manifest. Counterpart to `skilltree update`.
@@ -182,10 +189,44 @@ isn't simply available:
   `update` will not apply the bump until you change the manifest.
 - `capped by <name>@<constraint>` — a sibling dep in the same repo carries a
   tighter constraint that holds this one back.
+- `frozen at <tag>` — the dep was frozen with `skilltree freeze`. `--check`
+  ignores frozen rows: a pin you chose isn't drift.
 
-Both appear in `--json` as `pinnedAt` (string or null) and `cappedBy` (array or
-null). They are mutually exclusive: a self-imposed cap is reported as
-`pinnedAt`.
+These appear in `--json` as `pinnedAt` (string or null), `cappedBy` (array or
+null) and `frozenAt` (string or null). `pinnedAt` and `cappedBy` are mutually
+exclusive: a self-imposed cap is reported as `pinnedAt`. A frozen row has
+neither.
+
+## `skilltree freeze <name> [tag]`
+
+Pin a dependency to one exact tag, outside its repo's shared version. Use it
+when upstream removes or moves skills: freeze the ones you still need at the
+last tag that had them, and the rest of the repo keeps updating.
+
+```bash
+skilltree freeze kibana-dashboards 0.4.0            # Freeze at a tag
+skilltree freeze kibana-dashboards                  # Freeze at the installed (locked) version
+skilltree freeze kibana-dashboards 0.4.0 --dry-run  # Preview
+```
+
+**Flags:**
+- `-n, --dry-run` — Preview the change without writing anything
+- `-g, --global` — Freeze a global dependency
+
+Writes `frozen: <tag>` on the entry and reinstalls. `version:` is removed (the
+two are mutually exclusive). Only exact tags work: `^0.4.0` is rejected. The
+frozen dep's same-repo transitive deps resolve at the same tag. Running `freeze`
+again on a tag that moved upstream takes the new commit. Unrelated to
+`install --frozen`.
+
+## `skilltree unfreeze <name>`
+
+Return a frozen dependency to its repo's shared version and reinstall. The entry
+is left without `version:`, so it follows the latest tag.
+
+**Flags:**
+- `-n, --dry-run` — Preview the change without writing anything
+- `-g, --global` — Unfreeze a global dependency
 
 ## `skilltree projects`
 
