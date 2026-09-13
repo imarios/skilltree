@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { canonicalSource } from "../../src/core/deps.js";
+import { canonicalRepo } from "../../src/core/git.js";
 import { homeDir } from "../../src/core/paths.js";
 import type { Dependency } from "../../src/types.js";
 
@@ -19,7 +20,10 @@ describe("canonicalSource", () => {
 		// Sentinel starts with whitespace — no git URL scheme does, so collision with
 		// a user-authored `repo:` value is impossible while remaining human-readable.
 		expect(key).toBe("unresolved source alias: unknown");
-		expect(canonicalSource({ repo: "source:unknown", path: "p" })).toBe("source:unknown");
+		// Repo URLs come back in canonical form (#203); what matters is below.
+		expect(canonicalSource({ repo: "source:unknown", path: "p" })).toBe(
+			canonicalRepo("source:unknown"),
+		);
 		expect(canonicalSource({ repo: "source:unknown", path: "p" })).not.toBe(key);
 	});
 

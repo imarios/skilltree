@@ -27,6 +27,10 @@ Commands:
   update [options] [name]            Update dependencies to latest versions
   outdated [options] [name]          Preview which deps have newer versions
                                      available (read-only)
+  freeze [options] <name> [tag]      Pin a dependency to an exact tag, outside
+                                     its repo's shared version
+  unfreeze [options] <name>          Return a frozen dependency to its repo's
+                                     shared version
   projects [options]                 List skilltree-managed projects
                                      discoverable on this machine (read-only)
   remove [options] <name>            Remove a dependency
@@ -177,6 +181,30 @@ Options:
   --check       Exit 1 if any drift exists (CI-friendly)
   -g, --global  Show global deps
   -h, --help    display help for command
+"
+`;
+
+exports[`CLI help snapshots \`freeze --help\` is stable 1`] = `
+"Usage: skilltree freeze [options] <name> [tag]
+
+Pin a dependency to an exact tag, outside its repo's shared version
+
+Options:
+  -n, --dry-run  Preview the change without writing anything
+  -g, --global   Freeze a global dependency
+  -h, --help     display help for command
+"
+`;
+
+exports[`CLI help snapshots \`unfreeze --help\` is stable 1`] = `
+"Usage: skilltree unfreeze [options] <name>
+
+Return a frozen dependency to its repo's shared version
+
+Options:
+  -n, --dry-run  Preview the change without writing anything
+  -g, --global   Unfreeze a global dependency
+  -h, --help     display help for command
 "
 `;
 

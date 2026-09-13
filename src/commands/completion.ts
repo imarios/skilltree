@@ -134,6 +134,32 @@ const COMMANDS: CmdDef[] = [
 		],
 	},
 	{
+		name: "freeze",
+		description: "Pin a dependency to an exact tag, outside its repo's shared version",
+		positionalComplete: "deps",
+		flags: [
+			{
+				long: "--dry-run",
+				short: "-n",
+				description: "Preview the change without writing anything",
+			},
+			{ long: "--global", short: "-g", description: "Freeze a global dependency" },
+		],
+	},
+	{
+		name: "unfreeze",
+		description: "Return a frozen dependency to its repo's shared version",
+		positionalComplete: "deps",
+		flags: [
+			{
+				long: "--dry-run",
+				short: "-n",
+				description: "Preview the change without writing anything",
+			},
+			{ long: "--global", short: "-g", description: "Unfreeze a global dependency" },
+		],
+	},
+	{
 		name: "projects",
 		description: "List skilltree-managed projects discoverable on this machine (read-only)",
 		flags: [

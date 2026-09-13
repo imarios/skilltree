@@ -3,7 +3,11 @@
 ## Resolved
 
 ### 1. Multi-entity repo versioning
-One repo = one version. All skills in a repo share the repo's git tags. When multiple entities from the same repo have different constraints, skilltree intersects them. If you need independent versioning, use separate repos.
+One repo = one version. All skills in a repo share the repo's git tags. When multiple entities from the same repo have different constraints, skilltree intersects them.
+
+**Exception: frozen deps** (#203). A dep with `frozen: <tag>` is pinned to that exact tag and takes no part in the intersection, so it can't cap its siblings. This exists for upstream removing or moving skills: keep the removed ones at the last tag that had them while the rest of the repo moves on. Only exact tags can be frozen, never ranges — a second range per repo would bring back the resolution problem this decision avoids. The frozen commit is kept under `refs/skilltree/frozen/<version>` in the cache so it survives upstream deleting or moving the tag; whenever that commit is used instead of the tag, a warning says so, because tag pruning exists to propagate revocations.
+
+Repo URLs are compared in canonical form (scheme, `git@`, `.git` suffix and trailing slash ignored), so spelling one repo two ways no longer gets it two resolutions. Before `frozen:` existed, that respelling was the only way to give one repo's deps different versions.
 
 ### 2. Install lockfile behavior (follows npm/Poetry/Cargo)
 Remote deps: if lockfile exists and is consistent with manifest, install from lockfile without re-resolving. Only new/changed entries trigger resolution. **Local deps: always re-evaluated from the filesystem** -- re-read frontmatter, re-check transitive deps, update lockfile if changed. This follows Cargo (path deps re-evaluated every build) and npm (file: deps resolved from filesystem). `--frozen` skips resolution for remote deps but still reads local deps from filesystem.

@@ -10,6 +10,7 @@ import type {
 	Manifest,
 	PackDependency,
 	PackMember,
+	RemoteDependency,
 } from "../types.js";
 import { isLocalDependency, isPackDependency, isRemoteDependency } from "../types.js";
 import {
@@ -22,14 +23,18 @@ import {
 import { MANIFEST_NEW, MANIFEST_NEW_ALT } from "./filenames.js";
 import { getDeclaredDeps, parseFrontmatter } from "./frontmatter.js";
 import {
+	canonicalRepo,
 	ensureCached,
+	FROZEN_REF_PREFIX,
 	getCommitSha,
 	getDefaultBranch,
 	listTags,
 	pathExistsAtRef,
 	readFileAtRef,
+	readRef,
+	writeRef,
 } from "./git.js";
-import { expandSources, parseManifest } from "./manifest.js";
+import { expandSources, parseFrozenVersion, parseManifest } from "./manifest.js";
 import { canonicalPath, expandTilde, stripDotSlash } from "./paths.js";
 import type { Constraint, ConstraintSource } from "./resolver.js";
 import { filterSemverTags, findCappingSiblings, resolveIntersection } from "./resolver.js";
@@ -83,6 +88,12 @@ export interface ResolvedEntity {
 	 * pack attribution (#153). Not consumed by the install path.
 	 */
 	viaPack?: string;
+	/**
+	 * The `frozen:` tag this entity is pinned to (#203), either declared on its
+	 * own entry or inherited from a frozen parent in the same repo. Selects the
+	 * entity's resolution instead of the repo's shared one.
+	 */
+	frozen?: string;
 }
 
 export interface ResolutionResult {
@@ -93,10 +104,14 @@ export interface ResolutionResult {
 }
 
 interface RepoResolution {
+	/** The repo URL as the manifest spelled it: what gets cloned and printed. */
+	repo: string;
 	cachePath: string;
 	tag?: string;
 	version?: string;
 	commit: string;
+	/** Set when this resolution belongs to frozen deps rather than the repo (#203). */
+	frozen?: string;
 }
 
 /** Shared state passed through the resolution process. */
@@ -135,6 +150,14 @@ interface ResolutionState {
 	 * Used by the unreferenced-pack warning. Oxygen Phase 2.
 	 */
 	packsReferencedByName: Set<string>;
+	/**
+	 * Resolution keys already attempted, resolved or not. `resolveRepoVersions`
+	 * runs twice (Phase 1.5b), and a repo whose constraints conflict — or a
+	 * frozen tag that doesn't exist (#203) — leaves no entry in
+	 * `repoResolutions`, so without this the second pass reported the same
+	 * error again.
+	 */
+	resolutionAttempted: Set<string>;
 }
 
 interface OriginHiddenHint {
@@ -164,6 +187,7 @@ export async function resolveAll(
 		packMemberOrigin: new Map(),
 		packMemberViaPack: new Map(),
 		packsReferencedByName: new Set(),
+		resolutionAttempted: new Set(),
 	};
 
 	await resolveRepoVersions(state.expanded, state);
@@ -191,7 +215,12 @@ function indentBlock(text: string, indent: string): string {
 }
 
 async function resolveRepoVersions(expanded: Manifest, state: ResolutionState): Promise<void> {
-	const repoConstraints = new Map<string, Constraint[]>();
+	// Keyed by canonical repo, so every spelling of one repo joins one
+	// intersection (#203). `repo` keeps the first spelling seen, for cloning.
+	const repoConstraints = new Map<string, { repo: string; constraints: Constraint[] }>();
+	// Frozen deps pin one exact tag and never join their repo's intersection,
+	// so they can't cap their siblings (#203). Keyed like their resolution.
+	const frozenDeps = new Map<string, { repo: string; frozen: string; names: string[] }>();
 	const consumerSource: ConstraintSource = {
 		kind: "consumer",
 		manifestPath: MANIFEST_NEW,
@@ -212,19 +241,123 @@ async function resolveRepoVersions(expanded: Manifest, state: ResolutionState): 
 				version = dep.version;
 			}
 			if (!repo) continue;
-			const existing = repoConstraints.get(repo) ?? [];
-			existing.push({
+			if (isRemoteDependency(dep) && dep.frozen !== undefined) {
+				const resolutionId = resolutionKey(repo, dep.frozen);
+				const group = frozenDeps.get(resolutionId) ?? { repo, frozen: dep.frozen, names: [] };
+				group.names.push(key);
+				frozenDeps.set(resolutionId, group);
+				continue;
+			}
+			const repoKey = resolutionKey(repo, undefined);
+			const shared = repoConstraints.get(repoKey) ?? { repo, constraints: [] };
+			shared.constraints.push({
 				name: key,
 				constraint: version ?? "*",
 				source: consumerSource,
 			});
-			repoConstraints.set(repo, existing);
+			repoConstraints.set(repoKey, shared);
 		}
 	}
 
-	for (const [repo, constraints] of repoConstraints) {
+	for (const { repo, constraints } of repoConstraints.values()) {
 		await resolveOneRepo(repo, constraints, state);
 	}
+	for (const { repo, frozen, names } of frozenDeps.values()) {
+		await resolveFrozen(repo, frozen, names, state);
+	}
+}
+
+/**
+ * The `state.repoResolutions` key for a dep: its repo, or — for a frozen dep —
+ * its repo plus the frozen version, so frozen deps get a resolution of their
+ * own (#203). `v0.4.0` and `0.4.0` share one.
+ */
+function resolutionKey(repo: string, frozen: string | undefined): string {
+	const key = canonicalRepo(repo);
+	if (frozen === undefined) return key;
+	return `${key}#frozen=${parseFrozenVersion(frozen) ?? frozen}`;
+}
+
+/**
+ * A dep reached from a frozen parent in the same repo, pinned to the parent's
+ * tag instead of whatever version its declaring manifest asked for (#203).
+ */
+function inheritFrozen<T extends { version?: string }>(
+	dep: T,
+	frozen: string,
+): Omit<T, "version"> & { frozen: string } {
+	const { version: _version, ...rest } = dep;
+	return { ...rest, frozen };
+}
+
+/**
+ * Resolve frozen deps at their own tag, outside the repo's shared
+ * intersection (#203).
+ *
+ * The commit is also kept under a preserved ref. The cache's tag-pruning
+ * fetch mirrors upstream, so a deleted or moved tag would otherwise take the
+ * frozen commit with it — and upstream removing things is why people freeze.
+ * When the preserved commit is used instead of the tag, say so: tag pruning
+ * exists so revocations reach consumers (#55), and a frozen dep must not hide
+ * one.
+ */
+async function resolveFrozen(
+	repo: string,
+	frozen: string,
+	names: string[],
+	state: ResolutionState,
+): Promise<void> {
+	const key = resolutionKey(repo, frozen);
+	if (state.resolutionAttempted.has(key)) return;
+	state.resolutionAttempted.add(key);
+	// validateManifest rejects anything that isn't an exact version first.
+	const version = parseFrozenVersion(frozen);
+	if (version === null) return;
+	const who = names.join(", ");
+
+	let cachePath: string;
+	let tags: string[];
+	try {
+		cachePath = await ensureCached(repo);
+		tags = await listTags(cachePath);
+	} catch (e) {
+		const errMsg = e instanceof Error ? e.message : String(e);
+		state.errors.push(
+			`Error: Git operation failed\n\n  Failed to fetch ${repo}\n  Underlying error: ${errMsg}\n\nFix: Check the repo URL in ${MANIFEST_NEW} and your git access (SSH keys, GITHUB_TOKEN).`,
+		);
+		return;
+	}
+
+	const tag = filterSemverTags(tags).find((t) => t.version === version)?.tag;
+	const preservedRef = `${FROZEN_REF_PREFIX}${version}`;
+	const preserved = await readRef(cachePath, preservedRef);
+	const base = { repo, cachePath, version, frozen };
+
+	if (tag !== undefined) {
+		const tagCommit = await getCommitSha(cachePath, `${tag}^{commit}`);
+		if (preserved === null) await writeRef(cachePath, preservedRef, tagCommit);
+		if (preserved === null || preserved === tagCommit) {
+			state.repoResolutions.set(key, { ...base, tag, commit: tagCommit });
+			return;
+		}
+		state.warnings.push(
+			`Warning: ${who} is frozen at ${frozen}, but tag ${tag} in ${repo} was moved upstream (now ${tagCommit.slice(0, 7)}).\n  Keeping the frozen commit ${preserved.slice(0, 7)}. To take the new commit: skilltree freeze ${names[0]} ${frozen}`,
+		);
+		state.repoResolutions.set(key, { ...base, commit: preserved });
+		return;
+	}
+
+	if (preserved !== null) {
+		state.warnings.push(
+			`Warning: ${who} is frozen at ${frozen}, but ${repo} no longer has that tag.\n  Using the preserved commit ${preserved.slice(0, 7)}.`,
+		);
+		state.repoResolutions.set(key, { ...base, commit: preserved });
+		return;
+	}
+
+	state.errors.push(
+		`Error: Frozen tag not found\n\n  ${who} is frozen at ${frozen}, but ${repo} has no tag for ${version}.\n\nFix: Freeze at a tag that exists, or remove \`frozen:\` to follow the repo's version.`,
+	);
 }
 
 async function resolveOneRepo(
@@ -233,9 +366,12 @@ async function resolveOneRepo(
 	state: ResolutionState,
 ): Promise<void> {
 	// Idempotent: Phase 1.5b calls resolveRepoVersions a second time to pick
-	// up repos introduced by pack-member injection. Skip anything Phase 1 already
-	// resolved so the second pass is free for unchanged repos.
-	if (state.repoResolutions.has(repo)) return;
+	// up repos introduced by pack-member injection. Skip anything already
+	// attempted — resolved or failed — so the second pass is free for unchanged
+	// repos and a conflict is reported once, not twice.
+	const key = resolutionKey(repo, undefined);
+	if (state.resolutionAttempted.has(key)) return;
+	state.resolutionAttempted.add(key);
 	try {
 		const cachePath = await ensureCached(repo);
 		const tags = await listTags(cachePath);
@@ -246,14 +382,15 @@ async function resolveOneRepo(
 				await addTaglessRepoResolution(repo, cachePath, state);
 			} else {
 				state.errors.push(
-					`Error: Version conflict on repo ${repo}\n\n${indentBlock(result.error, "  ")}\n\nFix: Align version constraints in the listed manifest(s), or move entities to separate repos.`,
+					`Error: Version conflict on repo ${repo}\n\n${indentBlock(result.error, "  ")}\n\nFix: Align version constraints in the listed manifest(s), or freeze the deps that need an older tag: skilltree freeze <name> <tag>`,
 				);
 			}
 			return;
 		}
 
 		const commit = await getCommitSha(cachePath, result.tag);
-		state.repoResolutions.set(repo, {
+		state.repoResolutions.set(resolutionKey(repo, undefined), {
+			repo,
 			cachePath,
 			tag: result.tag,
 			version: result.version,
@@ -299,7 +436,7 @@ function warnIfCappedByTighterSibling(
 	if (cappingConstraints.length === 0) return;
 
 	state.warnings.push(
-		`${repo}: ${cappedDeps.join(", ")} capped at ${pickedVersion} by ${cappingConstraints.join(", ")} (latest available: ${maxAvailable}). Loosen the tighter constraint or split the dep across repos to upgrade the rest.`,
+		`${repo}: ${cappedDeps.join(", ")} capped at ${pickedVersion} by ${cappingConstraints.join(", ")} (latest available: ${maxAvailable}). Loosen the tighter constraint, or freeze that dep so it stops capping the rest: skilltree freeze <name> <tag>`,
 	);
 }
 
@@ -313,7 +450,7 @@ async function addTaglessRepoResolution(
 	state.warnings.push(
 		`Warning: ${repo} has no version tags.\n  Using default branch (${defaultBranch}) at commit ${commit.slice(0, 7)}.\n  Consider adding semver tags (e.g., v1.0.0) for version control.`,
 	);
-	state.repoResolutions.set(repo, { cachePath, commit });
+	state.repoResolutions.set(resolutionKey(repo, undefined), { repo, cachePath, commit });
 }
 
 // =============================================================================
@@ -374,7 +511,7 @@ async function fetchPackMembers(
 	}
 
 	// Remote pack: read packs: from the containing repo's manifest at the resolved ref.
-	const resolution = state.repoResolutions.get(dep.repo);
+	const resolution = state.repoResolutions.get(resolutionKey(dep.repo, undefined));
 	if (!resolution) {
 		// Phase 1 already failed to resolve this repo and pushed an error.
 		return null;
@@ -755,6 +892,7 @@ async function resolveRemoteEntity(
 		type?: EntityType;
 		name?: string;
 		force_path?: boolean;
+		frozen?: string;
 	},
 	group: DependencyGroup,
 	state: ResolutionState,
@@ -762,7 +900,7 @@ async function resolveRemoteEntity(
 	declaredIn: EntityOrigin = { kind: "consumer", manifestPath: MANIFEST_NEW },
 	viaPack?: string,
 ): Promise<void> {
-	const resolution = state.repoResolutions.get(dep.repo);
+	const resolution = state.repoResolutions.get(resolutionKey(dep.repo, dep.frozen));
 	if (!resolution) return;
 
 	const ref = resolution.tag ?? resolution.commit;
@@ -847,6 +985,7 @@ async function resolveRemoteEntity(
 	const originExclude = await readOriginExclude(entityName, resolution);
 	if (originExclude) entity.exclude = originExclude;
 	if (viaPack) entity.viaPack = viaPack;
+	if (dep.frozen !== undefined) entity.frozen = dep.frozen;
 
 	registerEntity(entity, state);
 
@@ -969,7 +1108,9 @@ async function tryResolveFromOriginManifest(
 	const parentEntity = state.entities.get(parentCompositeKey);
 	if (!parentEntity?.repo) return false;
 
-	const resolution = state.repoResolutions.get(parentEntity.repo);
+	const resolution = state.repoResolutions.get(
+		resolutionKey(parentEntity.repo, parentEntity.frozen),
+	);
 	if (!resolution) return false;
 
 	const ref = resolution.tag ?? resolution.commit;
@@ -1024,6 +1165,7 @@ async function tryResolveFromOriginManifest(
 		const syntheticDep = {
 			repo: parentEntity.repo,
 			path: localPath,
+			...(parentEntity.frozen !== undefined ? { frozen: parentEntity.frozen } : {}),
 			...(prodEntry.type ? { type: prodEntry.type } : {}),
 			...(prodEntry.name ? { name: prodEntry.name } : {}),
 		};
@@ -1042,32 +1184,51 @@ async function tryResolveFromOriginManifest(
 	}
 
 	if (isRemoteDependency(prodEntry)) {
+		await resolveOriginRemoteEntry(depName, prodEntry, parentEntity, parentGroup, state);
+		return true;
+	}
+
+	return false;
+}
+
+/**
+ * Resolve a `repo:` entry that origin's manifest declares for a transitive
+ * dep. Always settles the dep's tier: on a version conflict the helper has
+ * already reported the error, and the remaining tiers would only add a second,
+ * redundant one.
+ */
+async function resolveOriginRemoteEntry(
+	depName: string,
+	prodEntry: RemoteDependency,
+	parentEntity: ResolvedEntity,
+	parentGroup: DependencyGroup,
+	state: ResolutionState,
+): Promise<void> {
+	// A frozen parent's same-repo deps stay at its tag (#203); the repo's
+	// shared resolution may be a different version.
+	const sameRepo =
+		parentEntity.repo !== undefined &&
+		canonicalRepo(prodEntry.repo) === canonicalRepo(parentEntity.repo);
+	const frozen = sameRepo ? parentEntity.frozen : undefined;
+	if (frozen === undefined && parentEntity.repo !== undefined) {
 		const ok = await ensureRepoResolvedLazy(
 			prodEntry.repo,
 			prodEntry.version ?? "*",
 			parentEntity.repo,
 			state,
 		);
-		if (!ok) {
-			// Error already added by the helper; returning true short-circuits
-			// the remaining tiers so we don't emit a second, redundant error.
-			return true;
-		}
-
-		const actualName = prodEntry.name ?? depName;
-		await resolveEntity(
-			depName,
-			actualName,
-			prodEntry,
-			parentGroup,
-			state,
-			false,
-			transitiveOrigin,
-		);
-		return true;
+		if (!ok) return;
 	}
 
-	return false;
+	await resolveEntity(
+		depName,
+		prodEntry.name ?? depName,
+		frozen !== undefined ? inheritFrozen(prodEntry, frozen) : prodEntry,
+		parentGroup,
+		state,
+		false,
+		originForTransitive(parentEntity),
+	);
 }
 
 function isRelativeLocalPath(path: string): boolean {
@@ -1115,7 +1276,7 @@ async function detectPathMismatch(
 		if (!hasDotDotSegment(p)) originPath = p;
 	} else if (
 		isRemoteDependency(entry) &&
-		entry.repo === consumerRepo &&
+		canonicalRepo(entry.repo) === canonicalRepo(consumerRepo) &&
 		entry.path &&
 		!hasDotDotSegment(entry.path)
 	) {
@@ -1157,7 +1318,11 @@ function formatPathWarning(
  * would otherwise get.
  */
 async function checkStaleTagManifests(state: ResolutionState): Promise<void> {
-	for (const [repo, resolution] of state.repoResolutions) {
+	for (const resolution of state.repoResolutions.values()) {
+		// A frozen dep chose an old tag on purpose (#203); "cut a new tag" is
+		// no fix for it.
+		if (resolution.frozen !== undefined) continue;
+		const { repo } = resolution;
 		const ref = resolution.tag ?? resolution.commit;
 
 		// If manifest is present at the resolved ref, nothing to check.
@@ -1220,7 +1385,7 @@ async function inferDirectDepPath(
 				if (!hasDotDotSegment(p)) return p;
 			} else if (
 				isRemoteDependency(entry) &&
-				entry.repo === consumerRepo &&
+				canonicalRepo(entry.repo) === canonicalRepo(consumerRepo) &&
 				entry.path &&
 				!hasDotDotSegment(entry.path)
 			) {
@@ -1252,7 +1417,7 @@ async function ensureRepoResolvedLazy(
 	originRepo: string,
 	state: ResolutionState,
 ): Promise<boolean> {
-	const existing = state.repoResolutions.get(repo);
+	const existing = state.repoResolutions.get(resolutionKey(repo, undefined));
 	if (existing) {
 		if (constraint === "*") return true;
 		// Tagless resolution — can't validate a constraint against no version.
@@ -1270,7 +1435,7 @@ async function ensureRepoResolvedLazy(
 	// that asked for this repo, not a "<transitive via ...>" placeholder. The
 	// originRepo's resolution may not exist yet (first transitive into a new
 	// repo); fall back to "transitive" without a ref in that case.
-	const originResolution = state.repoResolutions.get(originRepo);
+	const originResolution = state.repoResolutions.get(resolutionKey(originRepo, undefined));
 	const ref = originResolution?.tag ?? originResolution?.commit ?? "transitive";
 	await resolveOneRepo(
 		repo,
@@ -1283,7 +1448,7 @@ async function ensureRepoResolvedLazy(
 		],
 		state,
 	);
-	return state.repoResolutions.has(repo);
+	return state.repoResolutions.has(resolutionKey(repo, undefined));
 }
 
 async function tryResolveFromSameRepo(
@@ -1295,7 +1460,9 @@ async function tryResolveFromSameRepo(
 	const parentEntity = state.entities.get(parentCompositeKey);
 	if (!parentEntity?.repo) return false;
 
-	const resolution = state.repoResolutions.get(parentEntity.repo);
+	const resolution = state.repoResolutions.get(
+		resolutionKey(parentEntity.repo, parentEntity.frozen),
+	);
 	if (!resolution) return false;
 
 	const ref = resolution.tag ?? resolution.commit;
@@ -1309,11 +1476,12 @@ async function tryResolveFromSameRepo(
 				ref,
 				normalizedPath.endsWith(".md") ? normalizedPath : `${normalizedPath}/SKILL.md`,
 			);
-			const syntheticDep = {
-				repo: parentEntity.repo,
-				path: candidatePath,
-				version: parentEntity.version,
-			};
+			// Same repo as the parent, so the same resolution: a frozen parent
+			// keeps its deps at the frozen tag (#203).
+			const syntheticDep =
+				parentEntity.frozen !== undefined
+					? { repo: parentEntity.repo, path: candidatePath, frozen: parentEntity.frozen }
+					: { repo: parentEntity.repo, path: candidatePath, version: parentEntity.version };
 			await resolveEntity(
 				depName,
 				depName,

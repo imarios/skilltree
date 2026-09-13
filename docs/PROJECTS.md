@@ -18,7 +18,10 @@ Project Naming Theme: Elements
 
 - **Fluorine** (05/23/2026): Bundled-skill freshness — `materializeBundledSkill` stamps the CLI's `package.json` version into the SKILL.md frontmatter; new `bundled-skill` doctor check warns when the installed skilltree skill is missing or behind the CLI on any detected agent. Renderer extended to show `→ fix` hints on warn rows. Spec: docs/specs/doctor.md v1.1.
 
+
 ## Completed Projects
+
+- **Neon** (09/13/2026 → 09/13/2026): Frozen dependencies (#203) — `frozen: <tag>` on a remote dep takes it out of its repo's shared version resolution, so upstream removing or moving skills no longer caps the rest of the repo. `skilltree freeze` / `unfreeze` commands; a preserved `refs/skilltree/frozen/<version>` ref that survives upstream deleting or moving the tag; an optional `frozen` lockfile field so hand edits re-resolve; `update`, `outdated` (`--check` ignores frozen) and `list` surface frozen state; repo URLs compared canonically, retiring the `.git`-suffix workaround. Found and fixed on the way: moved upstream tags wiped the whole cache, `repo.git/` got its own cache, and version conflicts were reported twice. Three phases, one PR. See [docs/planning/neon/PLAN.md](planning/neon/PLAN.md).
 
 - **Oxygen** (05/19/2026 → 05/19/2026): Skill packs — `packs:` section in `skilltree.yml`, `PackDependency` references (local + remote), full-entry members supporting multi-repo composition, all-or-nothing v1, nested-packs door left open. Shipped across 4 phases (types + manifest, resolver Phase 1.5, add/remove/registry surface, docs + e2e). 86 new tests, 4 commits. See [docs/specs/packs.md](specs/packs.md).
 

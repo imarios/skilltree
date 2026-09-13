@@ -180,6 +180,36 @@ export async function getCommitSha(cachePath: string, ref: string): Promise<stri
 }
 
 /**
+ * Namespace for commits kept alive on behalf of frozen deps (#203). It sits
+ * outside `refs/tags/*`, so the tag-pruning fetch in `cloneOrFetchBare` never
+ * removes it, and the commit stays readable after upstream deletes or moves
+ * the tag. One ref per frozen version: `refs/skilltree/frozen/0.4.0`.
+ */
+export const FROZEN_REF_PREFIX = "refs/skilltree/frozen/";
+
+/**
+ * The commit a ref points at, or null when the ref doesn't exist.
+ */
+export async function readRef(cachePath: string, ref: string): Promise<string | null> {
+	const git = simpleGit(cachePath);
+	try {
+		const sha = await git.raw(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+		const trimmed = sha.trim();
+		return trimmed === "" ? null : trimmed;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Point a ref at a commit, creating or moving it.
+ */
+export async function writeRef(cachePath: string, ref: string, commit: string): Promise<void> {
+	const git = simpleGit(cachePath);
+	await git.raw(["update-ref", ref, commit]);
+}
+
+/**
  * Get the default branch name (usually main or master).
  */
 export async function getDefaultBranch(cachePath: string): Promise<string> {
@@ -200,12 +230,24 @@ export async function getDefaultBranch(cachePath: string): Promise<string> {
  * "git@github.com:user/repo" → "github.com/user/repo"
  */
 export function normalizeGitUrl(url: string): string {
+	// Trailing slashes go before the `.git` suffix: `…/repo.git/` must reach
+	// the same form as `…/repo.git`, or the two get separate caches (#203).
 	return url
 		.replace(/^https?:\/\//, "")
 		.replace(/^git@/, "")
 		.replace(/:([^/])/, "/$1")
-		.replace(/\.git$/, "")
-		.replace(/\/+$/, "");
+		.replace(/\/+$/, "")
+		.replace(/\.git$/, "");
+}
+
+/**
+ * A repo's identity for comparison: do two repo strings name the same repo?
+ * (#203). Scheme, `git@`, a `.git` suffix and trailing slashes don't matter —
+ * the same rules as the cache path, so two spellings that share a clone also
+ * share a resolution. For keys and comparisons only; never clone from it.
+ */
+export function canonicalRepo(repo: string): string {
+	return normalizeGitUrl(repo);
 }
 
 /**
@@ -275,6 +317,26 @@ async function ensureBareFetchRefspec(git: ReturnType<typeof simpleGit>): Promis
  * pull from the stale remote.
  */
 export async function cloneOrFetchBare(repoUrl: string, targetDir: string): Promise<void> {
+	// One clone/fetch per cache directory at a time. Concurrent fetches of one
+	// bare repo can fail on git's ref locks, and `syncBareCache` treats a failed
+	// fetch as a corrupt cache — deleting it under every other caller and
+	// dropping preserved refs (#203). `outdated` builds rows in parallel, so two
+	// deps from one repo hit this. Later callers wait, then fetch in turn.
+	const previous = cacheSyncs.get(targetDir) ?? Promise.resolve();
+	// The previous caller already saw its own failure; this one starts fresh.
+	const current = previous.catch(() => undefined).then(() => syncBareCache(repoUrl, targetDir));
+	cacheSyncs.set(targetDir, current);
+	try {
+		await current;
+	} finally {
+		if (cacheSyncs.get(targetDir) === current) cacheSyncs.delete(targetDir);
+	}
+}
+
+/** The latest clone/fetch queued for each cache directory; see `cloneOrFetchBare`. */
+const cacheSyncs = new Map<string, Promise<void>>();
+
+async function syncBareCache(repoUrl: string, targetDir: string): Promise<void> {
 	if (existsSync(targetDir)) {
 		// Verify it's a valid bare repo with a configured remote before fetching.
 		// HEAD alone is insufficient — git init writes HEAD before the clone
@@ -317,7 +379,12 @@ export async function cloneOrFetchBare(repoUrl: string, targetDir: string): Prom
 						// second call overrides the configured branch
 						// refspec for that invocation, so `--prune` is
 						// scoped to tags only.
-						await git.fetch(["--tags"]);
+						// `--force`: without it, a tag moved upstream makes this
+						// fetch fail with "would clobber existing tag", which
+						// lands in the catch below and wipes and re-clones the
+						// whole cache — dropping the preserved refs frozen deps
+						// rely on (#203). The second fetch updates tags anyway.
+						await git.fetch(["--tags", "--force"]);
 						await git.fetch(["--prune", "origin", "+refs/tags/*:refs/tags/*"]);
 						return;
 					}

@@ -98,6 +98,11 @@ interface ListRow {
 	 * text mode and as `viaPack` in --json output.
 	 */
 	viaPack?: string;
+	/**
+	 * The tag this dep is frozen at (#203). `version` stays the plain resolved
+	 * version for `--json` consumers; the table appends "(frozen)".
+	 */
+	frozen?: string;
 }
 
 /** Short SHA convention used elsewhere in the codebase (see graph.ts install warnings). */
@@ -143,6 +148,9 @@ function buildRows(lockfile: Lockfile): ListRow[] {
 		if (entry.via_pack !== undefined) {
 			row.viaPack = entry.via_pack;
 		}
+		if (entry.frozen !== undefined) {
+			row.frozen = entry.frozen;
+		}
 		return row;
 	});
 }
@@ -153,7 +161,7 @@ const NAME_COL: ColumnDef<ListRow> = { header: "Name", value: (r) => r.name, col
 const TYPE_COL: ColumnDef<ListRow> = { header: "Type", value: (r) => r.type, color: dim };
 const VERSION_COL: ColumnDef<ListRow> = {
 	header: "Version",
-	value: (r) => r.version,
+	value: (r) => (r.frozen === undefined ? r.version : `${r.version} (frozen)`),
 	color: pc.green,
 };
 const SOURCE_COL: ColumnDef<ListRow> = { header: "Source", value: (r) => r.source, color: dim };
