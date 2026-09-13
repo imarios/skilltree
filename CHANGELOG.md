@@ -1,3 +1,9 @@
+## v0.42.0 (2026-09-13)
+
+### Feat
+
+- report install-tree entries skilltree didn't install (#216)
+
 ## v0.41.0 (2026-09-13)
 
 ### Feat
