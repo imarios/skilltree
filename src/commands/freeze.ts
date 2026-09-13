@@ -90,7 +90,9 @@ export async function freezeCommand(
 	}
 
 	const raw = rawEntry(manifest, name);
-	const previousVersion = raw.version;
+	// `*` is the default rather than a constraint the user chose, so dropping it
+	// isn't worth reporting. `version:` is removed either way.
+	const previousVersion = raw.version === "*" ? undefined : raw.version;
 
 	if (opts?.dryRun === true) {
 		console.log(`Would freeze ${name} at ${frozen}.`);

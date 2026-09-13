@@ -208,6 +208,22 @@ describe("freeze", () => {
 		expect(result.warnings.filter((w) => w.includes("was moved upstream"))).toEqual([]);
 	}, 30_000); // two freezes and an install: over the 5s default under full-suite load
 
+	test("FR12 freezing a `*` dep doesn't report `*` as a removed constraint", async () => {
+		const fx = await installedAtLatest();
+		const logs: string[] = [];
+		const spy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+			logs.push(args.join(" "));
+		});
+
+		try {
+			await freezeCommand(fx.projectDir, "stable", "0.4.0");
+		} finally {
+			spy.mockRestore();
+		}
+
+		expect(logs.join("\n")).not.toContain("removed version");
+	});
+
 	test("FR11 a dev-dependency is frozen in place", async () => {
 		const fx = await buildFixture();
 		await writeManifestYaml(fx, '    version: "*"\n', "dev-dependencies");
