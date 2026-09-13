@@ -1,10 +1,9 @@
 import type { Dirent } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { LOCKFILE_NEW, MANIFEST_NEW, MANIFEST_NEW_ALT } from "../core/filenames.js";
 import { parseManifest } from "../core/manifest.js";
-import { collapseTilde } from "../core/paths.js";
+import { collapseTilde, homeDir } from "../core/paths.js";
 import { type ColumnDef, dim, pc, printTable, warn } from "../core/ui.js";
 
 /**
@@ -57,7 +56,7 @@ const SKIP_REL_SUFFIXES = ["/.skilltree/cache"];
  * `readdir` work.
  */
 export async function projectsCommand(opts?: ProjectsOptions): Promise<void> {
-	const root = opts?.root ?? homedir();
+	const root = opts?.root ?? homeDir();
 
 	const projects: ProjectRow[] = [];
 	const parseFailures: string[] = [];
