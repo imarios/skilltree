@@ -1,5 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import YAML from "yaml";
 import type {
 	Dependency,
@@ -14,7 +14,7 @@ import type {
 import { isPackDependency, isSourceDependency } from "../types.js";
 import { resolveGlobalTarget, resolveTarget } from "./agents.js";
 import { MANIFEST_NEW, resolveGlobalManifestPath, resolveManifestPath } from "./filenames.js";
-import { expandTilde, isLocalSource } from "./paths.js";
+import { expandTilde, getGlobalInstallBase, isLocalSource } from "./paths.js";
 import { error, warn } from "./ui.js";
 
 export function parseManifest(content: string): Manifest {
@@ -255,6 +255,19 @@ export function getInstallTargets(manifest: Manifest, opts?: { global?: boolean 
 		return manifest.install_targets.map(resolve);
 	}
 	return [getDevInstallPath(manifest)];
+}
+
+/**
+ * Absolute install base directories for every configured target. Commands that
+ * act on the whole install tree (`remove`, pruning, `verify`, `doctor`) must
+ * cover every target, not just the first, or non-default targets keep orphans.
+ */
+export function resolveInstallBases(manifest: Manifest, dir: string, isGlobal: boolean): string[] {
+	if (isGlobal) {
+		const targets = getInstallTargets(manifest, { global: true });
+		return targets.length > 0 ? targets : [getGlobalInstallBase()];
+	}
+	return getInstallTargets(manifest).map((target) => join(dir, target));
 }
 
 /**
