@@ -397,7 +397,7 @@ skilltree scan --apply ./skills/        # auto-update frontmatter
 | `skilltree update [name]` | Update to latest versions |
 | `skilltree outdated [name]` | Preview which deps have newer versions (read-only) |
 | `skilltree remove <name>` | Remove a dependency |
-| `skilltree verify` | Check installed files against lockfile (`--strict` exits 1 on drift, for CI) |
+| `skilltree verify` | Check installed files against lockfile (`--strict` exits 1 on drift, for CI); lists entries skilltree didn't install |
 | `skilltree check` | Lint `skilltree.yml` for design-time issues (asymmetric publish, frontmatter) |
 | `skilltree doctor` | Preflight: schema + lint + lockfile sync + install drift + targets + gitignore + registries + frontmatter + bundled-skill freshness |
 | `skilltree list` | List installed dependencies; appends a "Defined packs" footer for publisher repos with a non-empty `packs:` section |

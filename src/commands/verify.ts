@@ -4,8 +4,9 @@ import { resolveAll } from "../core/graph.js";
 import type { VerifyStatus } from "../core/installer.js";
 import { verifyInstalled } from "../core/installer.js";
 import { readGlobalLockfile, readLockfile } from "../core/lockfile.js";
-import { getDevInstallPath, loadManifestOrThrow } from "../core/manifest.js";
+import { getDevInstallPath, loadManifestOrThrow, resolveInstallBases } from "../core/manifest.js";
 import { getGlobalDir, getGlobalInstallBase } from "../core/paths.js";
+import { findExtraneous } from "../core/prune.js";
 import { pc, warn } from "../core/ui.js";
 
 export interface VerifyOptions {
@@ -68,6 +69,15 @@ export async function verifyCommand(dir: string, opts?: VerifyOptions): Promise<
 		isGlobal ? globalDir : dir,
 	);
 
+	// Entries on disk that skilltree didn't install (#205). Listed so they are
+	// visible, but kept out of the drift verdict below: a hand-placed skill is
+	// legitimate, and `--strict` must not fail on it.
+	const extraneous = await findExtraneous(lockfile, resolveInstallBases(manifest, dir, isGlobal));
+	const rows: Array<{ name: string; status: VerifyStatus }> = [
+		...statuses,
+		...extraneous.map((entry) => ({ name: entry.name, status: "extraneous" as const })),
+	];
+
 	// Resolution errors are drift too. An entity that fails to resolve — a
 	// `local:` path that no longer exists (#207) — is absent from
 	// `result.entities`, so it never reaches `verifyInstalled` and would
@@ -81,13 +91,14 @@ export async function verifyCommand(dir: string, opts?: VerifyOptions): Promise<
 		// Machine-readable shape: array of {name, status}. No diagnostics, no
 		// colors, and no --strict footer — the output stays a single parseable
 		// document, and the exit code carries the verdict instead.
-		console.log(JSON.stringify(statuses, null, 2));
+		console.log(JSON.stringify(rows, null, 2));
 	} else {
-		for (const status of statuses) {
+		for (const status of rows) {
 			console.log(`  ${status.name.padEnd(25)} ${formatStatusIcon(status.status)}`);
 		}
 
 		printVerifyDiagnostics(statuses, isGlobal);
+		printExtraneous(extraneous);
 		for (const message of resolutionErrors) {
 			warn(message);
 		}
@@ -128,6 +139,8 @@ function formatStatusIcon(status: VerifyStatus): string {
 			return pc.red("BROKEN");
 		case "missing":
 			return pc.red("MISSING");
+		case "extraneous":
+			return pc.yellow("EXTRANEOUS");
 	}
 }
 
@@ -161,4 +174,12 @@ function printVerifyDiagnostics(
 	if (stale.length > 0) {
 		warn(`${stale.length} vendored copy is stale. Run ${pc.cyan("`skilltree vendor`")} to update.`);
 	}
+}
+
+function printExtraneous(extraneous: Array<{ name: string; path: string }>): void {
+	if (extraneous.length === 0) return;
+	const one = extraneous.length === 1;
+	warn(
+		`${extraneous.length} ${one ? "entry" : "entries"} in the install tree ${one ? "was" : "were"} not installed by skilltree: ${extraneous.map((entry) => entry.path).join(", ")}. skilltree leaves ${one ? "it" : "them"} alone; remove ${one ? "it" : "them"} by hand if you no longer need ${one ? "it" : "them"}.`,
+	);
 }

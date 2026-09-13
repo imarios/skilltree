@@ -19,9 +19,11 @@ import { diffManifestLockfile, entitiesFromLockfile, readLockfile } from "../cor
 import {
 	getDevInstallPath,
 	loadManifestOrThrow,
+	resolveInstallBases,
 	validateGlobalManifest,
 	validateManifest,
 } from "../core/manifest.js";
+import { findExtraneous } from "../core/prune.js";
 import { listRegistries } from "../core/registry-config.js";
 import { dim, pc } from "../core/ui.js";
 import type { CheckResult, CheckStatus, CheckSummary, Manifest } from "../types.js";
@@ -234,12 +236,14 @@ async function checkLockfileSync(
  * Statuses that mean the install drifted but the install itself isn't broken.
  *
  * A `stale` vendored copy is behind its local source — an authoring state
- * that `vendor` refreshes, not a checkout someone can't trust. Everything
+ * that `vendor` refreshes, not a checkout someone can't trust. An `extraneous`
+ * entry is one skilltree didn't install (#205): worth seeing, but a hand-placed
+ * skill is legitimate, so it never fails the check. Everything
  * else in `DRIFT_STATUSES` fails, including any status added later: a new
  * kind of drift is a failure until someone decides otherwise, which is the
  * safe direction for a preflight check to default in.
  */
-const WARN_ONLY_DRIFT: ReadonlySet<VerifyStatus> = new Set<VerifyStatus>(["stale"]);
+const WARN_ONLY_DRIFT: ReadonlySet<VerifyStatus> = new Set<VerifyStatus>(["stale", "extraneous"]);
 
 /** Per-status remedy, phrased the way `verify`'s diagnostics phrase it. */
 const DRIFT_FIXES: Partial<Record<VerifyStatus, string>> = {
@@ -247,6 +251,7 @@ const DRIFT_FIXES: Partial<Record<VerifyStatus, string>> = {
 	modified: "Run `skilltree install --force` to overwrite",
 	broken: "Check the source paths in skilltree.yml",
 	stale: "Run `skilltree vendor` to refresh the vendored copies",
+	extraneous: "Remove anything skilltree didn't install by hand if you no longer need it",
 };
 
 /**
@@ -303,7 +308,14 @@ async function checkInstallDrift(
 			dir,
 		);
 
-		const drifted = statuses.filter((s) => DRIFT_STATUSES.has(s.status));
+		// Entries skilltree didn't install (#205) are reported with the drift, as a
+		// warning only (see WARN_ONLY_DRIFT). They are not in DRIFT_STATUSES,
+		// which also gates `verify --strict`.
+		const extraneous = await findExtraneous(lockfile, resolveInstallBases(manifest, dir, false));
+		const drifted = [
+			...statuses.filter((s) => DRIFT_STATUSES.has(s.status)),
+			...extraneous.map((entry) => ({ name: entry.name, status: "extraneous" as const })),
+		];
 		if (drifted.length === 0) {
 			return { name: "install-drift", status: "pass" };
 		}
