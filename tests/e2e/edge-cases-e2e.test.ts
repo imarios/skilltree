@@ -262,7 +262,7 @@ describe("e2e edge: remove with orphan cascade", () => {
 		}
 
 		// Remove A — B and C should become orphans (if only A references them)
-		await removeCommand("skill-a", dir, { force: true });
+		await removeCommand("skill-a", dir, { yes: true });
 
 		const lockfile = parseLockfile(await readFile(join(dir, "skilltree.lock"), "utf-8"));
 		expect(lockfile.packages["skill-a"]).toBeUndefined();
@@ -301,7 +301,7 @@ describe("e2e edge: remove with orphan cascade", () => {
 		expect(lockBefore.packages.child).toBeDefined();
 
 		// Remove parent — child should be orphaned
-		await removeCommand("parent", dir, { force: true });
+		await removeCommand("parent", dir, { yes: true });
 
 		const lockAfter = parseLockfile(await readFile(join(dir, "skilltree.lock"), "utf-8"));
 		expect(lockAfter.packages.parent).toBeUndefined();
@@ -366,7 +366,7 @@ describe("e2e edge: re-install after remove", () => {
 		expect(stat1.isSymbolicLink()).toBe(true);
 
 		// Remove
-		await removeCommand("my-skill", dir, { force: true });
+		await removeCommand("my-skill", dir, { yes: true });
 
 		// Verify removed
 		try {

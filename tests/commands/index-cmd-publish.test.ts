@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import YAML from "yaml";
 import { indexCommand } from "../../src/commands/index-cmd.js";
-import { _resetDeprecationWarningsForTests } from "../../src/core/filenames.js";
+import { _resetDeprecationWarningsForTests } from "../../src/core/ui.js";
 
 let tempDir: string;
 

@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	_resetDeprecationWarningsForTests,
 	GLOBAL_MANIFEST,
 	GLOBAL_MANIFEST_ALT,
 	globalManifestExists,
@@ -13,6 +12,7 @@ import {
 	resolveGlobalManifestPath,
 	resolveManifestPath,
 } from "../../src/core/filenames.js";
+import { _resetDeprecationWarningsForTests } from "../../src/core/ui.js";
 
 const cleanups: string[] = [];
 

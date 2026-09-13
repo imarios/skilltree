@@ -146,7 +146,13 @@ const COMMANDS: CmdDef[] = [
 		description: "Remove a dependency",
 		positionalComplete: "deps",
 		flags: [
-			{ long: "--force", short: "-f", description: "Skip confirmation" },
+			{ long: "--yes", short: "-y", description: "Skip confirmation" },
+			{
+				long: "--dry-run",
+				short: "-n",
+				description: "Preview the removal without changing anything",
+			},
+			{ long: "--dev", short: "-D", description: "Only remove from dev-dependencies" },
 			{ long: "--keep-files", description: "Leave installed files in place" },
 			{ long: "--global", short: "-g", description: "Remove from global dependencies" },
 		],
@@ -269,7 +275,15 @@ const COMMANDS: CmdDef[] = [
 			{
 				name: "add",
 				description: "Register a git repo",
-				flags: [{ long: "--name", description: "Custom name for the registry", takesArg: true }],
+				flags: [
+					{ long: "--as", description: "Custom name for the registry", takesArg: true },
+					{
+						long: "--repo",
+						short: "-r",
+						description: "Git repository URL (alias for the positional <url>)",
+						takesArg: true,
+					},
+				],
 			},
 			{ name: "remove", description: "Remove a registered registry" },
 			{

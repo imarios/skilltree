@@ -1,12 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { addCommand } from "../../src/commands/add.js";
 import { initCommand } from "../../src/commands/init.js";
-import { removeCommand } from "../../src/commands/remove.js";
+import { removeCommand, resolveRemoveSkipConfirmation } from "../../src/commands/remove.js";
 import { readLockfile } from "../../src/core/lockfile.js";
 import { readManifest } from "../../src/core/manifest.js";
+import { _resetDeprecationWarningsForTests } from "../../src/core/ui.js";
 
 let tempDir: string;
 
@@ -27,7 +28,7 @@ describe("removeCommand", () => {
 		const dir = await setup();
 		await addCommand("my-skill", { repo: "github.com/user/repo", path: "skills/my-skill" }, dir);
 
-		await removeCommand("my-skill", dir, { force: true });
+		await removeCommand("my-skill", dir, { yes: true });
 
 		const manifest = await readManifest(dir);
 		expect(manifest.dependencies?.["my-skill"]).toBeUndefined();
@@ -36,7 +37,7 @@ describe("removeCommand", () => {
 	test("errors when name is not in manifest", async () => {
 		const dir = await setup();
 
-		await expect(removeCommand("nonexistent", dir, { force: true })).rejects.toThrow(
+		await expect(removeCommand("nonexistent", dir, { yes: true })).rejects.toThrow(
 			"not in skilltree.yml",
 		);
 	});
@@ -49,7 +50,7 @@ describe("removeCommand", () => {
 			dir,
 		);
 
-		await removeCommand("dev-skill", dir, { force: true });
+		await removeCommand("dev-skill", dir, { yes: true });
 
 		const manifest = await readManifest(dir);
 		expect(manifest["dev-dependencies"]?.["dev-skill"]).toBeUndefined();
@@ -65,7 +66,7 @@ describe("removeCommand", () => {
 			"lockfile_version: 1\npackages:\n  parent:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/parent\n    version: 1.0.0\n    commit: abc\n    dependencies:\n      - transitive-dep\n  transitive-dep:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/transitive-dep\n    version: 1.0.0\n    commit: abc\n    dependencies: []\n",
 		);
 
-		await expect(removeCommand("transitive-dep", dir, { force: true })).rejects.toThrow(
+		await expect(removeCommand("transitive-dep", dir, { yes: true })).rejects.toThrow(
 			"transitive dependency",
 		);
 	});
@@ -81,7 +82,7 @@ describe("removeCommand", () => {
 			"lockfile_version: 1\npackages:\n  base:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/base\n    version: 1.0.0\n    commit: abc\n    dependencies: []\n  consumer:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/consumer\n    version: 1.0.0\n    commit: abc\n    dependencies:\n      - base\n",
 		);
 
-		await removeCommand("base", dir, { force: true });
+		await removeCommand("base", dir, { yes: true });
 
 		const manifest = await readManifest(dir);
 		expect(manifest.dependencies?.base).toBeUndefined();
@@ -100,7 +101,7 @@ describe("removeCommand", () => {
 			"lockfile_version: 1\npackages:\n  my-skill:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/my-skill\n    version: 1.0.0\n    commit: abc\n    dependencies: []\n",
 		);
 
-		await removeCommand("my-skill", dir, { force: true, keepFiles: true });
+		await removeCommand("my-skill", dir, { yes: true, keepFiles: true });
 
 		// Manifest should be cleaned
 		const manifest = await readManifest(dir);
@@ -123,7 +124,7 @@ describe("removeCommand", () => {
 			"lockfile_version: 1\npackages:\n  my-skill:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/my-skill\n    version: 1.0.0\n    commit: abc\n    dependencies: []\n",
 		);
 
-		await removeCommand("my-skill", dir, { force: true });
+		await removeCommand("my-skill", dir, { yes: true });
 
 		// Files should be gone
 		await expect(stat(installDir)).rejects.toThrow();
@@ -143,7 +144,7 @@ describe("removeCommand", () => {
 			"lockfile_version: 1\npackages:\n  parent:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/parent\n    version: 1.0.0\n    commit: abc\n    dependencies:\n      - child\n  child:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/child\n    version: 1.0.0\n    commit: abc\n    dependencies:\n      - grandchild\n  grandchild:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/grandchild\n    version: 1.0.0\n    commit: abc\n    dependencies: []\n",
 		);
 
-		await removeCommand("parent", dir, { force: true });
+		await removeCommand("parent", dir, { yes: true });
 
 		const lockfile = await readLockfile(dir);
 		expect(lockfile?.packages.parent).toBeUndefined();
@@ -167,7 +168,7 @@ describe("removeCommand", () => {
 		const originalLog = console.log;
 		console.log = (...args: unknown[]) => logs.push(args.join(" "));
 		try {
-			await removeCommand("my-skill", dir, { force: true, dryRun: true });
+			await removeCommand("my-skill", dir, { yes: true, dryRun: true });
 		} finally {
 			console.log = originalLog;
 		}
@@ -254,7 +255,7 @@ describe("removeCommand", () => {
 			"lockfile_version: 1\npackages:\n  my-skill:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/my-skill\n    version: 1.0.0\n    commit: abc\n    dependencies: []\n",
 		);
 
-		await removeCommand("my-skill", dir, { force: true });
+		await removeCommand("my-skill", dir, { yes: true });
 
 		// All four target directories should no longer contain the skill
 		for (const t of targets) {
@@ -297,7 +298,7 @@ describe("removeCommand", () => {
 			"lockfile_version: 1\npackages:\n  parent:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/parent\n    version: 1.0.0\n    commit: abc\n    dependencies:\n      - child\n  child:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/child\n    version: 1.0.0\n    commit: abc\n    dependencies: []\n",
 		);
 
-		await removeCommand("parent", dir, { force: true });
+		await removeCommand("parent", dir, { yes: true });
 
 		// Both parent and orphan child files should be gone in every target
 		for (const t of targets) {
@@ -320,7 +321,7 @@ describe("removeCommand", () => {
 				dir,
 			);
 
-			await removeCommand("dev-skill", dir, { force: true, dev: true });
+			await removeCommand("dev-skill", dir, { yes: true, dev: true });
 
 			const manifest = await readManifest(dir);
 			expect(manifest["dev-dependencies"]?.["dev-skill"]).toBeUndefined();
@@ -334,7 +335,7 @@ describe("removeCommand", () => {
 				dir,
 			);
 
-			await expect(removeCommand("prod-only", dir, { force: true, dev: true })).rejects.toThrow(
+			await expect(removeCommand("prod-only", dir, { yes: true, dev: true })).rejects.toThrow(
 				"not in dev-dependencies",
 			);
 
@@ -346,7 +347,7 @@ describe("removeCommand", () => {
 		test("errors when --dev is combined with --global (global has no dev-deps)", async () => {
 			const dir = await setup();
 			await expect(
-				removeCommand("anything", dir, { force: true, dev: true, global: true }),
+				removeCommand("anything", dir, { yes: true, dev: true, global: true }),
 			).rejects.toThrow("--dev is not compatible with --global");
 		});
 	});
@@ -367,7 +368,7 @@ describe("removeCommand", () => {
 			"lockfile_version: 1\npackages:\n  parent:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/parent\n    version: 1.0.0\n    commit: abc\n    dependencies:\n      - child\n  child:\n    type: skill\n    group: prod\n    repo: github.com/user/repo\n    path: skills/child\n    version: 1.0.0\n    commit: abc\n    dependencies: []\n",
 		);
 
-		await removeCommand("parent", dir, { force: true });
+		await removeCommand("parent", dir, { yes: true });
 
 		// Both parent and orphan child files should be gone
 		await expect(stat(join(installBase, "skills", "parent"))).rejects.toThrow();
@@ -412,11 +413,57 @@ describe("removeCommand", () => {
 		// Remove the unrelated dep. `pc` is still kept alive by `task-builder`
 		// (transitively, via the name `python-coding`). It must NOT be swept
 		// as an orphan.
-		await removeCommand("unrelated", dir, { force: true });
+		await removeCommand("unrelated", dir, { yes: true });
 
 		const lockfile = await readLockfile(dir);
 		expect(lockfile?.packages.pc).toBeDefined();
 		expect(lockfile?.packages["task-builder"]).toBeDefined();
 		expect(lockfile?.packages.unrelated).toBeUndefined();
+	});
+});
+
+function captureWarnings(fn: () => void): string[] {
+	const warnings: string[] = [];
+	const original = console.warn;
+	console.warn = (msg: string) => {
+		warnings.push(msg);
+	};
+	try {
+		fn();
+	} finally {
+		console.warn = original;
+	}
+	return warnings;
+}
+
+/**
+ * #23: `remove -f` meant "skip confirmation" while `install -f` and
+ * `unvendor -f` mean "overwrite modified files". `-y, --yes` is the
+ * confirmation skip everywhere else (`init`, `add`), so `remove` joins them.
+ * `--force` keeps working with a deprecation warning, so no script breaks.
+ */
+describe("resolveRemoveSkipConfirmation (#23)", () => {
+	beforeEach(() => {
+		_resetDeprecationWarningsForTests();
+	});
+
+	test("--yes skips the confirmation without any warning", () => {
+		const warnings = captureWarnings(() => {
+			expect(resolveRemoveSkipConfirmation({ yes: true })).toBe(true);
+		});
+		expect(warnings).toEqual([]);
+	});
+
+	test("no flag keeps the confirmation", () => {
+		expect(resolveRemoveSkipConfirmation({})).toBe(false);
+	});
+
+	test("deprecated --force still skips it, and says to use --yes", () => {
+		const warnings = captureWarnings(() => {
+			expect(resolveRemoveSkipConfirmation({ force: true })).toBe(true);
+		});
+		expect(warnings.length).toBe(1);
+		expect(warnings[0]).toContain("--yes");
+		expect(warnings[0]).toContain("DEPRECATION");
 	});
 });

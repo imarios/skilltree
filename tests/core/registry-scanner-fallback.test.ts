@@ -3,8 +3,8 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import simpleGit from "simple-git";
-import { _resetDeprecationWarningsForTests } from "../../src/core/filenames.js";
 import { scanRegistry } from "../../src/core/registry-scanner.js";
+import { _resetDeprecationWarningsForTests } from "../../src/core/ui.js";
 
 let tempDir: string;
 

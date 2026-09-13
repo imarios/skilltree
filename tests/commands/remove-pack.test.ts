@@ -43,7 +43,7 @@ describe("remove pack ref", () => {
 			},
 		});
 
-		await removeCommand("my-stack", dir, { force: true });
+		await removeCommand("my-stack", dir, { yes: true });
 
 		const m = await readManifest(dir);
 		expect(m.dependencies?.["my-stack"]).toBeUndefined();
@@ -64,7 +64,7 @@ describe("remove pack ref", () => {
 			},
 		});
 
-		await removeCommand("python-pack", dir, { force: true });
+		await removeCommand("python-pack", dir, { yes: true });
 
 		const m = await readManifest(dir);
 		expect(m.dependencies?.["python-pack"]).toBeUndefined();

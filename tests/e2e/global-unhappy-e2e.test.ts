@@ -163,7 +163,7 @@ describe("global remove with orphan cleanup", () => {
 		await removeCommand("parent", dir, {
 			global: true,
 			globalDir,
-			force: true,
+			yes: true,
 		});
 
 		// Parent removed from manifest
