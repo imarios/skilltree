@@ -54,7 +54,7 @@
     "prepublishOnly": "test -f bin/skilltree || (echo 'Error: Run bun run build:npm first' && exit 1)"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.124.0",
+    "@anthropic-ai/sdk": "^0.125.0",
     "commander": "^15.0.0",
     "picocolors": "^1.1.1",
     "semver": "^7.7.4",
