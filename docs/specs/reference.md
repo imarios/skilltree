@@ -258,14 +258,18 @@ Name-only list. Resolution details (repo, version) come from the consumer's `ski
 `skilltree check` errors on unrecognized frontmatter keys. The accepted set is
 scoped per entity type, because most of these keys belong to the host runtime
 (Claude Code), not to skilltree — skilltree doesn't read them, but must not
-reject an entity that uses them (issues #159, #160).
+reject an entity that uses them (issues #159, #160). Each set is the host's
+full documented schema ([skills and commands](https://code.claude.com/docs/en/skills),
+[subagents](https://code.claude.com/docs/en/sub-agents)), not only the fields
+reported so far — growing it one report at a time left `mcpServers`, `hooks`
+and most others as errors (#223).
 
 | Entity | Keys |
 |--------|------|
 | all | `name`, `description`, `version`, `dependencies`, `skills`, `metadata` |
-| skill | + `license`, `allowed-tools` |
-| agent | + `tools`, `model`, `color` |
-| command | + `allowed-tools`, `argument-hint`, `model`, `disable-model-invocation` |
+| skill, command | + `when_to_use`, `argument-hint`, `arguments`, `disable-model-invocation`, `user-invocable`, `allowed-tools`, `disallowed-tools`, `model`, `effort`, `context`, `agent`, `background`, `hooks`, `shell`, `license`, `compatibility` |
+| skill only | + `paths` |
+| agent | + `tools`, `disallowedTools`, `model`, `permissionMode`, `maxTurns`, `mcpServers`, `hooks`, `memory`, `background`, `omitClaudeMd`, `effort`, `isolation`, `color`, `initialPrompt`, `experimental` |
 
 Of these, skilltree itself only reads `name`, `description`, `dependencies`,
 `skills`, and `version`. `metadata` is the conventional bag for author-defined

@@ -161,24 +161,58 @@ const COMMON_FRONTMATTER_KEYS = [
  *
  * Adding a key here is deliberately cheap; the linter's job is to catch typos
  * and misplaced fields, not to be the authority on the host's schema.
+ *
+ * Each set is the host's full documented schema, not the fields someone has
+ * reported so far. Growing it one bug at a time (#159, #160) left most of
+ * Claude Code's fields — `mcpServers`, `hooks`, `permissionMode`, … — as hard
+ * errors (#223). `tests/core/frontmatter-host-keys.test.ts` holds the
+ * documented list; when the host adds a field, add it there and here.
  */
-const KNOWN_FRONTMATTER_KEYS: Record<EntityType, ReadonlySet<string>> = {
-	// Agent Skills spec fields that scope the skill itself. `compatibility`
-	// was missing until the set was checked against the spec rather than
-	// against what skilltree reads (same root cause as #159/#160).
+// Claude Code skills and slash commands share one schema; commands just lack
+// `name` and `paths`. https://code.claude.com/docs/en/skills
+const CLAUDE_CODE_SKILL_COMMAND_KEYS = [
+	"when_to_use",
+	"argument-hint",
+	"arguments",
+	"disable-model-invocation",
+	"user-invocable",
+	"allowed-tools",
+	"disallowed-tools",
+	"model",
+	"effort",
+	"context",
+	"agent",
+	"background",
+	"hooks",
+	"shell",
+	// Agent Skills spec fields, which Claude Code honors on commands too.
 	// https://agentskills.io/specification
-	skill: new Set([...COMMON_FRONTMATTER_KEYS, "license", "compatibility", "allowed-tools"]),
-	// Claude Code agents: `tools` restricts tool access (least privilege),
-	// `model` pins the per-agent model, `color` is display-only.
-	agent: new Set([...COMMON_FRONTMATTER_KEYS, "tools", "model", "color"]),
-	// Claude Code slash commands.
-	command: new Set([
+	"license",
+	"compatibility",
+];
+
+const KNOWN_FRONTMATTER_KEYS: Record<EntityType, ReadonlySet<string>> = {
+	skill: new Set([...COMMON_FRONTMATTER_KEYS, ...CLAUDE_CODE_SKILL_COMMAND_KEYS, "paths"]),
+	// Claude Code subagents. https://code.claude.com/docs/en/sub-agents
+	agent: new Set([
 		...COMMON_FRONTMATTER_KEYS,
-		"allowed-tools",
-		"argument-hint",
+		"tools",
+		"disallowedTools",
 		"model",
-		"disable-model-invocation",
+		"permissionMode",
+		"maxTurns",
+		"mcpServers",
+		"hooks",
+		"memory",
+		"background",
+		"omitClaudeMd",
+		"effort",
+		"isolation",
+		"color",
+		"initialPrompt",
+		"experimental",
 	]),
+	command: new Set([...COMMON_FRONTMATTER_KEYS, ...CLAUDE_CODE_SKILL_COMMAND_KEYS]),
 };
 
 /**
