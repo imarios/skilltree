@@ -314,9 +314,9 @@ other `.md` ⇒ agent).
 | Entity | Keys |
 |--------|------|
 | all | `name`, `description`, `version`, `dependencies`, `skills`, `metadata` |
-| skill | + `license`, `allowed-tools` |
-| agent | + `tools`, `model`, `color` |
-| command | + `allowed-tools`, `argument-hint`, `model`, `disable-model-invocation` |
+| skill, command | + `when_to_use`, `argument-hint`, `arguments`, `disable-model-invocation`, `user-invocable`, `allowed-tools`, `disallowed-tools`, `model`, `effort`, `context`, `agent`, `background`, `hooks`, `shell`, `license`, `compatibility` |
+| skill only | + `paths` |
+| agent | + `tools`, `disallowedTools`, `model`, `permissionMode`, `maxTurns`, `mcpServers`, `hooks`, `memory`, `background`, `omitClaudeMd`, `effort`, `isolation`, `color`, `initialPrompt`, `experimental` |
 
 Anything else is an error. If you're using a valid host key that isn't listed,
 that's a bug — please file an issue.

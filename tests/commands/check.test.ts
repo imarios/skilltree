@@ -623,10 +623,17 @@ describe("checkCommand frontmatter lint", () => {
 		["skill", "skills/foo/SKILL.md", "metadata:\n  author: a@example.com\n  version: 0.1.0"],
 		["agent", "agents/foo.md", "tools: Write, ToolSearch\nmodel: sonnet\nskills:\n  - a-contract"],
 		["command", "commands/foo.md", "argument-hint: <issue-id>\nallowed-tools: Bash(git:*)"],
+		// #223: an agent that carries its own MCP server — the way to ship one
+		// through skilltree today.
+		[
+			"agent",
+			"agents/foo.md",
+			"tools: Read, mcp__playwright__*\npermissionMode: plan\nmcpServers:\n  - playwright:\n      type: stdio\n      command: npx\n      args: [-y, '@playwright/mcp@latest']\n  - github",
+		],
 	];
 
 	test.each(validFrontmatterCases)(
-		"%s with host-runtime frontmatter keys passes check (#159, #160)",
+		"%s with host-runtime frontmatter keys passes check (#159, #160, #223)",
 		async (type, path, extraKeys) => {
 			const localPath = type === "skill" ? "./skills/foo" : `./${path}`;
 			const dir = await makeProject({
